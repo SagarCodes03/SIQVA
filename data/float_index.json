@@ -1,0 +1,14 @@
+{
+  "fetch_date": "2026-10-22T15:22:35.133613Z",
+  "bbox": [
+    -30.0,
+    -28.0,
+    32.0,
+    34.0
+  ],
+  "min_date": "2022-01-01",
+  "max_date": "2022-01-10",
+  "row_count": 2,
+  "source": "argopy.IndexFetcher snapshot",
+  "description": "Local float-index Parquet snapshot of Argo metadata for pre-fetch discovery and guards"
+}

@@ -11,3 +11,10 @@ env/
 __pycache__/
 *.py[cod]
 *$py.class
+
+
+# ArgoCard Data Cache
+cache/
+data/*.parquet
+*.sqlite
+*.sqlite-journal
