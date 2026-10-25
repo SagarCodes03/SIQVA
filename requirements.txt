@@ -12,6 +12,7 @@ xarray>=2024.1.0
 pandas>=2.2.0
 pyarrow>=17.0.0
 plotly>=5.24.0
+gsw>=3.6.18
 
 # Parsing, Validation & Models
 pydantic>=2.9.0

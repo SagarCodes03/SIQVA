@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from typing import Any, Optional
+import gsw
+import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
@@ -364,4 +366,319 @@ def plot_position_map(
     )
 
     return apply_theme(fig, title=title or "Float Locations and Tracks")
+
+
+def _filter_profile(df: Optional[pd.DataFrame], summary: Any) -> pd.DataFrame:
+    """Filter DataFrame to single profile specified by summary, ensuring normalized columns and depth."""
+    if df is None or len(df) == 0:
+        return pd.DataFrame()
+    sub = df.copy()
+
+    # Column normalization
+    if "PLATFORM_NUMBER" in sub.columns and "wmo_id" not in sub.columns:
+        sub["wmo_id"] = sub["PLATFORM_NUMBER"]
+    if "CYCLE_NUMBER" in sub.columns and "cycle" not in sub.columns:
+        sub["cycle"] = sub["CYCLE_NUMBER"]
+    if "TEMP" in sub.columns and "temp" not in sub.columns:
+        sub["temp"] = sub["TEMP"]
+    if "PSAL" in sub.columns and "psal" not in sub.columns:
+        sub["psal"] = sub["PSAL"]
+    if "PRES" in sub.columns and "pres" not in sub.columns:
+        sub["pres"] = sub["PRES"]
+    if "LATITUDE" in sub.columns and "lat" not in sub.columns:
+        sub["lat"] = sub["LATITUDE"]
+    if "LONGITUDE" in sub.columns and "lon" not in sub.columns:
+        sub["lon"] = sub["LONGITUDE"]
+
+    wmo = summary.get("wmo_id") if hasattr(summary, "get") else getattr(summary, "wmo_id", None)
+    cycle = summary.get("cycle") if hasattr(summary, "get") else getattr(summary, "cycle", None)
+
+    if "wmo_id" in sub.columns and wmo is not None:
+        sub = sub[sub["wmo_id"].astype(str) == str(wmo)]
+    if "cycle" in sub.columns and cycle is not None:
+        sub = sub[sub["cycle"] == cycle]
+
+    # Ensure depth_m exists
+    if "depth_m" not in sub.columns and "pres" in sub.columns:
+        lat_val = float(sub["lat"].iloc[0]) if "lat" in sub.columns and len(sub) else 0.0
+        p_arr = pd.to_numeric(sub["pres"], errors="coerce").to_numpy(dtype=float)
+        sub["depth_m"] = -gsw.z_from_p(p_arr, lat_val)
+
+    if "depth_m" in sub.columns:
+        return sub.sort_values("depth_m").drop_duplicates(subset=["depth_m"])
+    return sub
+
+
+def plot_thermocline_and_barrier(
+    df: Optional[pd.DataFrame],
+    summary: Any,
+    title: Optional[str] = None,
+) -> go.Figure:
+    """Plot Temperature vs Depth with Density MLD, Temp ILD, and shaded Barrier Layer."""
+    fig = go.Figure()
+    prof = _filter_profile(df, summary)
+
+    if prof.empty or "temp" not in prof.columns:
+        fig.add_annotation(
+            text="No profile observations available for thermocline display.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        return apply_theme(fig, title=title or "Thermocline & Barrier Layer Structure")
+
+    sub = prof[prof["depth_m"] <= 300.0] if "depth_m" in prof.columns else prof
+
+    # Temperature profile trace
+    fig.add_trace(
+        go.Scatter(
+            x=sub["temp"],
+            y=sub["depth_m"],
+            mode="lines+markers",
+            name="Temperature (°C)",
+            line=dict(color="#FF8C42", width=2.5),
+            marker=dict(size=4, color="#FF8C42"),
+        )
+    )
+
+    mld = summary.get("mld_dens_m") if hasattr(summary, "get") else getattr(summary, "mld_dens_m", None)
+    ild = summary.get("ild_temp_m") if hasattr(summary, "get") else getattr(summary, "ild_temp_m", None)
+    blt = summary.get("barrier_layer_m") if hasattr(summary, "get") else getattr(summary, "barrier_layer_m", None)
+
+    # Shaded Barrier Layer if BLT > 0
+    if blt is not None and blt > 0 and mld is not None and ild is not None:
+        fig.add_hrect(
+            y0=mld,
+            y1=ild,
+            fillcolor="rgba(155, 89, 182, 0.35)",
+            line_width=0,
+            annotation_text=f"Barrier Layer ({blt} m)",
+            annotation_position="top left",
+            annotation_font=dict(color="#E6F1F5", size=11),
+        )
+
+    # Reference lines for MLD, ILD, Z20
+    if mld is not None:
+        fig.add_hline(
+            y=mld,
+            line_dash="dash",
+            line_color="#2EC4B6",
+            annotation_text=f"Density MLD: {mld} m",
+            annotation_position="top right",
+            annotation_font=dict(color="#2EC4B6", size=11),
+        )
+
+    if ild is not None:
+        fig.add_hline(
+            y=ild,
+            line_dash="dash",
+            line_color="#FFB703",
+            annotation_text=f"Temp ILD: {ild} m",
+            annotation_position="bottom right",
+            annotation_font=dict(color="#FFB703", size=11),
+        )
+
+    z20 = summary.get("z20_isotherm_m") if hasattr(summary, "get") else getattr(summary, "z20_isotherm_m", None)
+    if z20 is not None:
+        fig.add_hline(
+            y=z20,
+            line_dash="dot",
+            line_color="#06D6A0",
+            annotation_text=f"Z20 Thermocline: {z20} m",
+            annotation_position="top right",
+            annotation_font=dict(color="#06D6A0", size=11),
+        )
+
+    profile_label = summary.get("profile_id", "Profile") if hasattr(summary, "get") else getattr(summary, "profile_id", "Profile")
+    fig.update_layout(
+        xaxis=dict(title="Temperature (°C)"),
+        yaxis=dict(
+            title="Depth (m)",
+            autorange="reversed",
+            range=[min(300.0, float(prof["depth_m"].max()) if len(prof) else 300.0), 0],
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return apply_theme(fig, title=title or f"Thermocline & Barrier Layer Structure — {profile_label}")
+
+
+def plot_cyclone_tchp(
+    df: Optional[pd.DataFrame],
+    summary: Any,
+    title: Optional[str] = None,
+) -> go.Figure:
+    """Plot Temperature vs Depth with shaded contiguous upper layer > 26°C for TCHP."""
+    fig = go.Figure()
+    prof = _filter_profile(df, summary)
+
+    if prof.empty or "temp" not in prof.columns:
+        fig.add_annotation(
+            text="No profile observations available for cyclone TCHP display.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        return apply_theme(fig, title=title or "Tropical Cyclone Heat Potential (TCHP)")
+
+    sub = prof[prof["depth_m"] <= 200.0] if "depth_m" in prof.columns else prof
+
+    z26 = summary.get("z26_isotherm_m") if hasattr(summary, "get") else getattr(summary, "z26_isotherm_m", None)
+    tchp = summary.get("tchp_kj_cm2", 0.0) if hasattr(summary, "get") else getattr(summary, "tchp_kj_cm2", 0.0)
+
+    # Shaded contiguous layer between T(z) and 26°C from surface down to z26
+    if z26 is not None and z26 > 0:
+        layer = sub[sub["depth_m"] < z26]
+        z_pts = np.append(layer["depth_m"].to_numpy(dtype=float), float(z26))
+        t_pts = np.maximum(np.append(layer["temp"].to_numpy(dtype=float), 26.0), 26.0)
+
+        x_poly = np.concatenate([t_pts, np.full_like(z_pts, 26.0)])
+        y_poly = np.concatenate([z_pts, z_pts[::-1]])
+
+        fig.add_trace(
+            go.Scatter(
+                x=x_poly,
+                y=y_poly,
+                fill="toself",
+                fillcolor="rgba(255, 107, 107, 0.35)",
+                line=dict(color="rgba(255, 255, 255, 0)"),
+                name=f"TCHP Integrated Area ({tchp} kJ/cm²)",
+                hoverinfo="skip",
+            )
+        )
+
+    # Temperature profile trace
+    fig.add_trace(
+        go.Scatter(
+            x=sub["temp"],
+            y=sub["depth_m"],
+            mode="lines+markers",
+            name="Temperature (°C)",
+            line=dict(color="#FF8C42", width=2.5),
+            marker=dict(size=4, color="#FF8C42"),
+        )
+    )
+
+    # 26°C vertical threshold line
+    fig.add_vline(
+        x=26.0,
+        line_dash="dash",
+        line_color="#FF6B6B",
+        annotation_text="26°C Isotherm",
+        annotation_position="top left",
+        annotation_font=dict(color="#FF6B6B", size=11),
+    )
+
+    # Z26 horizontal depth line
+    if z26 is not None:
+        fig.add_hline(
+            y=z26,
+            line_dash="dot",
+            line_color="#FF8C42",
+            annotation_text=f"Z26: {z26} m",
+            annotation_position="bottom right",
+            annotation_font=dict(color="#FF8C42", size=11),
+        )
+
+    profile_label = summary.get("profile_id", "Profile") if hasattr(summary, "get") else getattr(summary, "profile_id", "Profile")
+    fig.update_layout(
+        xaxis=dict(title="Temperature (°C)"),
+        yaxis=dict(
+            title="Depth (m)",
+            autorange="reversed",
+            range=[min(200.0, float(prof["depth_m"].max()) if len(prof) else 200.0), 0],
+        ),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return apply_theme(fig, title=title or f"Tropical Cyclone Heat Potential (TCHP: {tchp} kJ/cm²) — {profile_label}")
+
+
+def plot_acoustic_profile(
+    df: Optional[pd.DataFrame],
+    summary: Any,
+    title: Optional[str] = None,
+) -> go.Figure:
+    """Plot TEOS-10 sound speed profile vs depth, marking SLD and SOFAR channel axis."""
+    fig = go.Figure()
+    prof = _filter_profile(df, summary)
+
+    if prof.empty or "sound_speed" not in prof.columns:
+        fig.add_annotation(
+            text="No sound speed observations available for acoustic display.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        return apply_theme(fig, title=title or "TEOS-10 Acoustic Sound Speed Profile")
+
+    # Sound speed profile trace
+    fig.add_trace(
+        go.Scatter(
+            x=prof["sound_speed"],
+            y=prof["depth_m"],
+            mode="lines",
+            name="Sound Speed (m/s)",
+            line=dict(color="#2EC4B6", width=2.5),
+        )
+    )
+
+    # Mark SLD
+    sld = summary.get("sld_m") if hasattr(summary, "get") else getattr(summary, "sld_m", None)
+    if sld is not None:
+        snd_sld = float(np.interp(sld, prof["depth_m"], prof["sound_speed"]))
+        fig.add_hline(
+            y=sld,
+            line_dash="dash",
+            line_color="#17BECF",
+            annotation_text=f"SLD Peak: {sld} m ({snd_sld:.1f} m/s)",
+            annotation_position="top right",
+            annotation_font=dict(color="#17BECF", size=11),
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[snd_sld],
+                y=[sld],
+                mode="markers",
+                marker=dict(size=10, color="#17BECF", symbol="diamond"),
+                name=f"Sonic Layer Depth ({sld} m)",
+            )
+        )
+
+    # Mark SOFAR channel axis
+    sofar = summary.get("sofar_axis_m") if hasattr(summary, "get") else getattr(summary, "sofar_axis_m", None)
+    if sofar is not None:
+        snd_sofar = float(np.interp(sofar, prof["depth_m"], prof["sound_speed"]))
+        fig.add_hline(
+            y=sofar,
+            line_dash="dash",
+            line_color="#A78BFA",
+            annotation_text=f"SOFAR Axis: {sofar} m ({snd_sofar:.1f} m/s)",
+            annotation_position="bottom right",
+            annotation_font=dict(color="#A78BFA", size=11),
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[snd_sofar],
+                y=[sofar],
+                mode="markers",
+                marker=dict(size=10, color="#A78BFA", symbol="star"),
+                name=f"SOFAR Axis ({sofar} m)",
+            )
+        )
+
+    profile_label = summary.get("profile_id", "Profile") if hasattr(summary, "get") else getattr(summary, "profile_id", "Profile")
+    fig.update_layout(
+        xaxis=dict(title="Sound Speed (m/s)"),
+        yaxis=dict(title="Depth (m)", autorange="reversed"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+    )
+    return apply_theme(fig, title=title or f"TEOS-10 Acoustic Sound Speed Profile — {profile_label}")
 

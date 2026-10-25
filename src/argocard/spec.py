@@ -34,6 +34,9 @@ class Intent(str, Enum):
     MAP = "map"
     TS = "ts"
     TREND = "trend"
+    THERMOCLINE = "thermocline"
+    TCHP = "tchp"
+    ACOUSTIC = "acoustic"
 
 
 class BoundingBox(BaseModel):
@@ -111,6 +114,41 @@ class QuerySpec(BaseModel):
     depth_range: Optional[DepthRange] = None
     mode: DataMode = DataMode.RESEARCH
     intent: Intent
+
+    @model_validator(mode="before")
+    @classmethod
+    def ensure_physics_variables(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw_intent = data.get("intent")
+            intent_val = (
+                raw_intent.value
+                if isinstance(raw_intent, Intent)
+                else str(raw_intent).lower()
+                if raw_intent is not None
+                else ""
+            )
+            if intent_val in (
+                Intent.THERMOCLINE.value,
+                Intent.TCHP.value,
+                Intent.ACOUSTIC.value,
+                "thermocline",
+                "tchp",
+                "acoustic",
+            ):
+                vars_list = data.get("variables") or []
+                if isinstance(vars_list, (str, Variable)):
+                    vars_list = [vars_list]
+                else:
+                    vars_list = list(vars_list)
+                existing_str = {
+                    v.value if isinstance(v, Variable) else str(v).upper()
+                    for v in vars_list
+                }
+                for req in [Variable.PRES, Variable.PSAL, Variable.TEMP]:
+                    if req.value not in existing_str:
+                        vars_list.append(req)
+                data["variables"] = vars_list
+        return data
 
     @field_validator("variables", mode="before")
     @classmethod

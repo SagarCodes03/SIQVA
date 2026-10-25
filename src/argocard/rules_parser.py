@@ -331,6 +331,52 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
     ):
         matched_intents.add(Intent.PROFILE)
 
+    # 5. Thermocline / MLD / Barrier Layer / Z20
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "mld",
+            "mixed layer",
+            "barrier layer",
+            "thermocline",
+            "z20",
+        )
+    ):
+        matched_intents.add(Intent.THERMOCLINE)
+
+    # 6. Cyclone Heat Potential / TCHP / Z26
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "tchp",
+            "cyclone heat",
+            "hurricane heat",
+            "z26",
+        )
+    ):
+        matched_intents.add(Intent.TCHP)
+
+    # 7. Acoustic / Sound Speed / SOFAR
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "sound speed",
+            "acoustic",
+            "sonar",
+            "sofar",
+            "sonic layer",
+        )
+    ):
+        matched_intents.add(Intent.ACOUSTIC)
+
+    # Specific analysis/physics intents override generic vertical profile keywords (e.g. "acoustic sound speed profile")
+    if len(matched_intents) > 1 and Intent.PROFILE in matched_intents:
+        if any(
+            i in matched_intents
+            for i in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC, Intent.TS)
+        ):
+            matched_intents.discard(Intent.PROFILE)
+
     if len(matched_intents) == 1:
         return list(matched_intents)[0], None
 
@@ -466,6 +512,14 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
         ambiguous.append(f"intent ({intent_conflict})")
     elif intent is None:
         missing.append("intent")
+
+    # If intent requires TEOS-10 physics calculations, auto-include PRES, PSAL, TEMP
+    if intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC):
+        current_vars = set(variables or [])
+        current_vars.update([Variable.PRES, Variable.PSAL, Variable.TEMP])
+        variables = sorted(list(current_vars), key=lambda v: v.value)
+        if "variables" in missing:
+            missing.remove("variables")
 
     # 6. Depth range (optional)
     depth_range = _extract_depth_range(question)

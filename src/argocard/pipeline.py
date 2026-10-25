@@ -14,7 +14,14 @@ from .analyzer import AnalysisResult, analyze
 from .card import QueryCard, build_card, generate_script, save_card
 from .fetcher import FetchResult, FetchStatus, fetch
 from .parser import ClarificationNeeded, ParseOutcome, parse_detailed
-from .plots import plot_depth_profile, plot_position_map, plot_ts_diagram
+from .plots import (
+    plot_acoustic_profile,
+    plot_cyclone_tchp,
+    plot_depth_profile,
+    plot_position_map,
+    plot_thermocline_and_barrier,
+    plot_ts_diagram,
+)
 from .spec import Intent, QuerySpec, Variable
 
 
@@ -121,6 +128,22 @@ def run_spec(
     if Variable.TEMP in spec.variables and Variable.PSAL in spec.variables:
         try:
             figures["ts"] = plot_ts_diagram(fetch_res.data)
+        except Exception:
+            pass
+
+    # TEOS-10 Ocean Physics figures
+    if analysis.physics_summaries:
+        rep_profile = max(analysis.physics_summaries, key=lambda s: s.max_depth_m)
+        try:
+            figures["thermocline"] = plot_thermocline_and_barrier(fetch_res.data, rep_profile)
+        except Exception:
+            pass
+        try:
+            figures["tchp"] = plot_cyclone_tchp(fetch_res.data, rep_profile)
+        except Exception:
+            pass
+        try:
+            figures["acoustic"] = plot_acoustic_profile(fetch_res.data, rep_profile)
         except Exception:
             pass
 

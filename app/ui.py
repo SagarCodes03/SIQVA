@@ -7,10 +7,15 @@ and reproducible script generation under the Deep Ocean dark theme.
 from __future__ import annotations
 
 import json
+import sys
 from datetime import date, datetime
 from pathlib import Path
 import pandas as pd
 import streamlit as st
+
+_src_dir = str(Path(__file__).resolve().parent.parent / "src")
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
 
 from argocard.analyzer import AnalysisResult
 from argocard.card import DiffSummary, QueryCard, generate_script, list_cards, load_card, rerun
@@ -124,6 +129,9 @@ st.markdown(
 
 # Example query prompts
 examples = [
+    "thermocline and barrier layer in Bay of Bengal between 2022-04-01 and 2022-04-15",
+    "cyclone heat potential tchp in Arabian Sea in May 2022",
+    "acoustic sound speed profile in Arabian Sea between 2022-01-01 and 2022-01-10",
     "temperature and salinity profiles in Arabian Sea between 2022-01-01 and 2022-01-10",
     "top 200m temperature near Azores in January 2022",
     "salinity against temperature in North Atlantic in summer 2021",
@@ -235,10 +243,39 @@ if res:
                     st.plotly_chart(res.figures["profile"], use_container_width=True)
             if "ts" in res.figures:
                 st.plotly_chart(res.figures["ts"], use_container_width=True)
+            if "thermocline" in res.figures:
+                st.plotly_chart(res.figures["thermocline"], use_container_width=True)
+            if "tchp" in res.figures:
+                st.plotly_chart(res.figures["tchp"], use_container_width=True)
+            if "acoustic" in res.figures:
+                st.plotly_chart(res.figures["acoustic"], use_container_width=True)
 
         with tab_stats:
             if res.analysis:
                 st.markdown(res.analysis.summary_markdown)
+
+                if res.analysis.physics_summaries:
+                    st.subheader("TEOS-10 Profile Physics Metrics")
+                    phys_data = []
+                    for s in res.analysis.physics_summaries:
+                        phys_data.append({
+                            "WMO": s.wmo_id,
+                            "Cycle": s.cycle,
+                            "Date": s.date,
+                            "SST (°C)": f"{s.sst_c:.2f}",
+                            "SSS (PSU)": f"{s.sss_psu:.2f}",
+                            "Density MLD (m)": f"{s.mld_dens_m:.1f}" if s.mld_dens_m is not None else "N/A",
+                            "Temp ILD (m)": f"{s.ild_temp_m:.1f}" if s.ild_temp_m is not None else "N/A",
+                            "Barrier Layer (m)": f"{s.barrier_layer_m:.1f}" if s.barrier_layer_m is not None else "N/A",
+                            "Z20 (m)": f"{s.z20_isotherm_m:.1f}" if s.z20_isotherm_m is not None else "N/A",
+                            "Z26 (m)": f"{s.z26_isotherm_m:.1f}" if s.z26_isotherm_m is not None else "N/A",
+                            "TCHP (kJ/cm²)": f"{s.tchp_kj_cm2:.1f}",
+                            "SLD (m)": f"{s.sld_m:.1f}" if s.sld_m is not None else "N/A",
+                            "SOFAR Axis (m)": f"{s.sofar_axis_m:.1f}" if s.sofar_axis_m is not None else "N/A",
+                            "Water Mass Heuristic": s.water_mass_heuristic,
+                        })
+                    st.dataframe(pd.DataFrame(phys_data), use_container_width=True)
+
                 if res.analysis.depth_bins:
                     st.subheader("Depth-Bin Statistics")
                     bin_data = []
