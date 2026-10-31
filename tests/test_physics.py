@@ -6,7 +6,7 @@ Test 4: Live argopy Smoke Test & Plotly Chart Generation
 """
 
 from __future__ import annotations
-
+from siqva.analyzer import analyze
 import json
 import gsw
 import numpy as np
@@ -541,8 +541,9 @@ def test_skipped_profile_notes_for_short_and_deep_start():
 def test_gsw_unavailable_clean_note_no_exception(monkeypatch):
     """When gsw is unavailable, physics must skip cleanly with notes and without raising exceptions."""
     from siqva import analyzer, physics, plots
+    from siqva.analyzer import analyze
     from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
-    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, QuerySpec
+    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
 
     monkeypatch.setattr(analyzer, "gsw", None)
     monkeypatch.setattr(physics, "gsw", None)
@@ -587,6 +588,12 @@ def test_gsw_unavailable_clean_note_no_exception(monkeypatch):
     # plots must handle gsw is None without crashing
     fig_therm = plots.plot_thermocline_and_barrier(df, None)
     assert any("gsw" in a.text.lower() for a in fig_therm.layout.annotations)
+
+    fig_tchp = plots.plot_cyclone_tchp(df, None)
+    assert any("gsw" in a.text.lower() for a in fig_tchp.layout.annotations)
+
+    fig_ac = plots.plot_acoustic_profile(df, None)
+    assert any("gsw" in a.text.lower() for a in fig_ac.layout.annotations)
 
 
 def test_no_water_mass_text_in_output_for_atlantic_or_pacific_profiles():
