@@ -117,35 +117,40 @@ def run_spec(
     except Exception:
         pass
 
-    # Profile figure
-    primary_var = spec.variables[0] if spec.variables else Variable.TEMP
-    try:
-        figures["profile"] = plot_depth_profile(fetch_res.data, variable=primary_var)
-    except Exception:
-        pass
-
-    # T-S figure
-    if Variable.TEMP in spec.variables and Variable.PSAL in spec.variables:
+    # Profile figure (for standard profile and trend intents)
+    if spec.intent in (Intent.PROFILE, Intent.TREND):
+        primary_var = spec.variables[0] if spec.variables else Variable.TEMP
         try:
-            figures["ts"] = plot_ts_diagram(fetch_res.data)
+            figures["profile"] = plot_depth_profile(fetch_res.data, variable=primary_var)
         except Exception:
             pass
 
-    # TEOS-10 Ocean Physics figures
+    # T-S figure (for ts intent, or profile intent when both TEMP and PSAL are requested)
+    if spec.intent in (Intent.TS, Intent.PROFILE):
+        if Variable.TEMP in spec.variables and Variable.PSAL in spec.variables:
+            try:
+                figures["ts"] = plot_ts_diagram(fetch_res.data)
+            except Exception:
+                pass
+
+    # TEOS-10 Ocean Physics figures (built ONLY when specifically requested by physics intent)
     if analysis.physics_summaries:
         rep_profile = max(analysis.physics_summaries, key=lambda s: s.max_depth_m)
-        try:
-            figures["thermocline"] = plot_thermocline_and_barrier(fetch_res.data, rep_profile)
-        except Exception:
-            pass
-        try:
-            figures["tchp"] = plot_cyclone_tchp(fetch_res.data, rep_profile)
-        except Exception:
-            pass
-        try:
-            figures["acoustic"] = plot_acoustic_profile(fetch_res.data, rep_profile)
-        except Exception:
-            pass
+        if spec.intent == Intent.THERMOCLINE:
+            try:
+                figures["thermocline"] = plot_thermocline_and_barrier(fetch_res.data, rep_profile)
+            except Exception:
+                pass
+        elif spec.intent == Intent.TCHP:
+            try:
+                figures["tchp"] = plot_cyclone_tchp(fetch_res.data, rep_profile)
+            except Exception:
+                pass
+        elif spec.intent == Intent.ACOUSTIC:
+            try:
+                figures["acoustic"] = plot_acoustic_profile(fetch_res.data, rep_profile)
+            except Exception:
+                pass
 
     # 3. Query card and script persistence
     card = build_card(spec, fetch_res, analysis)

@@ -18,7 +18,23 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
+from .spec import Intent
+
+MIN_PROFILE_OBSERVATIONS: int = 5
+MAX_SURFACE_OBSERVATION_DEPTH_M: float = 15.0
+
 _trapz = getattr(np, "trapezoid", getattr(np, "trapz", None))
+
+
+class SkippedProfileInfo(BaseModel):
+    """Reason why a profile could not be processed for ocean physics calculations."""
+
+    model_config = ConfigDict(frozen=True)
+
+    profile_id: str
+    wmo_id: str
+    cycle: int
+    reason: str
 
 
 class ProfilePhysicsSummary(BaseModel):
@@ -43,7 +59,6 @@ class ProfilePhysicsSummary(BaseModel):
     tchp_kj_cm2: float = 0.0
     sld_m: Optional[float] = None
     sofar_axis_m: Optional[float] = None
-    water_mass_heuristic: str
 
     def __getitem__(self, item: str) -> Any:
         return getattr(self, item)
@@ -139,19 +154,31 @@ def _normalize_column_names(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePhysicsSummary]]:
+def compute_new_features(
+    df: pd.DataFrame,
+    intent: Optional[Intent] = None,
+    return_skipped: bool = False,
+) -> tuple[pd.DataFrame, list[ProfilePhysicsSummary]] | tuple[pd.DataFrame, list[ProfilePhysicsSummary], list[SkippedProfileInfo]]:
     """Compute deterministic TEOS-10 derived ocean physics features for Argo profiles.
 
-    Expects DataFrame with columns:
-    ['wmo_id' or 'PLATFORM_NUMBER', 'cycle' or 'CYCLE_NUMBER', 'time' or 'TIME',
-     'lat' or 'LATITUDE', 'lon' or 'LONGITUDE', 'pres' or 'PRES',
-     'temp' or 'TEMP', 'psal' or 'PSAL']
+    Computes only the metric group requested by intent:
+      - Intent.THERMOCLINE: MLD, ILD, BLT, Z20
+      - Intent.TCHP: Z26, TCHP integral
+      - Intent.ACOUSTIC: Sound speed, SLD, SOFAR axis
+      - None: Computes all metric groups.
+
+    Args:
+        df: Input Argo DataFrame with pres, temp, psal, lat, lon.
+        intent: Optional Intent filter specifying which physics group to run.
+        return_skipped: Whether to include metadata for skipped profiles.
 
     Returns:
-        (enriched_df, list_of_ProfilePhysicsSummary)
+        (df, summaries) or (df, summaries, skipped) if return_skipped is True.
     """
+    skipped: list[SkippedProfileInfo] = []
     if df is None or df.empty:
-        return df if df is not None else pd.DataFrame(), []
+        empty_res = (df if df is not None else pd.DataFrame(), [])
+        return (*empty_res, skipped) if return_skipped else empty_res
 
     if gsw is None:
         raise ImportError("The 'gsw' (Gibbs SeaWater TEOS-10) package is required for ocean physics features. Please install it with: pip install gsw")
@@ -161,7 +188,8 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
     required = ["pres", "temp", "psal", "lat", "lon"]
     for col in required:
         if col not in df.columns:
-            return df, []
+            empty_res = (df, [])
+            return (*empty_res, skipped) if return_skipped else empty_res
 
     p = pd.to_numeric(df["pres"], errors="coerce").to_numpy(dtype=float)
     t = pd.to_numeric(df["temp"], errors="coerce").to_numpy(dtype=float)
@@ -172,7 +200,8 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
     # Valid mask for thermodynamic calculations
     valid = np.isfinite(p) & np.isfinite(t) & np.isfinite(sp) & np.isfinite(lat) & np.isfinite(lon)
     if not np.any(valid):
-        return df, []
+        empty_res = (df, [])
+        return (*empty_res, skipped) if return_skipped else empty_res
 
     # Convert pressure to geometric depth and compute TEOS-10 derived quantities
     depth_m = np.full_like(p, np.nan)
@@ -201,12 +230,20 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
 
     group_cols = ["wmo_id", "cycle"] if ("wmo_id" in df.columns and "cycle" in df.columns) else []
     if not group_cols:
-        return df, summaries
+        return (df, summaries, skipped) if return_skipped else (df, summaries)
 
     for (wmo, cycle), grp in df.groupby(group_cols):
         grp = grp.dropna(subset=["depth_m", "temp", "psal", "sigma0", "rho", "sound_speed"])
         grp = grp.sort_values("depth_m").drop_duplicates(subset=["depth_m"])
-        if len(grp) < 5:
+        if len(grp) < MIN_PROFILE_OBSERVATIONS:
+            skipped.append(
+                SkippedProfileInfo(
+                    profile_id=f"{wmo}_{cycle}",
+                    wmo_id=str(wmo),
+                    cycle=int(cycle),
+                    reason=f"too few points ({len(grp)} < {MIN_PROFILE_OBSERVATIONS})",
+                )
+            )
             continue
 
         z_m = grp["depth_m"].to_numpy(dtype=float)
@@ -216,7 +253,15 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
         dens = grp["rho"].to_numpy(dtype=float)
         snd_p = grp["sound_speed"].to_numpy(dtype=float)
 
-        if z_m[0] > 15.0:
+        if z_m[0] > MAX_SURFACE_OBSERVATION_DEPTH_M:
+            skipped.append(
+                SkippedProfileInfo(
+                    profile_id=f"{wmo}_{cycle}",
+                    wmo_id=str(wmo),
+                    cycle=int(cycle),
+                    reason=f"shallowest measurement deeper than {MAX_SURFACE_OBSERVATION_DEPTH_M:.0f} m ({z_m[0]:.1f} m)",
+                )
+            )
             continue
 
         lat0 = float(grp["lat"].iloc[0])
@@ -224,50 +269,50 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
         max_depth = float(z_m[-1])
 
         # 1. 10m Reference MLD, ILD & Barrier Layer (de Boyer Montégut et al., 2004)
-        ref_z = 10.0 if z_m[0] <= 10.0 <= max_depth else float(z_m[0])
-        t_ref = float(np.interp(ref_z, z_m, temp))
-        sig_ref = float(np.interp(ref_z, z_m, sig0_p))
+        mld_dens = None
+        ild_temp = None
+        blt = None
+        z20 = None
+        if intent in (None, Intent.THERMOCLINE):
+            ref_z = 10.0 if z_m[0] <= 10.0 <= max_depth else float(z_m[0])
+            t_ref = float(np.interp(ref_z, z_m, temp))
+            sig_ref = float(np.interp(ref_z, z_m, sig0_p))
 
-        sub = z_m >= ref_z
-        mld_dens = _first_upward_crossing(z_m[sub], sig0_p[sub], sig_ref + 0.03)
-        ild_temp = _first_downward_crossing(z_m[sub], temp[sub], t_ref - 0.2)
-        blt = (
-            round(max(0.0, ild_temp - mld_dens), 1)
-            if (mld_dens is not None and ild_temp is not None)
-            else None
-        )
+            sub = z_m >= ref_z
+            mld_dens = _first_upward_crossing(z_m[sub], sig0_p[sub], sig_ref + 0.03)
+            ild_temp = _first_downward_crossing(z_m[sub], temp[sub], t_ref - 0.2)
+            blt = (
+                round(max(0.0, ild_temp - mld_dens), 1)
+                if (mld_dens is not None and ild_temp is not None)
+                else None
+            )
 
-        # 2. 20°C Isotherm (First downward crossing)
-        z20 = _first_downward_crossing(z_m, temp, 20.0) if temp[0] >= 20.0 else None
+            # 20°C Isotherm (First downward crossing)
+            z20 = _first_downward_crossing(z_m, temp, 20.0) if temp[0] >= 20.0 else None
 
-        # 3. Contiguous Upper-Layer TCHP above 26°C (Leipper & Volgenau, 1972)
+        # 2. Contiguous Upper-Layer TCHP above 26°C (Leipper & Volgenau, 1972)
         tchp = 0.0
-        z26 = _first_downward_crossing(z_m, temp, 26.0) if temp[0] > 26.0 else None
-        if z26 is not None:
-            idx = np.where(z_m < z26)[0]
-            z_int = np.append(z_m[idx], z26)
-            t_int = np.append(temp[idx], 26.0)
-            rho_int = np.append(dens[idx], float(np.interp(z26, z_m, dens)))
-            heat_j_m2 = float(_trapz(rho_int * cp0 * (t_int - 26.0), z_int))
-            tchp = round(max(0.0, heat_j_m2 / 1e7), 1)
+        z26 = None
+        if intent in (None, Intent.TCHP):
+            z26 = _first_downward_crossing(z_m, temp, 26.0) if temp[0] > 26.0 else None
+            if z26 is not None:
+                idx = np.where(z_m < z26)[0]
+                z_int = np.append(z_m[idx], z26)
+                t_int = np.append(temp[idx], 26.0)
+                rho_int = np.append(dens[idx], float(np.interp(z26, z_m, dens)))
+                heat_j_m2 = float(_trapz(rho_int * cp0 * (t_int - 26.0), z_int))
+                tchp = round(max(0.0, heat_j_m2 / 1e7), 1)
 
-        # 4. Sonic Layer Depth & Depth-Checked SOFAR Axis
-        sld_cap = min(300.0, z20 if z20 is not None else 300.0)
-        up_mask = z_m <= max(sld_cap, 30.0)
-        sld = float(z_m[up_mask][np.argmax(snd_p[up_mask])]) if np.any(up_mask) else None
-        sofar = float(z_m[np.argmin(snd_p)]) if max_depth >= 1000.0 else None
-
-        # 5. Subsurface Isopycnal Water-Mass Heuristic
-        iso_mask = (sig0_p >= 23.5) & (sig0_p <= 25.5)
-        max_sub_sal = float(np.max(psal[iso_mask])) if np.any(iso_mask) else float(psal[0])
-        if lat0 < -5.0:
-            wm = "Southern Indian Ocean Water (Heuristic)"
-        elif max_sub_sal >= 35.8 and lat0 >= 5.0:
-            wm = "Arabian Sea High Salinity Water (ASHSW Heuristic, sigma0 23.5-25.5)"
-        elif float(psal[0]) <= 33.5 and lat0 >= 5.0:
-            wm = "Bay of Bengal Low-Salinity Plume (BoBW Heuristic)"
-        else:
-            wm = "Equatorial / Transitional Indian Ocean Water (Heuristic)"
+        # 3. Sonic Layer Depth & Depth-Checked SOFAR Axis
+        sld = None
+        sofar = None
+        if intent in (None, Intent.ACOUSTIC):
+            # For acoustic intent, if z20 was not calculated, compute z20 for sld_cap
+            z20_cap = _first_downward_crossing(z_m, temp, 20.0) if temp[0] >= 20.0 else None
+            sld_cap = min(300.0, z20_cap if z20_cap is not None else 300.0)
+            up_mask = z_m <= max(sld_cap, 30.0)
+            sld = float(z_m[up_mask][np.argmax(snd_p[up_mask])]) if np.any(up_mask) else None
+            sofar = float(z_m[np.argmin(snd_p)]) if max_depth >= 1000.0 else None
 
         time_val = grp["time"].iloc[0] if "time" in grp.columns else "N/A"
         date_str = str(time_val)[:10]
@@ -291,10 +336,11 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
                 tchp_kj_cm2=tchp,
                 sld_m=round(sld, 1) if sld is not None else None,
                 sofar_axis_m=round(sofar, 1) if sofar is not None else None,
-                water_mass_heuristic=wm,
             )
         )
 
+    if return_skipped:
+        return df, summaries, skipped
     return df, summaries
 
 
@@ -319,12 +365,10 @@ def build_feature_context(intent: str, summaries: list[Any]) -> str:
         max_z = s.get("max_depth_m", "N/A")
         sst = s.get("sst_c", "N/A")
         sss = s.get("sss_psu", "N/A")
-        wm = s.get("water_mass_heuristic", "Unclassified")
 
         lines.append(f"#### Profile {prof_id} (WMO: {wmo}, Cycle: {cycle})")
         lines.append(f"- Location: Lat {lat}°, Lon {lon}° | Date: {date_str}")
         lines.append(f"- Sampling Depth: {max_z} m | SST: {sst} °C | SSS: {sss} PSU")
-        lines.append(f"- Water Mass: {wm}")
 
         if normalized_intent in ("thermocline_mld", "thermocline", "all"):
             mld = s.get("mld_dens_m")

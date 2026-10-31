@@ -405,7 +405,13 @@ def _filter_profile(df: Optional[pd.DataFrame], summary: Any) -> pd.DataFrame:
     if "depth_m" not in sub.columns and "pres" in sub.columns:
         lat_val = float(sub["lat"].iloc[0]) if "lat" in sub.columns and len(sub) else 0.0
         p_arr = pd.to_numeric(sub["pres"], errors="coerce").to_numpy(dtype=float)
-        sub["depth_m"] = -gsw.z_from_p(p_arr, lat_val)
+        if gsw is not None:
+            try:
+                sub["depth_m"] = -gsw.z_from_p(p_arr, lat_val)
+            except Exception:
+                sub["depth_m"] = p_arr
+        else:
+            sub["depth_m"] = p_arr
 
     if "depth_m" in sub.columns:
         return sub.sort_values("depth_m").drop_duplicates(subset=["depth_m"])
@@ -419,6 +425,17 @@ def plot_thermocline_and_barrier(
 ) -> go.Figure:
     """Plot Temperature vs Depth with Density MLD, Temp ILD, and shaded Barrier Layer."""
     fig = go.Figure()
+    if gsw is None:
+        fig.add_annotation(
+            text="TEOS-10 physics plot requires 'gsw' library, which is not installed.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        return apply_theme(fig, title=title or "Thermocline & Barrier Layer Structure")
     prof = _filter_profile(df, summary)
 
     if prof.empty or "temp" not in prof.columns:
@@ -515,6 +532,17 @@ def plot_cyclone_tchp(
 ) -> go.Figure:
     """Plot Temperature vs Depth with shaded contiguous upper layer > 26°C for TCHP."""
     fig = go.Figure()
+    if gsw is None:
+        fig.add_annotation(
+            text="TEOS-10 physics plot requires 'gsw' library, which is not installed.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        return apply_theme(fig, title=title or "Tropical Cyclone Heat Potential (TCHP)")
     prof = _filter_profile(df, summary)
 
     if prof.empty or "temp" not in prof.columns:
@@ -608,6 +636,17 @@ def plot_acoustic_profile(
 ) -> go.Figure:
     """Plot TEOS-10 sound speed profile vs depth, marking SLD and SOFAR channel axis."""
     fig = go.Figure()
+    if gsw is None:
+        fig.add_annotation(
+            text="TEOS-10 physics plot requires 'gsw' library, which is not installed.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        return apply_theme(fig, title=title or "TEOS-10 Acoustic Sound Speed Profile")
     prof = _filter_profile(df, summary)
 
     if prof.empty or "sound_speed" not in prof.columns:
