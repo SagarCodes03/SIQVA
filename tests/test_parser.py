@@ -127,3 +127,98 @@ def test_parse_retry_recovers_inverted_dates():
     assert outcome.spec.date_range.start == date(2022, 1, 1)
     assert outcome.spec.date_range.end == date(2022, 1, 10)
     assert "swapped" in outcome.provenance["date_range"]
+
+import time
+from siqva.llm_parser import reset_availability_cache
+
+
+class UnreachableMockClient:
+    def __init__(self, check_delay: float = 0.0):
+        self.check_count = 0
+        self.chat_count = 0
+        self.check_delay = check_delay
+
+    def is_available(self, timeout: float = 1.5) -> bool:
+        self.check_count += 1
+        if self.check_delay > 0:
+            time.sleep(self.check_delay)
+        return False
+
+    def chat(self, *args, **kwargs):
+        self.chat_count += 1
+        raise RuntimeError("Chat must not be called when unavailable")
+
+
+class ReachableMockClient:
+    def __init__(self):
+        self.check_count = 0
+
+    def is_available(self, timeout: float = 1.5) -> bool:
+        self.check_count += 1
+        return True
+
+    def chat(self, model: str, messages: list[dict], format: dict, options: dict):
+        props = format.get("properties", {})
+        if "region_name" in props:
+            return FakeChatResponse('{"region_name": "Arabian Sea"}')
+        if "intent" in props:
+            return FakeChatResponse('{"intent": "trend"}')
+        return FakeChatResponse("{}")
+
+
+def test_ollama_unreachable_at_most_one_check_and_clean_clarification():
+    """Proves unreachable Ollama makes at most one check, skips all fallbacks, and returns plain clarification."""
+    reset_availability_cache()
+    mock = UnreachableMockClient(check_delay=0.01)
+
+    # Query has missing region and missing date_range; only variables='salinity' resolved by rules
+    t0 = time.monotonic()
+    outcome = parse_detailed("salinity", llm_client=mock, allow_llm=True)
+    duration = time.monotonic() - t0
+
+    assert outcome.is_success is False
+    assert outcome.clarification is not None
+    # At most one availability check performed
+    assert mock.check_count == 1
+    # Chat was never invoked
+    assert mock.chat_count == 0
+    # Fast completion well under 3 seconds
+    assert duration < 3.0
+
+    # Rules resolved field stays resolved
+    assert outcome.provenance.get("variables") == "rules"
+
+    # Clarification message plainly states LLM unavailable and lists missing fields
+    msg = outcome.clarification.message
+    assert "The language model is not available" in msg
+    assert "region" in outcome.clarification.missing_fields
+    assert "date_range" in outcome.clarification.missing_fields
+    assert "spec panel" in msg.lower()
+
+
+def test_ollama_unreachable_caches_unavailable_for_repeated_queries():
+    """Proves repeated queries within 30s reuse cached unavailable status without waiting."""
+    reset_availability_cache()
+    mock = UnreachableMockClient(check_delay=0.01)
+
+    # First query triggers check
+    parse_detailed("salinity", llm_client=mock, allow_llm=True)
+    assert mock.check_count == 1
+
+    # Second query reuses 30s cache without re-checking
+    parse_detailed("temperature", llm_client=mock, allow_llm=True)
+    assert mock.check_count == 1  # Still 1
+
+
+def test_ollama_reachable_behaves_as_before():
+    """Proves reachable Ollama client extracts unfilled fields via fallback as expected."""
+    reset_availability_cache()
+    client = ReachableMockClient()
+
+    outcome = parse_detailed("temperature between 2022-01-01 and 2022-01-10", llm_client=client, allow_llm=True)
+    assert outcome.is_success is True
+    assert outcome.spec is not None
+    assert outcome.spec.region.lon_min == 50.0  # Arabian Sea resolved
+    assert outcome.provenance.get("region") == "llm"
+    assert outcome.provenance.get("variables") == "rules"
+    assert outcome.provenance.get("date_range") == "rules"

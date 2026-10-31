@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .gazetteer import RegionStatus, resolve_region
 from .llm_parser import (
     DEFAULT_MODEL,
+    check_llm_availability,
     extract_date_range_llm,
     extract_depth_range_llm,
     extract_intent_llm,
@@ -73,6 +74,19 @@ def parse_detailed(
     ambiguous_fields: list[str] = []
     suggestions: list[str] = []
 
+    # LLM availability state (checked at most once before first fallback)
+    llm_checked = False
+    llm_available = False
+
+    def can_use_llm() -> bool:
+        nonlocal llm_checked, llm_available
+        if not allow_llm:
+            return False
+        if not llm_checked:
+            llm_checked = True
+            llm_available = check_llm_availability(client=llm_client)
+        return llm_available
+
     # 1. Deterministic rules pass
     rules_res: RulesParseResult = parse_rules(question, today=today)
 
@@ -94,7 +108,7 @@ def parse_detailed(
                 provenance["region"] = "rules"
 
         # Fallback to LLM for region name if still missing
-        if region is None and allow_llm:
+        if region is None and can_use_llm():
             llm_region_name = extract_region_name_llm(question, client=llm_client, model=model)
             if llm_region_name:
                 res_reg = resolve_region(llm_region_name)
@@ -117,7 +131,7 @@ def parse_detailed(
         )
     else:
         # Fallback to LLM for date range
-        if allow_llm:
+        if can_use_llm():
             llm_dates = extract_date_range_llm(question, client=llm_client, model=model)
             if llm_dates is not None:
                 try:
@@ -139,7 +153,7 @@ def parse_detailed(
             "'SST' (Sea Surface Temperature) differs from Argo subsurface temperature profiles (which start at 2–5 dbar). Please confirm if you want Argo subsurface temperature (TEMP)."
         )
     else:
-        if allow_llm:
+        if can_use_llm():
             llm_vars = extract_variables_llm(question, client=llm_client, model=model)
             if llm_vars:
                 variables = llm_vars
@@ -154,7 +168,7 @@ def parse_detailed(
     if depth_range is not None:
         provenance["depth_range"] = "rules"
     else:
-        if allow_llm:
+        if can_use_llm():
             llm_depth = extract_depth_range_llm(question, client=llm_client, model=model)
             if llm_depth is not None:
                 depth_range = llm_depth
@@ -185,7 +199,7 @@ def parse_detailed(
     if intent is not None:
         provenance["intent"] = "rules"
     else:
-        if allow_llm:
+        if can_use_llm():
             llm_intent = extract_intent_llm(question, client=llm_client, model=model)
             if llm_intent is not None:
                 intent = llm_intent
@@ -198,10 +212,15 @@ def parse_detailed(
     # 8. Check for mandatory missing or ambiguous fields
     if missing_fields or ambiguous_fields or region is None or date_range is None or not variables:
         reasons = []
+        if llm_checked and not llm_available:
+            reasons.append("The language model is not available.")
         if missing_fields:
             reasons.append(f"Missing required fields: {', '.join(missing_fields)}.")
         if ambiguous_fields:
             reasons.append(f"Ambiguous fields requiring confirmation: {', '.join(ambiguous_fields)}.")
+        if llm_checked and not llm_available:
+            reasons.append("Please specify the missing parameters or fill them in the spec panel.")
+            suggestions.append("You can manually configure missing parameters in the spec panel.")
         full_message = " ".join(reasons + suggestions)
         return ParseOutcome(
             spec=None,
