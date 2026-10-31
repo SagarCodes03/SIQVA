@@ -94,8 +94,17 @@ tests/
 
 `QuerySpec` fields: `region` (bbox), `date_range`, `variables`, `depth_range`,
 `mode` (`research` | `standard` | `expert`), `intent`
-(`profile` | `map` | `ts` | `trend`). The validator enforces: valid bbox, date
-order, allowed variables, and a maximum request size. Oversized requests get a
+(`profile` | `map` | `ts` | `trend` | `thermocline` | `tchp` | `acoustic`).
+
+Physics intents (on-demand TEOS-10 analysis via `gsw`):
+- `thermocline`: Mixed Layer Depth (MLD), Isothermal Layer Depth (ILD), Barrier Layer Thickness (BLT), and 20°C isotherm (Z20).
+- `tchp`: Tropical Cyclone Heat Potential integrated relative to the 26°C isotherm (Z26).
+- `acoustic`: TEOS-10 sound speed profile, Sonic Layer Depth (SLD), and deep SOFAR channel axis.
+
+Physics runs *only* on those three intents; standard queries (`profile`, `map`, `ts`, `trend`) skip all physics calculations and plots.
+Water-mass classification was permanently removed because it was Indian-Ocean-only and gave wrong, misleading labels elsewhere.
+Known limitation: Bounding boxes crossing the antimeridian (180° meridian, where `lon_min > lon_max`) are rejected by the validator.
+The validator enforces: valid bbox, date order, allowed variables, and a maximum request size. Oversized requests get a
 suggestion to narrow region or window, not a silent truncation.
 
 ## 8. Fetching, caching, reproducibility
