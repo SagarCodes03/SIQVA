@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from datetime import datetime, timezone
 import sqlite3
 import uuid
@@ -226,7 +227,7 @@ def save_card(card: QueryCard, db_path: Path | str = DEFAULT_DB_PATH) -> str:
     path = _resolve_db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn:
         _init_db(conn)
         card_json = card.model_dump_json(indent=2)
         with conn:
@@ -253,7 +254,7 @@ def load_card(card_id: str, db_path: Path | str = DEFAULT_DB_PATH) -> Optional[Q
     if not path.exists():
         return None
 
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn:
         _init_db(conn)
         cursor = conn.execute(
             "SELECT card_json FROM query_cards WHERE card_id = ? OR spec_hash = ? ORDER BY created_at DESC LIMIT 1",
@@ -271,7 +272,7 @@ def list_cards(limit: int = 50, db_path: Path | str = DEFAULT_DB_PATH) -> list[Q
     if not path.exists():
         return []
 
-    with sqlite3.connect(path) as conn:
+    with closing(sqlite3.connect(path)) as conn:
         _init_db(conn)
         cursor = conn.execute(
             "SELECT card_json FROM query_cards ORDER BY created_at DESC LIMIT ?",

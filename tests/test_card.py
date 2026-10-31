@@ -350,3 +350,31 @@ def test_live_check_card_and_script(tmp_path):
     stdout = proc.stdout
     assert f"Results: {card.row_count} rows across {card.profile_count} profiles." in stdout
 
+
+
+def test_sqlite_connections_closed_and_deletable(tmp_path, sample_spec, sample_fetch_result):
+    """Proves that save_card, load_card, and list_cards close SQLite connections immediately.
+
+    On Windows, open handles cause file deletion to fail with PermissionError [WinError 32].
+    """
+    db_file = tmp_path / "closed_test.sqlite"
+    analysis = analyze(sample_fetch_result.data, sample_spec, sample_fetch_result)
+    card1 = build_card(sample_spec, sample_fetch_result, analysis)
+    card2 = build_card(sample_spec, sample_fetch_result, analysis)
+
+    # Multiple consecutive saves
+    id1 = save_card(card1, db_path=db_file)
+    id2 = save_card(card2, db_path=db_file)
+
+    # Multiple consecutive loads
+    loaded1 = load_card(id1, db_path=db_file)
+    assert loaded1 is not None
+    assert loaded1.card_id == id1
+
+    # Multiple consecutive lists
+    cards = list_cards(limit=10, db_path=db_file)
+    assert len(cards) == 2
+
+    # Database file must be immediately deletable
+    db_file.unlink()
+    assert not db_file.exists()

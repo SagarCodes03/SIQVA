@@ -109,3 +109,24 @@ def test_pipeline_empty_fetch(sample_spec):
     assert "No profiles found" in res.error_message
     assert res.card is None
 
+
+
+def test_pipeline_save_card_failure_survives_with_warning(sample_spec, mock_fetch_result, monkeypatch):
+    """Proves that if save_card fails, the pipeline still returns analysis, plots, and card with a warning."""
+    def fail_save(*args, **kwargs):
+        raise RuntimeError("Simulated SQLite write/lock error")
+
+    monkeypatch.setattr("siqva.pipeline.save_card", fail_save)
+
+    res = run_spec(
+        sample_spec,
+        fetcher_fn=lambda *a, **kw: mock_fetch_result,
+    )
+
+    assert res.status == PipelineStatus.SUCCESS
+    assert res.is_success is True
+    assert res.analysis is not None
+    assert res.card is not None
+    assert "map" in res.figures
+    assert res.warning == "Result could not be saved to history"
+    assert "Result could not be saved to history" in res.warnings
