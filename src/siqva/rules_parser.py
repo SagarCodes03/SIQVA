@@ -331,14 +331,19 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
     ):
         matched_intents.add(Intent.PROFILE)
 
-    # 5. Thermocline / MLD / Barrier Layer / Z20
+    # 5. Thermocline / MLD / ILD / Barrier Layer / Z20
     if any(
         re.search(rf"\b{re.escape(k)}\b", lower)
         for k in (
-            "mld",
             "mixed layer",
+            "mld",
+            "ild",
+            "isothermal layer",
             "barrier layer",
             "thermocline",
+            "20 degree isotherm",
+            "20°c isotherm",
+            "20 c isotherm",
             "z20",
         )
     ):
@@ -348,15 +353,21 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
     if any(
         re.search(rf"\b{re.escape(k)}\b", lower)
         for k in (
-            "tchp",
             "cyclone heat",
             "hurricane heat",
+            "tchp",
+            "tropical cyclone heat potential",
+            "ocean heat content above 26",
+            "heat content above 26",
+            "26 degree isotherm",
+            "26°c isotherm",
+            "26 c isotherm",
             "z26",
         )
     ):
         matched_intents.add(Intent.TCHP)
 
-    # 7. Acoustic / Sound Speed / SOFAR
+    # 7. Acoustic / Sound Speed / SOFAR / SLD
     if any(
         re.search(rf"\b{re.escape(k)}\b", lower)
         for k in (
@@ -365,6 +376,8 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
             "sonar",
             "sofar",
             "sonic layer",
+            "sld",
+            "acoustic profile",
         )
     ):
         matched_intents.add(Intent.ACOUSTIC)

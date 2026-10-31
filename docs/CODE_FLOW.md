@@ -88,8 +88,8 @@ User Question (Natural Language)
 | `src/siqva/parser.py` | Orchestrates the hybrid parsing strategy: runs rules first, calls the LLM fallback only if needed, validates the candidate spec, and returns a `QuerySpec` or `ClarificationNeeded`. |
 | `src/siqva/fetcher.py` | Interfaces with `argopy.DataFetcher` using explicit modes, evaluates local float-index profile guards, manages Parquet caching with sidecar JSON, and handles network timeouts. |
 | `src/siqva/qc.py` | Documents mode filtering behaviors (research, standard, expert) and performs non-destructive quality control auditing per variable and profile. |
-| `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, and deterministic template summaries. |
-| `src/siqva/physics.py` | Implements deterministic TEOS-10 thermodynamic and acoustic physical properties (MLD, ILD, BLT, Z20, Z26, TCHP, sound speed, SLD, SOFAR axis) using `gsw`. |
+| `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, on-demand physics orchestration, skipped-profile tracking, and deterministic template summaries. |
+| `src/siqva/physics.py` | Implements deterministic TEOS-10 thermodynamic and acoustic physical properties (MLD, ILD, BLT, Z20, Z26, TCHP, sound speed, SLD, SOFAR axis) using `gsw`. Executed strictly on-demand for physics intents; water-mass classification permanently removed; tracks skipped profiles via `SkippedProfileInfo`. |
 | `src/siqva/plots.py` | Generates interactive Plotly visualizations (depth profiles, spatial trajectories, T-S diagrams, thermocline/barrier layers, cyclone TCHP, sound speed) under the Deep Ocean dark theme. |
 | `src/siqva/card.py` | Constructs immutable `QueryCard` provenance records, persists them to SQLite, generates reproducible Python scripts, and computes data diff summaries upon re-run. |
 | `src/siqva/pipeline.py` | Chains parsing, validation, data fetching, QC auditing, analysis, visualization, and card persistence into a single end-to-end entry point. |
@@ -153,7 +153,9 @@ When a query is processed through `siqva.pipeline.run(question)`:
      - Min, mean, max for each physical variable.
      - Observation means grouped into discrete vertical layers (`0–100 dbar`, `100–500 dbar`, `500–2000 dbar`).
      - Profile depth penetration (% reaching target depth).
-     - TEOS-10 physical calculations via `gsw` (Mixed Layer Depth, Isothermal Layer Depth, Barrier Layer Thickness, 20°C isotherm depth, Tropical Cyclone Heat Potential, sound speed, Sonic Layer Depth, SOFAR axis).
+     - **On-Demand TEOS-10 Physics via `gsw`**: Executed *only* when `spec.intent` is one of `thermocline`, `tchp`, or `acoustic`. Standard queries (`profile`, `map`, `ts`, `trend`) bypass physics computation completely.
+       - Mixed Layer Depth (MLD), Isothermal Layer Depth (ILD), Barrier Layer Thickness (BLT), 20°C isotherm depth (Z20), Tropical Cyclone Heat Potential (TCHP), sound speed, Sonic Layer Depth (SLD), SOFAR axis.
+       - Skipped profiles (fewer than 5 observations or shallowest depth > 15 m) are tracked via `SkippedProfileInfo` and explicitly reported in `missing_data_notes` and summary text. Water-mass classification is permanently removed.
    - **Output**: `AnalysisResult`.
 
 7. **Deterministic Summary Generation**
@@ -163,9 +165,10 @@ When a query is processed through `siqva.pipeline.run(question)`:
    - **Output**: Formatted summary text (`summary_markdown`).
 
 8. **Visualization Generation**
-   - **File**: `src/siqva/plots.py`
+   - **File**: `src/siqva/plots.py` (orchestrated by `src/siqva/pipeline.py`)
    - **Functions**: `plot_depth_profile`, `plot_position_map`, `plot_ts_diagram`, `plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`.
    - **Input**: DataFrame, representative profile physics metrics.
+   - **Behavior**: Standard figures (`profile`, `map`, and `ts` when temperature and salinity are present) are generated for standard queries. Physics plots (`plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`) are strictly generated on-demand only when the matching physics intent is requested (`Intent.THERMOCLINE`, `Intent.TCHP`, or `Intent.ACOUSTIC`).
    - **Output**: Dictionary of Plotly Figure objects (`dict[str, go.Figure]`).
 
 9. **Query Card Creation & Persistence**
@@ -372,6 +375,17 @@ Outputs are validated using Pydantic models. If the output fails validation or r
 
 All analytical summaries are generated via deterministic code in `src/siqva/analyzer.py` and `src/siqva/physics.py`:
 
+### Intent Grouping
+Queries are partitioned into two architectural intent classes:
+1. **Standard Queries** (`Intent.PROFILE`, `Intent.MAP`, `Intent.TS`, `Intent.TREND`):
+   - Computes standard observation statistics and depth-bin distributions.
+   - Bypasses TEOS-10 physical calculations completely.
+   - Renders only requested standard figures (`profile`, `map`, or `ts`).
+2. **Physics Queries** (`Intent.THERMOCLINE`, `Intent.TCHP`, `Intent.ACOUSTIC`):
+   - Invokes deterministic TEOS-10 physical metrics via `physics.compute_new_features()`.
+   - Generates specialized on-demand physics figures.
+   - Evaluates profile quality criteria and logs skipped profiles.
+
 ### Computed Metrics
 1. **Physical Variable Statistics**:
    - Total observation count and missing count.
@@ -385,7 +399,7 @@ All analytical summaries are generated via deterministic code in `src/siqva/anal
 3. **Vertical Sampling Coverage**:
    - Percentage of profiles reaching the target maximum depth.
    - Shallowest and deepest pressure recorded.
-4. **TEOS-10 Ocean Physics (`physics.py` via `gsw`)**:
+4. **On-Demand TEOS-10 Ocean Physics (`physics.py` via `gsw`)**:
    - **Density MLD**: Depth where potential density increases by $\Delta \sigma_0 = 0.03\text{ kg/m}^3$ from 10 m reference.
    - **Temperature ILD**: Depth where conservative temperature drops by $\Delta T = 0.2^\circ\text{C}$ from 10 m reference.
    - **Barrier Layer Thickness (BLT)**: $\max(0, \text{ILD} - \text{MLD})$.
@@ -393,6 +407,11 @@ All analytical summaries are generated via deterministic code in `src/siqva/anal
    - **Tropical Cyclone Heat Potential (TCHP)**: Contiguous upper-layer heat content above $26^\circ\text{C}$:
      $$Q = c_p \rho \int_0^{Z_{26}} (T(z) - 26)\, dz$$
    - **Acoustic Properties**: Sound speed profile via `gsw.sound_speed()`, Sonic Layer Depth (SLD) near-surface peak, and SOFAR channel minimum axis (evaluated only on profiles $\ge 1000\text{ m}$).
+   - **Permanent Removal of Water-Mass Heuristic**: Previously hard-coded Indian Ocean salinity/temperature water-mass classification rules were permanently removed because they mislabeled Atlantic and Pacific profiles.
+   - **Named Quality Thresholds**:
+     - `MIN_PROFILE_OBSERVATIONS = 5`: Profiles with fewer than 5 vertical data points are skipped for physics.
+     - `MAX_SURFACE_OBSERVATION_DEPTH_M = 15.0`: Profiles where the shallowest observation starts deeper than 15 m cannot accurately reference surface layer properties and are skipped.
+   - **Skipped Profile Tracking**: Profiles failing the above thresholds are recorded via `SkippedProfileInfo` (capturing profile ID, WMO, cycle, and reason) and explicitly reported in `AnalysisResult.missing_data_notes` and deterministic summary text.
 
 ### Deterministic Text Templates
 The markdown output is constructed by concatenating deterministic formatted blocks in `summary_text()`. No language model generates summary text or numbers.
@@ -405,6 +424,8 @@ All plots are generated via Plotly using the Deep Ocean dark theme:
 - Canvas background: Transparent / `#0B1F2A`.
 - Grid lines: `#1E4558`.
 - Text & ticks: `#E6F1F5`.
+
+Standard plots are rendered for standard intents. Physics plots (`plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`) are strictly generated on-demand only when their corresponding physics intent (`thermocline`, `tchp`, `acoustic`) is requested.
 
 ### Visualizations
 
@@ -566,17 +587,19 @@ Under unexpected exceptions, `PipelineResult` catches errors, generates a safe u
 ## 13. Known Limitations and Discrepancy Audit
 
 ### Known Limitations
-1. **Initial Index Fetch Latency**: If the local float-index Parquet file is missing and must be fetched live over ERDDAP, remote index queries take 30–50 seconds due to remote ERDDAP server response times.
+1. **Missing Local Float Index**: If the local float-index Parquet file (`data/float_index.parquet`) is missing or does not cover the query window, the system makes NO live network call to ERDDAP. Instead, it falls back to the geometric cost cap and marks `profile_count_verified = False`.
 2. **Provisional Size & Profile Caps**: The 15,000 cost unit limit and 100-profile maximum are provisional thresholds calibrated against regional Indian Ocean and North Atlantic queries.
 3. **Deep Sound Speed Accuracy**: Profiles shallower than 1000 m cannot calculate the SOFAR channel axis minimum, as the deep sound channel minimum typically resides between 800 and 1200 m depth.
 4. **No BGC or Deep Argo**: Core physical variables (`TEMP`, `PSAL`, `PRES`) down to 2000 dbar are supported. Biogeochemical (oxygen, pH, chlorophyll) and Deep Argo (>2000 dbar) sensors are post-MVP scope.
+5. **Antimeridian Crossings**: Bounding boxes crossing the 180° meridian (where `lon_min > lon_max`) are rejected by the validator as out of bounds.
 
 ### Discrepancy Audit with AGENTS.md
 
 | Topic | AGENTS.md Statement | Implementation Status / Code Reality |
 | :--- | :--- | :--- |
 | **Project Name** | Formerly referenced `ArgoCard` and `FloatChat-R`. | Completely renamed to **SIQVA** (package `siqva`, app `SIQVA`). |
-| **Physics Features** | Section 3 notes scope control for post-MVP. | Deterministic TEOS-10 thermodynamics and acoustics (MLD, ILD, BLT, Z20, TCHP, SLD, SOFAR) were integrated strictly via deterministic `gsw` formulas without violating rules (zero LLM reliance). |
+| **Physics Features** | Section 3 notes scope control for post-MVP; Section 7 documents on-demand physics intents (`thermocline`, `tchp`, `acoustic`). | Deterministic TEOS-10 thermodynamics and acoustics (MLD, ILD, BLT, Z20, TCHP, SLD, SOFAR) are computed on-demand strictly when requested by their specific physics intent, using `gsw` with zero LLM involvement. |
+| **Water-Mass Classification** | Permanent removal noted in Section 7. | Hard-coded Indian Ocean water-mass heuristics were permanently removed to eliminate inaccurate classification in other basins. |
 | **Cost Cap Scaling** | Section 7 specifies bounding box and date range validation. | The cost cap was enhanced to include vertical depth scaling: $\text{Area} \times \text{Days} \times (\text{Depth} / 500\text{ dbar})$. |
-| **Float Index Cache** | Section 11 permits local Parquet snapshot for discovery. | Implemented via `data/float_index.parquet` and sidecar `data/float_index.json`, used strictly for profile count guards. |
+| **Float Index Cache** | Section 11 permits local Parquet snapshot for discovery. | Implemented via `data/float_index.parquet` and sidecar `data/float_index.json`, used strictly for profile count guards. Missing index makes no network calls. |
 

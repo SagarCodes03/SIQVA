@@ -339,27 +339,35 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         if res.analysis:
             st.markdown(res.analysis.summary_markdown)
 
-            if res.analysis.physics_summaries:
+            is_phys = res.spec and res.spec.intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC)
+            if is_phys:
                 st.subheader("TEOS-10 Profile Physics Metrics")
-                phys_data = []
-                for s in res.analysis.physics_summaries:
-                    phys_data.append({
-                        "WMO": s.wmo_id,
-                        "Cycle": s.cycle,
-                        "Date": s.date,
-                        "SST (°C)": f"{s.sst_c:.2f}",
-                        "SSS (PSU)": f"{s.sss_psu:.2f}",
-                        "Density MLD (m)": f"{s.mld_dens_m:.1f}" if s.mld_dens_m is not None else "N/A",
-                        "Temp ILD (m)": f"{s.ild_temp_m:.1f}" if s.ild_temp_m is not None else "N/A",
-                        "Barrier Layer (m)": f"{s.barrier_layer_m:.1f}" if s.barrier_layer_m is not None else "N/A",
-                        "Z20 (m)": f"{s.z20_isotherm_m:.1f}" if s.z20_isotherm_m is not None else "N/A",
-                        "Z26 (m)": f"{s.z26_isotherm_m:.1f}" if s.z26_isotherm_m is not None else "N/A",
-                        "TCHP (kJ/cm²)": f"{s.tchp_kj_cm2:.1f}",
-                        "SLD (m)": f"{s.sld_m:.1f}" if s.sld_m is not None else "N/A",
-                        "SOFAR Axis (m)": f"{s.sofar_axis_m:.1f}" if s.sofar_axis_m is not None else "N/A",
-                        "Water Mass Heuristic": s.water_mass_heuristic,
-                    })
-                st.dataframe(pd.DataFrame(phys_data), use_container_width=True)
+                if res.analysis.physics_summaries:
+                    phys_data = []
+                    for s in res.analysis.physics_summaries:
+                        row = {
+                            "WMO": s.wmo_id,
+                            "Cycle": s.cycle,
+                            "Date": s.date,
+                            "SST (°C)": f"{s.sst_c:.2f}",
+                            "SSS (PSU)": f"{s.sss_psu:.2f}",
+                        }
+                        if res.spec.intent == Intent.THERMOCLINE:
+                            row["Density MLD (m)"] = f"{s.mld_dens_m:.1f}" if s.mld_dens_m is not None else "N/A"
+                            row["Temp ILD (m)"] = f"{s.ild_temp_m:.1f}" if s.ild_temp_m is not None else "N/A"
+                            row["Barrier Layer (m)"] = f"{s.barrier_layer_m:.1f}" if s.barrier_layer_m is not None else "N/A"
+                            row["Z20 (m)"] = f"{s.z20_isotherm_m:.1f}" if s.z20_isotherm_m is not None else "N/A"
+                        elif res.spec.intent == Intent.TCHP:
+                            row["Z26 (m)"] = f"{s.z26_isotherm_m:.1f}" if s.z26_isotherm_m is not None else "N/A"
+                            row["TCHP (kJ/cm²)"] = f"{s.tchp_kj_cm2:.1f}"
+                        elif res.spec.intent == Intent.ACOUSTIC:
+                            row["SLD (m)"] = f"{s.sld_m:.1f}" if s.sld_m is not None else "N/A"
+                            row["SOFAR Axis (m)"] = f"{s.sofar_axis_m:.1f}" if s.sofar_axis_m is not None else "N/A"
+                        phys_data.append(row)
+                    st.dataframe(pd.DataFrame(phys_data), use_container_width=True)
+                else:
+                    reason = res.analysis.physics_skipped_reason or "All profiles were skipped or lacked sufficient upper-ocean observations."
+                    st.info(f"Physics not computed: {reason}")
 
             if res.analysis.depth_bins:
                 st.subheader("Depth-Bin Statistics")

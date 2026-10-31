@@ -8,7 +8,12 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
 
 from .fetcher import FetchResult, count_unique_profiles
-from .physics import ProfilePhysicsSummary, compute_new_features
+from .physics import (
+    ProfilePhysicsSummary,
+    SkippedProfileInfo,
+    compute_new_features,
+    gsw,
+)
 from .qc import get_mode_description, get_qc_filter_description
 from .spec import DataMode, DepthRange, Intent, QuerySpec, Variable
 
@@ -98,7 +103,10 @@ class AnalysisResult(BaseModel):
     profile_count_verified: bool
     summary: str
     summary_markdown: str = ""
+    intent: Optional[Intent] = None
     physics_summaries: list[ProfilePhysicsSummary] = Field(default_factory=list)
+    skipped_physics_profiles: list[SkippedProfileInfo] = Field(default_factory=list)
+    physics_skipped_reason: Optional[str] = None
 
     @property
     def depth_bins(self) -> list[DepthBinStats]:
@@ -184,81 +192,115 @@ def summary_text(analysis: AnalysisResult) -> str:
     if analysis.missing_data_notes:
         lines.append("**Missing data notes**:\n" + "\n".join(f"- {note}" for note in analysis.missing_data_notes))
 
-    if analysis.physics_summaries:
+    if analysis.intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC):
         p_lines = [
             "### TEOS-10 Ocean Physics Features",
-            f"Analyzed **{len(analysis.physics_summaries)}** profile(s) using TEOS-10 thermodynamics (`gsw`):",
         ]
-        mlds = [s.mld_dens_m for s in analysis.physics_summaries if s.mld_dens_m is not None]
-        ilds = [s.ild_temp_m for s in analysis.physics_summaries if s.ild_temp_m is not None]
-        blts = [s.barrier_layer_m for s in analysis.physics_summaries if s.barrier_layer_m is not None]
-        z20s = [s.z20_isotherm_m for s in analysis.physics_summaries if s.z20_isotherm_m is not None]
-        tchps = [s.tchp_kj_cm2 for s in analysis.physics_summaries]
-        slds = [s.sld_m for s in analysis.physics_summaries if s.sld_m is not None]
-        sofars = [s.sofar_axis_m for s in analysis.physics_summaries if s.sofar_axis_m is not None]
+        if analysis.physics_summaries:
+            p_lines.append(f"Analyzed **{len(analysis.physics_summaries)}** profile(s) using TEOS-10 thermodynamics (`gsw`):")
 
-        p_lines.append(
-            f"- **Density MLD (Δσ₀ = +0.03 kg/m³ from 10m)**: "
-            f"Mean: `{np.mean(mlds):.1f} m` | Min: `{np.min(mlds):.1f} m` | Max: `{np.max(mlds):.1f} m`"
-            if mlds else "- **Density MLD**: Not reached"
-        )
-        p_lines.append(
-            f"- **Temp ILD (ΔT = -0.2°C from 10m)**: "
-            f"Mean: `{np.mean(ilds):.1f} m` | Min: `{np.min(ilds):.1f} m` | Max: `{np.max(ilds):.1f} m`"
-            if ilds else "- **Temp ILD**: Not reached"
-        )
-        p_lines.append(
-            f"- **Barrier Layer Thickness (BLT = max(0, ILD - MLD))**: "
-            f"Mean: `{np.mean(blts):.1f} m` | Max: `{np.max(blts):.1f} m`"
-            if blts else "- **Barrier Layer Thickness**: None detected"
-        )
-        p_lines.append(
-            f"- **Z20 Isotherm (20°C Thermocline Proxy)**: "
-            f"Mean: `{np.mean(z20s):.1f} m` | Min: `{np.min(z20s):.1f} m` | Max: `{np.max(z20s):.1f} m`"
-            if z20s else "- **Z20 Isotherm**: Not reached"
-        )
-        p_lines.append(
-            f"- **Cyclone TCHP (Upper-Layer Heat Content)**: "
-            f"Mean: `{np.mean(tchps):.1f} kJ/cm²` | Max: `{np.max(tchps):.1f} kJ/cm²`"
-            if tchps else "- **Cyclone TCHP**: 0.0 kJ/cm²"
-        )
-        p_lines.append(
-            f"- **Sonic Layer Depth (SLD Peak)**: "
-            f"Mean: `{np.mean(slds):.1f} m`"
-            if slds else "- **Sonic Layer Depth**: N/A"
-        )
-        p_lines.append(
-            f"- **SOFAR Channel Axis (Sound Speed Minimum)**: "
-            f"Mean: `{np.mean(sofars):.1f} m` ({len(sofars)} profiles ≥ 1000m sampled)"
-            if sofars else "- **SOFAR Channel Axis**: None (all profiles < 1000 m threshold)"
-        )
+            if analysis.intent == Intent.THERMOCLINE:
+                mlds = [s.mld_dens_m for s in analysis.physics_summaries if s.mld_dens_m is not None]
+                ilds = [s.ild_temp_m for s in analysis.physics_summaries if s.ild_temp_m is not None]
+                blts = [s.barrier_layer_m for s in analysis.physics_summaries if s.barrier_layer_m is not None]
+                z20s = [s.z20_isotherm_m for s in analysis.physics_summaries if s.z20_isotherm_m is not None]
+                p_lines.append(
+                    f"- **Density MLD (Δσ₀ = +0.03 kg/m³ from 10m)**: "
+                    f"Mean: `{np.mean(mlds):.1f} m` | Min: `{np.min(mlds):.1f} m` | Max: `{np.max(mlds):.1f} m`"
+                    if mlds else "- **Density MLD**: Not reached"
+                )
+                p_lines.append(
+                    f"- **Temp ILD (ΔT = -0.2°C from 10m)**: "
+                    f"Mean: `{np.mean(ilds):.1f} m` | Min: `{np.min(ilds):.1f} m` | Max: `{np.max(ilds):.1f} m`"
+                    if ilds else "- **Temp ILD**: Not reached"
+                )
+                p_lines.append(
+                    f"- **Barrier Layer Thickness (BLT = max(0, ILD - MLD))**: "
+                    f"Mean: `{np.mean(blts):.1f} m` | Max: `{np.max(blts):.1f} m`"
+                    if blts else "- **Barrier Layer Thickness**: None detected"
+                )
+                p_lines.append(
+                    f"- **Z20 Isotherm (20°C Thermocline Proxy)**: "
+                    f"Mean: `{np.mean(z20s):.1f} m` | Min: `{np.min(z20s):.1f} m` | Max: `{np.max(z20s):.1f} m`"
+                    if z20s else "- **Z20 Isotherm**: Not reached"
+                )
+                p_lines.append("\n#### Per-Profile Thermocline & Barrier Layer Table")
+                p_lines.append(
+                    "| Profile | Date | Lat | Lon | Max Depth | SST (°C) | SSS (PSU) | MLD (m) | ILD (m) | BLT (m) | Z20 (m) |\n"
+                    "|---|---|---|---|---|---|---|---|---|---|---|"
+                )
+                for s in analysis.physics_summaries:
+                    p_lines.append(
+                        f"| `{s.profile_id}` | {s.date} | {s.lat:.2f} | {s.lon:.2f} | {s.max_depth_m:.0f}m "
+                        f"| {s.sst_c:.2f} | {s.sss_psu:.2f} | {s.mld_dens_m if s.mld_dens_m is not None else '-'} "
+                        f"| {s.ild_temp_m if s.ild_temp_m is not None else '-'} | {s.barrier_layer_m if s.barrier_layer_m is not None else '-'} "
+                        f"| {s.z20_isotherm_m if s.z20_isotherm_m is not None else '-'} |"
+                    )
+                p_lines.append("\n#### Scientific Methodology & Scope Notes")
+                p_lines.append(
+                    "- **MLD & Barrier Layer**: Computed relative to 10 m reference depth (de Boyer Montégut et al., 2004). "
+                    "Z20 is a physical thermocline proxy, not a standalone commercial fish-catch prediction."
+                )
 
-        p_lines.append("\n#### Per-Profile Physics Summary Table")
-        p_lines.append(
-            "| Profile | Date | Lat | Lon | Max Depth | SST (°C) | SSS (PSU) | MLD (m) | ILD (m) | BLT (m) | Z20 (m) | Z26 (m) | TCHP (kJ/cm²) | SLD (m) | SOFAR (m) | Water Mass |\n"
-            "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"
-        )
-        for s in analysis.physics_summaries:
-            p_lines.append(
-                f"| `{s.profile_id}` | {s.date} | {s.lat:.2f} | {s.lon:.2f} | {s.max_depth_m:.0f}m "
-                f"| {s.sst_c:.2f} | {s.sss_psu:.2f} | {s.mld_dens_m if s.mld_dens_m is not None else '-'} "
-                f"| {s.ild_temp_m if s.ild_temp_m is not None else '-'} | {s.barrier_layer_m if s.barrier_layer_m is not None else '-'} "
-                f"| {s.z20_isotherm_m if s.z20_isotherm_m is not None else '-'} | {s.z26_isotherm_m if s.z26_isotherm_m is not None else '-'} "
-                f"| {s.tchp_kj_cm2:.1f} | {s.sld_m if s.sld_m is not None else '-'} | {s.sofar_axis_m if s.sofar_axis_m is not None else '-'} "
-                f"| {s.water_mass_heuristic} |"
-            )
+            elif analysis.intent == Intent.TCHP:
+                tchps = [s.tchp_kj_cm2 for s in analysis.physics_summaries]
+                z26s = [s.z26_isotherm_m for s in analysis.physics_summaries if s.z26_isotherm_m is not None]
+                p_lines.append(
+                    f"- **26°C Isotherm (Z26)**: Mean: `{np.mean(z26s):.1f} m`"
+                    if z26s else "- **26°C Isotherm**: Surface < 26°C"
+                )
+                p_lines.append(
+                    f"- **Cyclone TCHP (Upper-Layer Heat Content)**: "
+                    f"Mean: `{np.mean(tchps):.1f} kJ/cm²` | Max: `{np.max(tchps):.1f} kJ/cm²`"
+                    if tchps else "- **Cyclone TCHP**: 0.0 kJ/cm²"
+                )
+                p_lines.append("\n#### Per-Profile Cyclone TCHP Table")
+                p_lines.append(
+                    "| Profile | Date | Lat | Lon | Max Depth | SST (°C) | SSS (PSU) | Z26 (m) | TCHP (kJ/cm²) |\n"
+                    "|---|---|---|---|---|---|---|---|---|"
+                )
+                for s in analysis.physics_summaries:
+                    p_lines.append(
+                        f"| `{s.profile_id}` | {s.date} | {s.lat:.2f} | {s.lon:.2f} | {s.max_depth_m:.0f}m "
+                        f"| {s.sst_c:.2f} | {s.sss_psu:.2f} | {s.z26_isotherm_m if s.z26_isotherm_m is not None else '-'} "
+                        f"| {s.tchp_kj_cm2:.1f} |"
+                    )
+                p_lines.append("\n#### Scientific Methodology & Scope Notes")
+                p_lines.append(
+                    "- **Cyclone TCHP**: Contiguous upper-layer heat content above 26°C (Leipper & Volgenau, 1972; Mainelli et al., 2008)."
+                )
 
-        p_lines.append("\n#### Scientific Methodology & Scope Notes")
-        p_lines.append(
-            "- **MLD & Barrier Layer**: Computed relative to 10 m reference depth (de Boyer Montégut et al., 2004). "
-            "Z20 is a physical thermocline proxy, not a standalone commercial fish-catch prediction."
-        )
-        p_lines.append(
-            "- **Cyclone TCHP**: Contiguous upper-layer heat content above 26°C (Leipper & Volgenau, 1972; Mainelli et al., 2008)."
-        )
-        p_lines.append(
-            "- **TEOS-10 Acoustics**: Sound speed via `gsw.sound_speed`. SOFAR axis requires profile depth ≥ 1000 m."
-        )
+            elif analysis.intent == Intent.ACOUSTIC:
+                slds = [s.sld_m for s in analysis.physics_summaries if s.sld_m is not None]
+                sofars = [s.sofar_axis_m for s in analysis.physics_summaries if s.sofar_axis_m is not None]
+                p_lines.append(
+                    f"- **Sonic Layer Depth (SLD Peak)**: "
+                    f"Mean: `{np.mean(slds):.1f} m`"
+                    if slds else "- **Sonic Layer Depth**: N/A"
+                )
+                p_lines.append(
+                    f"- **SOFAR Channel Axis (Sound Speed Minimum)**: "
+                    f"Mean: `{np.mean(sofars):.1f} m` ({len(sofars)} profiles ≥ 1000m sampled)"
+                    if sofars else "- **SOFAR Channel Axis**: None (all profiles < 1000 m threshold)"
+                )
+                p_lines.append("\n#### Per-Profile Acoustic Properties Table")
+                p_lines.append(
+                    "| Profile | Date | Lat | Lon | Max Depth | SST (°C) | SSS (PSU) | SLD (m) | SOFAR (m) |\n"
+                    "|---|---|---|---|---|---|---|---|---|"
+                )
+                for s in analysis.physics_summaries:
+                    p_lines.append(
+                        f"| `{s.profile_id}` | {s.date} | {s.lat:.2f} | {s.lon:.2f} | {s.max_depth_m:.0f}m "
+                        f"| {s.sst_c:.2f} | {s.sss_psu:.2f} | {s.sld_m if s.sld_m is not None else '-'} "
+                        f"| {s.sofar_axis_m if s.sofar_axis_m is not None else '-'} |"
+                    )
+                p_lines.append("\n#### Scientific Methodology & Scope Notes")
+                p_lines.append(
+                    "- **TEOS-10 Acoustics**: Sound speed via `gsw.sound_speed`. SOFAR axis requires profile depth ≥ 1000 m."
+                )
+        else:
+            reason = analysis.physics_skipped_reason or "No valid profiles reached the upper-ocean depth requirement for physics analysis."
+            p_lines.append(f"- **Physics Status**: {reason}")
 
         lines.append("\n".join(p_lines))
 
@@ -304,7 +346,10 @@ def analyze(
             profile_count_verified=fetch_result.profile_count_verified,
             summary="",
             summary_markdown="",
+            intent=spec.intent,
             physics_summaries=[],
+            skipped_physics_profiles=[],
+            physics_skipped_reason=None,
         )
         txt = summary_text(base_res)
         return base_res.model_copy(update={"summary": txt, "summary_markdown": txt})
@@ -435,17 +480,38 @@ def analyze(
         float(reached_target_count / len(depth_coverage)) if depth_coverage else 0.0
     )
 
-    # Compute TEOS-10 Physics if temperature and salinity are present, or if physics intent
-    has_temp = ("TEMP" in df.columns or "temp" in df.columns)
-    has_psal = ("PSAL" in df.columns or "psal" in df.columns)
+    # Compute TEOS-10 Physics ONLY when explicitly requested by a physics intent
     is_physics_intent = spec.intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC)
 
     physics_summaries: list[ProfilePhysicsSummary] = []
-    if (has_temp and has_psal) or is_physics_intent:
-        try:
-            _, physics_summaries = compute_new_features(df)
-        except Exception:
-            pass
+    skipped_physics_profiles: list[SkippedProfileInfo] = []
+    physics_skipped_reason: Optional[str] = None
+
+    if is_physics_intent:
+        if gsw is None:
+            note = "Ocean physics calculations skipped: 'gsw' (Gibbs SeaWater) library is not installed."
+            missing_notes.append(note)
+            physics_skipped_reason = note
+        else:
+            try:
+                _, physics_summaries, skipped_physics_profiles = compute_new_features(
+                    df, intent=spec.intent, return_skipped=True
+                )
+                if skipped_physics_profiles:
+                    total_p = len(physics_summaries) + len(skipped_physics_profiles)
+                    reasons_tally: dict[str, int] = {}
+                    for sp in skipped_physics_profiles:
+                        clean_r = sp.reason.split("(")[0].strip()
+                        reasons_tally[clean_r] = reasons_tally.get(clean_r, 0) + 1
+                    tally_str = ", ".join(f"{cnt} profile(s): {r}" if len(reasons_tally) > 1 else r for r, cnt in reasons_tally.items())
+                    skip_note = f"Physics not computed for {len(skipped_physics_profiles)} of {total_p} profiles: {tally_str}."
+                    missing_notes.append(skip_note)
+                    if not physics_summaries:
+                        physics_skipped_reason = f"All {len(skipped_physics_profiles)} profiles were skipped for physics analysis: {tally_str}."
+            except Exception as exc:
+                note = f"Ocean physics calculation failed: {exc}"
+                missing_notes.append(note)
+                physics_skipped_reason = note
 
     base_res = AnalysisResult(
         profile_count=profile_count,
@@ -466,7 +532,10 @@ def analyze(
         profile_count_verified=fetch_result.profile_count_verified,
         summary="",
         summary_markdown="",
+        intent=spec.intent,
         physics_summaries=physics_summaries,
+        skipped_physics_profiles=skipped_physics_profiles,
+        physics_skipped_reason=physics_skipped_reason,
     )
 
     final_text = summary_text(base_res)

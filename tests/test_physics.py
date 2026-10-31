@@ -6,7 +6,7 @@ Test 4: Live argopy Smoke Test & Plotly Chart Generation
 """
 
 from __future__ import annotations
-
+from siqva.analyzer import analyze
 import json
 import gsw
 import numpy as np
@@ -321,3 +321,366 @@ def test_physics_intents_and_variable_auto_inclusion():
     assert r_ac.intent == Intent.ACOUSTIC
     assert set(r_ac.variables) == {Variable.PRES, Variable.PSAL, Variable.TEMP}
     assert "variables" not in r_ac.missing
+
+
+def test_standard_intents_do_not_call_compute_new_features(monkeypatch):
+    """Standard intents (profile, map, ts, trend) must NOT invoke compute_new_features or build physics plots."""
+    from siqva import analyzer, pipeline
+    from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
+    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, QuerySpec
+
+    called = []
+
+    def mock_compute(*args, **kwargs):
+        called.append(True)
+        raise RuntimeError("compute_new_features should NOT be called for standard intents!")
+
+    monkeypatch.setattr(analyzer, "compute_new_features", mock_compute)
+
+    z = np.linspace(5.0, 300.0, 30)
+    df = pd.DataFrame({
+        "PLATFORM_NUMBER": "TEST_001",
+        "CYCLE_NUMBER": 1,
+        "TIME": "2024-05-15 12:00:00",
+        "LATITUDE": 15.0,
+        "LONGITUDE": 65.0,
+        "PRES": z,
+        "TEMP": np.linspace(28.0, 12.0, 30),
+        "PSAL": np.linspace(35.5, 36.0, 30),
+    })
+
+    meta = FetchMetadata(
+        src="erddap", source="erddap", argopy_version="1.4.0", xarray_version="2025.9.0",
+        fetch_timestamp="2026-10-31T00:00:00Z", row_count=len(df), profile_count=1,
+        data_hash="hash1", fetch_key="key1"
+    )
+    f_res = FetchResult(
+        status=FetchStatus.SUCCESS, data=df, is_cached=True, cache_key="key1",
+        metadata=meta, effective_depth_range=DepthRange(min_depth=0.0, max_depth=500.0),
+        profile_count_verified=True, profile_count=1
+    )
+
+    for std_intent in (Intent.PROFILE, Intent.MAP, Intent.TS, Intent.TREND):
+        spec = QuerySpec(
+            region=BoundingBox(lon_min=64.0, lon_max=66.0, lat_min=14.0, lat_max=16.0),
+            date_range=DateRange(start="2024-05-01", end="2024-05-30"),
+            variables=[Variable.TEMP, Variable.PSAL, Variable.PRES],
+            depth_range=DepthRange(min_depth=0.0, max_depth=500.0),
+            mode=DataMode.STANDARD,
+            intent=std_intent,
+        )
+        res = pipeline.run_spec(spec, fetcher_fn=lambda *a, **k: f_res)
+        assert res.status == pipeline.PipelineStatus.SUCCESS
+        assert len(called) == 0, f"compute_new_features was called for intent {std_intent}"
+        assert "thermocline" not in res.figures
+        assert "tchp" not in res.figures
+        assert "acoustic" not in res.figures
+
+
+def test_each_physics_intent_calls_only_its_own_calculation_group():
+    """Each physics intent must compute only its requested metrics and build only its own plot."""
+    from siqva import pipeline
+    from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
+    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, QuerySpec
+
+    z = np.linspace(5.0, 1200.0, 120)
+    lat = 10.0
+    pres = gsw.p_from_z(-z, lat)
+    temp = np.where(z <= 30.0, 29.0, 29.0 - (z - 30.0) / 1170.0 * 26.0)
+    psal = np.where(z <= 30.0, 34.8, 34.8 + (z - 30.0) / 1170.0 * 0.4)
+
+    df = pd.DataFrame({
+        "PLATFORM_NUMBER": "PHYS_FLOAT",
+        "CYCLE_NUMBER": 1,
+        "TIME": "2024-05-15 12:00:00",
+        "LATITUDE": lat,
+        "LONGITUDE": 75.0,
+        "PRES": pres,
+        "TEMP": temp,
+        "PSAL": psal,
+    })
+
+    # 1. Thermocline intent
+    _, sum_therm = compute_new_features(df, intent=Intent.THERMOCLINE)
+    s_therm = sum_therm[0]
+    assert s_therm.mld_dens_m is not None
+    assert s_therm.ild_temp_m is not None
+    assert s_therm.z20_isotherm_m is not None
+    assert s_therm.tchp_kj_cm2 == 0.0
+    assert s_therm.z26_isotherm_m is None
+    assert s_therm.sld_m is None
+    assert s_therm.sofar_axis_m is None
+
+    # 2. TCHP intent
+    _, sum_tchp = compute_new_features(df, intent=Intent.TCHP)
+    s_tchp = sum_tchp[0]
+    assert s_tchp.z26_isotherm_m is not None
+    assert s_tchp.tchp_kj_cm2 > 0.0
+    assert s_tchp.mld_dens_m is None
+    assert s_tchp.ild_temp_m is None
+    assert s_tchp.z20_isotherm_m is None
+    assert s_tchp.sld_m is None
+    assert s_tchp.sofar_axis_m is None
+
+    # 3. Acoustic intent
+    _, sum_ac = compute_new_features(df, intent=Intent.ACOUSTIC)
+    s_ac = sum_ac[0]
+    assert s_ac.sld_m is not None
+    assert s_ac.sofar_axis_m is not None
+    assert s_ac.mld_dens_m is None
+    assert s_ac.ild_temp_m is None
+    assert s_ac.z20_isotherm_m is None
+    assert s_ac.z26_isotherm_m is None
+    assert s_ac.tchp_kj_cm2 == 0.0
+
+    # Test pipeline figures isolation
+    meta = FetchMetadata(
+        src="erddap", source="erddap", argopy_version="1.4.0", xarray_version="2025.9.0",
+        fetch_timestamp="2026-10-31T00:00:00Z", row_count=len(df), profile_count=1,
+        data_hash="h", fetch_key="k"
+    )
+    f_res = FetchResult(
+        status=FetchStatus.SUCCESS, data=df, is_cached=True, cache_key="k",
+        metadata=meta, effective_depth_range=DepthRange(min_depth=0.0, max_depth=1200.0),
+        profile_count_verified=True, profile_count=1
+    )
+
+    spec_therm = QuerySpec(
+        region=BoundingBox(lon_min=74.0, lon_max=76.0, lat_min=9.0, lat_max=11.0),
+        date_range=DateRange(start="2024-05-01", end="2024-05-30"),
+        variables=[Variable.TEMP, Variable.PSAL, Variable.PRES],
+        depth_range=DepthRange(min_depth=0.0, max_depth=1200.0),
+        mode=DataMode.STANDARD,
+        intent=Intent.THERMOCLINE,
+    )
+    res_therm = pipeline.run_spec(spec_therm, fetcher_fn=lambda *a, **k: f_res)
+    assert "thermocline" in res_therm.figures
+    assert "tchp" not in res_therm.figures
+    assert "acoustic" not in res_therm.figures
+
+    spec_tchp = spec_therm.model_copy(update={"intent": Intent.TCHP})
+    res_tchp = pipeline.run_spec(spec_tchp, fetcher_fn=lambda *a, **k: f_res)
+    assert "tchp" in res_tchp.figures
+    assert "thermocline" not in res_tchp.figures
+    assert "acoustic" not in res_tchp.figures
+
+    spec_ac = spec_therm.model_copy(update={"intent": Intent.ACOUSTIC})
+    res_ac = pipeline.run_spec(spec_ac, fetcher_fn=lambda *a, **k: f_res)
+    assert "acoustic" in res_ac.figures
+    assert "thermocline" not in res_ac.figures
+    assert "tchp" not in res_ac.figures
+
+
+def test_skipped_profile_notes_for_short_and_deep_start():
+    """Profiles with < 5 points or shallowest point > 15 m must be skipped with explicit reported reasons."""
+    from siqva.analyzer import analyze
+    from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
+    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, QuerySpec
+
+    # Profile 1: Only 3 points (< 5)
+    df_short = pd.DataFrame({
+        "PLATFORM_NUMBER": ["SHORT_01"] * 3,
+        "CYCLE_NUMBER": [1] * 3,
+        "TIME": ["2024-05-15"] * 3,
+        "LATITUDE": [10.0] * 3,
+        "LONGITUDE": [75.0] * 3,
+        "PRES": [5.0, 10.0, 20.0],
+        "TEMP": [28.0, 27.5, 26.0],
+        "PSAL": [35.0, 35.1, 35.2],
+    })
+
+    # Profile 2: 10 points but shallowest starts at 25 m (> 15 m)
+    df_deep = pd.DataFrame({
+        "PLATFORM_NUMBER": ["DEEP_02"] * 10,
+        "CYCLE_NUMBER": [2] * 10,
+        "TIME": ["2024-05-16"] * 10,
+        "LATITUDE": [10.5] * 10,
+        "LONGITUDE": [75.5] * 10,
+        "PRES": np.linspace(25.0, 200.0, 10),
+        "TEMP": np.linspace(26.0, 14.0, 10),
+        "PSAL": np.linspace(35.2, 35.8, 10),
+    })
+
+    combined = pd.concat([df_short, df_deep], ignore_index=True)
+
+    # Test compute_new_features directly with return_skipped=True
+    _, summaries, skipped = compute_new_features(combined, intent=Intent.THERMOCLINE, return_skipped=True)
+    assert len(summaries) == 0
+    assert len(skipped) == 2
+    assert any("too few points" in s.reason for s in skipped)
+    assert any("shallowest measurement deeper than 15" in s.reason for s in skipped)
+
+    # Test analyze end-to-end reporting
+    spec = QuerySpec(
+        region=BoundingBox(lon_min=74.0, lon_max=76.0, lat_min=9.0, lat_max=11.0),
+        date_range=DateRange(start="2024-05-01", end="2024-05-30"),
+        variables=[Variable.TEMP, Variable.PSAL, Variable.PRES],
+        depth_range=DepthRange(min_depth=0.0, max_depth=500.0),
+        mode=DataMode.STANDARD,
+        intent=Intent.THERMOCLINE,
+    )
+    meta = FetchMetadata(
+        src="erddap", source="erddap", argopy_version="1.4.0", xarray_version="2025.9.0",
+        fetch_timestamp="2026-10-31T00:00:00Z", row_count=len(combined), profile_count=2,
+        data_hash="h", fetch_key="k"
+    )
+    f_res = FetchResult(
+        status=FetchStatus.SUCCESS, data=combined, is_cached=True, cache_key="k",
+        metadata=meta, effective_depth_range=spec.depth_range, profile_count_verified=True, profile_count=2
+    )
+
+    analysis = analyze(combined, spec, f_res)
+    assert len(analysis.physics_summaries) == 0
+    assert len(analysis.skipped_physics_profiles) == 2
+    assert any("Physics not computed for 2 of 2 profiles" in note for note in analysis.missing_data_notes)
+    assert analysis.physics_skipped_reason is not None
+    assert "skipped" in analysis.physics_skipped_reason.lower()
+    assert "Physics not computed for 2 of 2 profiles" in analysis.summary
+
+
+def test_gsw_unavailable_clean_note_no_exception(monkeypatch):
+    """When gsw is unavailable, physics must skip cleanly with notes and without raising exceptions."""
+    from siqva import analyzer, physics, plots
+    from siqva.analyzer import analyze
+    from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
+    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
+
+    monkeypatch.setattr(analyzer, "gsw", None)
+    monkeypatch.setattr(physics, "gsw", None)
+    monkeypatch.setattr(plots, "gsw", None)
+
+    df = pd.DataFrame({
+        "PLATFORM_NUMBER": ["TEST_FLOAT"] * 10,
+        "CYCLE_NUMBER": [1] * 10,
+        "TIME": ["2024-05-15"] * 10,
+        "LATITUDE": [10.0] * 10,
+        "LONGITUDE": [75.0] * 10,
+        "PRES": np.linspace(5.0, 200.0, 10),
+        "TEMP": np.linspace(28.0, 14.0, 10),
+        "PSAL": np.linspace(35.0, 35.8, 10),
+    })
+
+    spec = QuerySpec(
+        region=BoundingBox(lon_min=74.0, lon_max=76.0, lat_min=9.0, lat_max=11.0),
+        date_range=DateRange(start="2024-05-01", end="2024-05-30"),
+        variables=[Variable.TEMP, Variable.PSAL, Variable.PRES],
+        depth_range=DepthRange(min_depth=0.0, max_depth=500.0),
+        mode=DataMode.STANDARD,
+        intent=Intent.THERMOCLINE,
+    )
+    meta = FetchMetadata(
+        src="erddap", source="erddap", argopy_version="1.4.0", xarray_version="2025.9.0",
+        fetch_timestamp="2026-10-31T00:00:00Z", row_count=len(df), profile_count=1,
+        data_hash="h", fetch_key="k"
+    )
+    f_res = FetchResult(
+        status=FetchStatus.SUCCESS, data=df, is_cached=True, cache_key="k",
+        metadata=meta, effective_depth_range=spec.depth_range, profile_count_verified=True, profile_count=1
+    )
+
+    # analyze() must not crash
+    analysis = analyze(df, spec, f_res)
+    assert len(analysis.physics_summaries) == 0
+    assert any("gsw" in note.lower() for note in analysis.missing_data_notes)
+    assert analysis.physics_skipped_reason is not None
+    assert "gsw" in analysis.physics_skipped_reason.lower()
+
+    # plots must handle gsw is None without crashing
+    fig_therm = plots.plot_thermocline_and_barrier(df, None)
+    assert any("gsw" in a.text.lower() for a in fig_therm.layout.annotations)
+
+    fig_tchp = plots.plot_cyclone_tchp(df, None)
+    assert any("gsw" in a.text.lower() for a in fig_tchp.layout.annotations)
+
+    fig_ac = plots.plot_acoustic_profile(df, None)
+    assert any("gsw" in a.text.lower() for a in fig_ac.layout.annotations)
+
+
+def test_no_water_mass_text_in_output_for_atlantic_or_pacific_profiles():
+    """Synthetic North Atlantic and Pacific profiles must contain no water-mass labels anywhere."""
+    from siqva.analyzer import analyze
+    from siqva.card import build_card
+    from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
+    from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, QuerySpec
+
+    # 1. Synthetic North Atlantic profile (45°N, 30°W - Subpolar North Atlantic)
+    z_natl = np.linspace(5.0, 1500.0, 60)
+    lat_natl = 45.0
+    lon_natl = -30.0
+    pres_natl = gsw.p_from_z(-z_natl, lat_natl)
+    temp_natl = np.linspace(15.5, 3.8, 60)
+    psal_natl = np.linspace(35.6, 34.9, 60)
+
+    df_natl = pd.DataFrame({
+        "PLATFORM_NUMBER": ["NATL_FLOAT_01"] * 60,
+        "CYCLE_NUMBER": [1] * 60,
+        "TIME": ["2024-06-01"] * 60,
+        "LATITUDE": [lat_natl] * 60,
+        "LONGITUDE": [lon_natl] * 60,
+        "PRES": pres_natl,
+        "TEMP": temp_natl,
+        "PSAL": psal_natl,
+    })
+
+    # 2. Synthetic North Pacific profile (15°N, 140°W - Tropical Pacific)
+    z_pac = np.linspace(5.0, 1200.0, 50)
+    lat_pac = 15.0
+    lon_pac = -140.0
+    pres_pac = gsw.p_from_z(-z_pac, lat_pac)
+    temp_pac = np.linspace(28.5, 3.2, 50)
+    psal_pac = np.linspace(34.2, 34.6, 50)
+
+    df_pac = pd.DataFrame({
+        "PLATFORM_NUMBER": ["PAC_FLOAT_02"] * 50,
+        "CYCLE_NUMBER": [1] * 50,
+        "TIME": ["2024-06-01"] * 50,
+        "LATITUDE": [lat_pac] * 50,
+        "LONGITUDE": [lon_pac] * 50,
+        "PRES": pres_pac,
+        "TEMP": temp_pac,
+        "PSAL": psal_pac,
+    })
+
+    for basin_name, df_prof in [("North Atlantic", df_natl), ("Pacific", df_pac)]:
+        spec = QuerySpec(
+            region=BoundingBox(
+                lon_min=float(df_prof["LONGITUDE"].iloc[0]) - 1.0,
+                lon_max=float(df_prof["LONGITUDE"].iloc[0]) + 1.0,
+                lat_min=float(df_prof["LATITUDE"].iloc[0]) - 1.0,
+                lat_max=float(df_prof["LATITUDE"].iloc[0]) + 1.0,
+            ),
+            date_range=DateRange(start="2024-06-01", end="2024-06-15"),
+            variables=[Variable.TEMP, Variable.PSAL, Variable.PRES],
+            depth_range=DepthRange(min_depth=0.0, max_depth=1500.0),
+            mode=DataMode.STANDARD,
+            intent=Intent.THERMOCLINE,
+        )
+        meta = FetchMetadata(
+            src="erddap", source="erddap", argopy_version="1.4.0", xarray_version="2025.9.0",
+            fetch_timestamp="2026-10-31T00:00:00Z", row_count=len(df_prof), profile_count=1,
+            data_hash="h", fetch_key="k"
+        )
+        f_res = FetchResult(
+            status=FetchStatus.SUCCESS, data=df_prof, is_cached=True, cache_key="k",
+            metadata=meta, effective_depth_range=spec.depth_range, profile_count_verified=True, profile_count=1
+        )
+
+        analysis = analyze(df_prof, spec, f_res)
+        card = build_card(spec, f_res, analysis)
+
+        # Verify no water mass label in ProfilePhysicsSummary
+        for s in analysis.physics_summaries:
+            assert not hasattr(s, "water_mass_heuristic")
+            assert "water_mass_heuristic" not in s.model_dump()
+
+        # Verify no water mass text in summary text / markdown table
+        summary_lower = analysis.summary.lower()
+        assert "water mass" not in summary_lower, f"Found 'water mass' in summary for {basin_name}"
+        assert "ashsw" not in summary_lower, f"Found 'ashsw' in summary for {basin_name}"
+        assert "bobw" not in summary_lower, f"Found 'bobw' in summary for {basin_name}"
+        assert "indian ocean water" not in summary_lower, f"Found Indian Ocean water mass in {basin_name}"
+
+        # Verify no water mass in card serialization
+        card_json_lower = card.model_dump_json().lower()
+        assert "water_mass" not in card_json_lower
+        assert "ashsw" not in card_json_lower
