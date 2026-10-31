@@ -1,4 +1,4 @@
-"""Pydantic query specification and deterministic hashing for ArgoCard."""
+"""Pydantic query specification and deterministic hashing for SIQVA."""
 
 from __future__ import annotations
 

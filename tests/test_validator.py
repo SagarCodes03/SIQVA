@@ -3,8 +3,8 @@
 import re
 import pytest
 
-from argocard.spec import QuerySpec, Variable, Intent
-from argocard.validator import (
+from siqva.spec import QuerySpec, Variable, Intent
+from siqva.validator import (
     DEFAULT_MAX_REQUEST_SIZE,
     OversizedRequestError,
     SpecValidationError,

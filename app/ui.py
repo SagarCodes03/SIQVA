@@ -18,13 +18,13 @@ _src_dir = str(Path(__file__).resolve().parent.parent / "src")
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
-from argocard.analyzer import AnalysisResult
-from argocard.card import DiffSummary, QueryCard, generate_script, list_cards, load_card, rerun
-from argocard.fetcher import FetchResult, FetchStatus
-from argocard.gazetteer import KNOWN_REGIONS
-from argocard.parser import ClarificationNeeded, ParseOutcome, parse_detailed
-from argocard.pipeline import PipelineResult, PipelineStatus, run, run_spec
-from argocard.spec import (
+from siqva.analyzer import AnalysisResult
+from siqva.card import DiffSummary, QueryCard, generate_script, list_cards, load_card, rerun
+from siqva.fetcher import FetchResult, FetchStatus
+from siqva.gazetteer import KNOWN_REGIONS
+from siqva.parser import ClarificationNeeded, ParseOutcome, parse_detailed
+from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
+from siqva.spec import (
     BoundingBox,
     DataMode,
     DateRange,
@@ -36,7 +36,7 @@ from argocard.spec import (
 
 # Page configuration
 st.set_page_config(
-    page_title="SIQVA — Reproducible Ocean Data",
+    page_title="SIQVA — Ask questions about Argo ocean data",
     page_icon="🌊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -224,7 +224,7 @@ _ALL_REGION_NAMES = sorted(KNOWN_REGIONS.keys())
 # Sidebar
 # ---------------------------------------------------------------------------
 st.sidebar.title("🌊 SIQVA")
-st.sidebar.caption("Validated, QC-explicit Argo Ocean Float Queries")
+st.sidebar.caption("Ask questions about Argo ocean data")
 
 mode_selection = st.sidebar.selectbox(
     "Default Delivery Mode",
@@ -439,7 +439,8 @@ def _build_spec_from_manual(
 # PAGE: 🔍 Query (original query interface)
 # =====================================================================
 if page == "🔍 Query":
-    st.title("SIQVA")
+    st.title("SIQVA – Smart Interface of Query and Visualization of Argo data")
+    st.caption("Ask questions about Argo ocean data")
     st.markdown(
         "Query global ocean Argo float observations using natural language. "
         "Every query is parsed into a validated spec, fetched via `argopy`, and documented with a verifiable **QueryCard**."

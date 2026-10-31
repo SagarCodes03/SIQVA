@@ -1,4 +1,4 @@
-"""Validation and size caps for ArgoCard QuerySpec instances."""
+"""Validation and size caps for SIQVA QuerySpec instances."""
 
 from __future__ import annotations
 

@@ -1,11 +1,12 @@
-# AGENTS.md — ArgoCard (FloatChat-R)
+# AGENTS.md — SIQVA
+*(formerly ArgoCard / FloatChat-R)*
 
 Instructions for coding agents (Codex, Antigravity, etc.) working in this repo.
 Read this file fully before every task. If a task conflicts with it, stop and ask.
 
 ## 1. Project in one paragraph
 
-ArgoCard turns a natural-language Argo question into a validated, QC-explicit
+SIQVA turns a natural-language Argo question into a validated, QC-explicit
 **query spec**, fetches real data through established Argo access tools, draws
 standard plots, and returns a reproducible **query card** (exact parameters,
 data mode, QC filter, source, library versions, timestamp, data hash, runnable
@@ -56,7 +57,7 @@ Streamlit UI -> FastAPI -> Parser -> Validator -> Fetcher (argopy)
 Suggested layout:
 
 ```
-src/argocard/
+src/siqva/
   spec.py          # Pydantic QuerySpec + enums
   validator.py     # bounds, dates, variable allow-list, size caps
   gazetteer.py     # region name -> bounding box (+ fuzzy match)

@@ -3,9 +3,9 @@
 from datetime import date
 import pytest
 
-from argocard.gazetteer import KNOWN_REGIONS
-from argocard.rules_parser import parse_rules
-from argocard.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, Variable
+from siqva.gazetteer import KNOWN_REGIONS
+from siqva.rules_parser import parse_rules
+from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, Variable
 
 REF_DATE = date(2024, 6, 15)
 

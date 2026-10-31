@@ -1,4 +1,4 @@
-# ArgoCard (FloatChat-R) Core Dependencies
+# SIQVA Core Dependencies
 # Python 3.11+
 
 # Web & UI

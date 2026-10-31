@@ -1,4 +1,4 @@
-"""Unit and offline tests for argocard.fetcher module, caching, and error handling."""
+"""Unit and offline tests for siqva.fetcher module, caching, and error handling."""
 
 import json
 import os
@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 import pandas as pd
 import pytest
 
-from argocard.fetcher import (
+from siqva.fetcher import (
     DEFAULT_CACHE_DIR,
     DEFAULT_MAX_PROFILE_COUNT,
     CoverageStatus,
@@ -20,8 +20,8 @@ from argocard.fetcher import (
     count_profiles_in_snapshot,
     fetch,
 )
-from argocard.validator import DEFAULT_MAX_REQUEST_SIZE
-from argocard.spec import (
+from siqva.validator import DEFAULT_MAX_REQUEST_SIZE
+from siqva.spec import (
     BoundingBox,
     DataMode,
     DateRange,
@@ -217,7 +217,7 @@ def test_profile_counting_avoids_single_cycle_bug():
     assert df_shared_cycles["CYCLE_NUMBER"].nunique() == 1
 
     # The corrected count_unique_profiles returns 2
-    from argocard.fetcher import count_unique_profiles
+    from siqva.fetcher import count_unique_profiles
     assert count_unique_profiles(df_shared_cycles) == 2
 
 

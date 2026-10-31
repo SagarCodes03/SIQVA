@@ -1,4 +1,4 @@
-"""ArgoCard: reproducible, deterministic natural-language Argo query pipeline."""
+"""SIQVA: reproducible, deterministic natural-language Argo query pipeline."""
 
 from .analyzer import (
     AnalysisResult,

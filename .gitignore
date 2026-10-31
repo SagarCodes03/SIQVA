@@ -13,7 +13,7 @@ __pycache__/
 *$py.class
 
 
-# ArgoCard Data Cache
+# SIQVA Data Cache
 cache/
 data/*.parquet
 *.sqlite

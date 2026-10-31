@@ -1,11 +1,11 @@
-"""Unit tests for argocard.qc module and QC auditing functionality."""
+"""Unit tests for siqva.qc module and QC auditing functionality."""
 
 from pathlib import Path
 import pandas as pd
 import pytest
 
-from argocard.qc import QCReport, VariableQCStats, audit_qc
-from argocard.spec import DataMode, Variable
+from siqva.qc import QCReport, VariableQCStats, audit_qc
+from siqva.spec import DataMode, Variable
 
 FIXTURE_PATH = Path("tests/fixtures/sample_argo_standard.parquet")
 

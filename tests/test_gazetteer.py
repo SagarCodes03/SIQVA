@@ -2,13 +2,13 @@
 
 import pytest
 
-from argocard.gazetteer import (
+from siqva.gazetteer import (
     KNOWN_REGIONS,
     RegionResolution,
     RegionStatus,
     resolve_region,
 )
-from argocard.spec import BoundingBox
+from siqva.spec import BoundingBox
 
 
 # 1. Exact matches

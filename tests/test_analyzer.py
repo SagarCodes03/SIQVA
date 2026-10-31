@@ -1,14 +1,14 @@
-"""Unit tests for argocard.analyzer module (deterministic oceanographic stats and summaries)."""
+"""Unit tests for siqva.analyzer module (deterministic oceanographic stats and summaries)."""
 
 from datetime import date
 from pathlib import Path
 import pandas as pd
 import pytest
 
-from argocard.analyzer import AnalysisResult, analyze, summary_text
-from argocard.fetcher import FetchResult, FetchStatus
-from argocard.qc import get_mode_description, get_qc_filter_description
-from argocard.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
+from siqva.analyzer import AnalysisResult, analyze, summary_text
+from siqva.fetcher import FetchResult, FetchStatus
+from siqva.qc import get_mode_description, get_qc_filter_description
+from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
 
 FIXTURE_PATH = Path("tests/fixtures/sample_argo_standard.parquet")
 
