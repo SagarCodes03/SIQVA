@@ -1,13 +1,13 @@
-"""Unit tests for argocard.pipeline module."""
+"""Unit tests for siqva.pipeline module."""
 
 from datetime import date
 from pathlib import Path
 import pandas as pd
 import pytest
 
-from argocard.fetcher import FetchMetadata, FetchResult, FetchStatus
-from argocard.pipeline import PipelineResult, PipelineStatus, run, run_spec
-from argocard.spec import (
+from siqva.fetcher import FetchMetadata, FetchResult, FetchStatus
+from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
+from siqva.spec import (
     BoundingBox,
     DataMode,
     DateRange,

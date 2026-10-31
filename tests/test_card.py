@@ -1,4 +1,4 @@
-"""Unit tests for argocard.card module (QueryCard, script generation, SQLite persistence, and diff re-run)."""
+"""Unit tests for siqva.card module (QueryCard, script generation, SQLite persistence, and diff re-run)."""
 
 import os
 import subprocess
@@ -9,8 +9,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from argocard.analyzer import analyze
-from argocard.card import (
+from siqva.analyzer import analyze
+from siqva.card import (
     DiffSummary,
     QueryCard,
     build_card,
@@ -20,14 +20,14 @@ from argocard.card import (
     rerun,
     save_card,
 )
-from argocard.fetcher import (
+from siqva.fetcher import (
     FetchMetadata,
     FetchResult,
     FetchStatus,
     compute_canonical_data_hash,
     fetch,
 )
-from argocard.spec import (
+from siqva.spec import (
     BoundingBox,
     DataMode,
     DateRange,

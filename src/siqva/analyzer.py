@@ -1,4 +1,4 @@
-"""Deterministic oceanographic data analysis and structured reporting for ArgoCard."""
+"""Deterministic oceanographic data analysis and structured reporting for SIQVA."""
 
 from __future__ import annotations
 

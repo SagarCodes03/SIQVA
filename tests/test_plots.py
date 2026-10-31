@@ -1,17 +1,17 @@
-"""Structural unit tests for argocard.plots module (Plotly visualizations and theme)."""
+"""Structural unit tests for siqva.plots module (Plotly visualizations and theme)."""
 
 from pathlib import Path
 import pandas as pd
 import pytest
 
-from argocard.plots import (
+from siqva.plots import (
     COLOR_AMBER,
     THEME_BG,
     plot_depth_profile,
     plot_position_map,
     plot_ts_diagram,
 )
-from argocard.spec import Variable
+from siqva.spec import Variable
 
 FIXTURE_PATH = Path("tests/fixtures/sample_argo_standard.parquet")
 

@@ -4,7 +4,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from argocard.spec import (
+from siqva.spec import (
     BoundingBox,
     DataMode,
     DateRange,

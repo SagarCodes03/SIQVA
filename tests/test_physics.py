@@ -14,20 +14,20 @@ import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
-from argocard.physics import (
+from siqva.physics import (
     ACOUSTIC_DISCLAIMER,
     CYCLONE_TCHP_DISCLAIMER,
     THERMOCLINE_DISCLAIMER,
     build_feature_context,
     compute_new_features,
 )
-from argocard.plots import (
+from siqva.plots import (
     plot_acoustic_profile,
     plot_cyclone_tchp,
     plot_thermocline_and_barrier,
 )
-from argocard.rules_parser import parse_rules
-from argocard.spec import Intent, Variable
+from siqva.rules_parser import parse_rules
+from siqva.spec import Intent, Variable
 
 
 def test_1_bay_of_bengal_inversion_and_barrier_layer():

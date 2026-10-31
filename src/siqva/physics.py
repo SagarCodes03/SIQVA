@@ -1,4 +1,4 @@
-"""Deterministic TEOS-10 Ocean Physics Engine for ArgoCard.
+"""Deterministic TEOS-10 Ocean Physics Engine for SIQVA.
 
 Computes Mixed Layer Depth (MLD), Isothermal Layer Depth (ILD), Barrier Layer Thickness (BLT),
 Z20 Thermocline Proxy, Tropical Cyclone Heat Potential (TCHP, Z26), and TEOS-10 Acoustic Properties
@@ -10,7 +10,10 @@ Strictly deterministic, zero LLM reliance.
 from __future__ import annotations
 
 from typing import Any, Optional
-import gsw
+try:
+    import gsw
+except ImportError:
+    gsw = None
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field
@@ -149,6 +152,9 @@ def compute_new_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list[ProfilePh
     """
     if df is None or df.empty:
         return df if df is not None else pd.DataFrame(), []
+
+    if gsw is None:
+        raise ImportError("The 'gsw' (Gibbs SeaWater TEOS-10) package is required for ocean physics features. Please install it with: pip install gsw")
 
     df = _normalize_column_names(df)
 

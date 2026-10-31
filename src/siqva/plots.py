@@ -1,9 +1,12 @@
-"""Plotly visualization templates for ArgoCard following the Deep Ocean dark theme."""
+"""Plotly visualization templates for SIQVA following the Deep Ocean dark theme."""
 
 from __future__ import annotations
 
 from typing import Any, Optional
-import gsw
+try:
+    import gsw
+except ImportError:
+    gsw = None
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go

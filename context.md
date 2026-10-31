@@ -1,13 +1,13 @@
-# ArgoCard (FloatChat-R) / SIQVA — TEOS-10 Ocean Physics Architecture & Context
+# SIQVA (formerly SIQVA / SIQVA) — TEOS-10 Ocean Physics Architecture & Context
 
 > **Source of Truth & Reference Guide**  
-> This file records the complete architecture, implementation details, scientific methodology, test coverage, and validation instructions for the ArgoCard (FloatChat-R) / SIQVA platform following the integration of the TEOS-10 Ocean Physics features.
+> This file records the complete architecture, implementation details, scientific methodology, test coverage, and validation instructions for the SIQVA (formerly SIQVA / SIQVA) platform following the integration of the TEOS-10 Ocean Physics features.
 
 ---
 
 ## 1. Project Overview & Hard Scientific Rules
 
-ArgoCard turns natural-language oceanographic questions into validated, QC-explicit **query specifications**, fetches real Argo float observations via established tools (`argopy`), computes deterministic thermodynamic and acoustic quantities via TEOS-10 (`gsw`), generates interactive dark-themed Plotly visualizations, and packages reproducible **query cards**.
+SIQVA turns natural-language oceanographic questions into validated, QC-explicit **query specifications**, fetches real Argo float observations via established tools (`argopy`), computes deterministic thermodynamic and acoustic quantities via TEOS-10 (`gsw`), generates interactive dark-themed Plotly visualizations, and packages reproducible **query cards**.
 
 ### Non-Negotiable Hard Rules (from `AGENTS.md`)
 1. **The LLM never sees raw data values.** It only converts questions into a constrained query spec.
@@ -17,7 +17,7 @@ ArgoCard turns natural-language oceanographic questions into validated, QC-expli
 
 ---
 
-## 2. Integrated TEOS-10 Ocean Physics Engine (`src/argocard/physics.py`)
+## 2. Integrated TEOS-10 Ocean Physics Engine (`src/siqva/physics.py`)
 
 The physics engine computes standardized oceanographic and acoustic metrics according to internationally recognized oceanographic definitions:
 
@@ -54,7 +54,7 @@ The physics engine computes standardized oceanographic and acoustic metrics acco
 Streamlit UI (app/ui.py)
    │
    ▼
-Pipeline (src/argocard/pipeline.py)
+Pipeline (src/siqva/pipeline.py)
    │
    ├── Parser (rules_parser.py -> Intent, BoundingBox, DateRange, Variables, Mode)
    ├── Validator (validator.py -> geographic bounds, date order, cost limit)
@@ -67,12 +67,12 @@ Pipeline (src/argocard/pipeline.py)
 ```
 
 ### Key Files Modified & Created:
-- **`src/argocard/spec.py`**: Added `Intent.THERMOCLINE`, `Intent.TCHP`, `Intent.ACOUSTIC`. Added `ensure_physics_variables` validator ensuring `TEMP`, `PSAL`, and `PRES` are automatically populated.
-- **`src/argocard/rules_parser.py`**: Added rule-based extraction for physics intents, handling profile keyword overlap and auto-injecting physical variables.
-- **`src/argocard/physics.py`**: Deterministic TEOS-10 physics module (`compute_new_features`, `ProfilePhysicsSummary`, `build_feature_context`, disclaimers).
-- **`src/argocard/analyzer.py`**: Extended `AnalysisResult` with `physics_summaries` and `summary_markdown`. Injected dataset-wide physics statistics, per-profile markdown tables, and mandatory scientific methodology notes.
-- **`src/argocard/plots.py`**: Added `plot_thermocline_and_barrier`, `plot_cyclone_tchp`, and `plot_acoustic_profile` styled under the Deep Ocean dark theme.
-- **`src/argocard/pipeline.py`**: Populates `figures["thermocline"]`, `figures["tchp"]`, and `figures["acoustic"]` whenever physics summaries are computed.
+- **`src/siqva/spec.py`**: Added `Intent.THERMOCLINE`, `Intent.TCHP`, `Intent.ACOUSTIC`. Added `ensure_physics_variables` validator ensuring `TEMP`, `PSAL`, and `PRES` are automatically populated.
+- **`src/siqva/rules_parser.py`**: Added rule-based extraction for physics intents, handling profile keyword overlap and auto-injecting physical variables.
+- **`src/siqva/physics.py`**: Deterministic TEOS-10 physics module (`compute_new_features`, `ProfilePhysicsSummary`, `build_feature_context`, disclaimers).
+- **`src/siqva/analyzer.py`**: Extended `AnalysisResult` with `physics_summaries` and `summary_markdown`. Injected dataset-wide physics statistics, per-profile markdown tables, and mandatory scientific methodology notes.
+- **`src/siqva/plots.py`**: Added `plot_thermocline_and_barrier`, `plot_cyclone_tchp`, and `plot_acoustic_profile` styled under the Deep Ocean dark theme.
+- **`src/siqva/pipeline.py`**: Populates `figures["thermocline"]`, `figures["tchp"]`, and `figures["acoustic"]` whenever physics summaries are computed.
 - **`app/ui.py`**: Extended Streamlit UI with new sample queries, visualization charts, and interactive TEOS-10 profile metrics table in the summary tab.
 - **`tests/test_physics.py`**: Verification test suite with synthetic physical profiles and live argopy smoke test.
 

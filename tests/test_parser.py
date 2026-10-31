@@ -1,11 +1,11 @@
-"""Unit tests for argocard.parser module (hybrid rules + LLM fallback + validation)."""
+"""Unit tests for siqva.parser module (hybrid rules + LLM fallback + validation)."""
 
 from datetime import date
 from unittest.mock import MagicMock
 import pytest
 
-from argocard.parser import ClarificationNeeded, ParseOutcome, parse, parse_detailed
-from argocard.spec import DataMode, DepthRange, Intent, QuerySpec, Variable
+from siqva.parser import ClarificationNeeded, ParseOutcome, parse, parse_detailed
+from siqva.spec import DataMode, DepthRange, Intent, QuerySpec, Variable
 
 
 class FakeChatResponse:

@@ -1,11 +1,11 @@
-"""Unit tests for argocard.llm_parser module using mock/fake clients."""
+"""Unit tests for siqva.llm_parser module using mock/fake clients."""
 
 import os
 from datetime import date
 from unittest.mock import MagicMock
 import pytest
 
-from argocard.llm_parser import (
+from siqva.llm_parser import (
     DEFAULT_MODEL,
     INTENT_SCHEMA,
     VARIABLES_SCHEMA,
@@ -17,7 +17,7 @@ from argocard.llm_parser import (
     extract_region_name_llm,
     extract_variables_llm,
 )
-from argocard.spec import DepthRange, Intent, Variable
+from siqva.spec import DepthRange, Intent, Variable
 
 
 class FakeChatResponse:
