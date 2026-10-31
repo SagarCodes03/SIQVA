@@ -43,16 +43,44 @@ class LLMClient(Protocol):
         ...
 
 
+import time
+
+_LAST_UNAVAILABLE_TIMESTAMP: Optional[float] = None
+UNAVAILABLE_CACHE_TTL_SECONDS: float = 30.0
+
+
+def reset_availability_cache() -> None:
+    """Reset cached unavailable status (used by tests)."""
+    global _LAST_UNAVAILABLE_TIMESTAMP
+    _LAST_UNAVAILABLE_TIMESTAMP = None
+
+
 class OllamaClient:
     """Default client wrapping the official ollama Python package."""
 
-    def __init__(self, host: Optional[str] = None) -> None:
+    def __init__(self, host: Optional[str] = None, timeout: float = 2.0) -> None:
+        self.host = host
+        self.timeout = timeout
         try:
             import ollama
 
-            self._client = ollama.Client(host=host) if host else ollama
+            self._client = ollama.Client(host=host, timeout=timeout)
         except ImportError:
             self._client = None
+
+    def is_available(self, timeout: float = 1.5) -> bool:
+        """Fast check (1-2s) to determine if Ollama daemon is reachable."""
+        if self._client is None:
+            return False
+        try:
+            import ollama
+
+            check_client = ollama.Client(host=self.host, timeout=timeout)
+            check_client.list()
+            return True
+        except Exception as e:
+            logger.info("Ollama availability check failed: %s", e)
+            return False
 
     def chat(
         self,
@@ -72,6 +100,43 @@ class OllamaClient:
             )
         except Exception as e:
             raise LLMUnavailableError(f"Ollama call failed: {e}") from e
+
+
+def check_llm_availability(client: Optional[Any] = None, timeout: float = 1.5) -> bool:
+    """Check if the LLM backend is available, caching negative results for 30s.
+
+    Returns True if available, False otherwise.
+    """
+    global _LAST_UNAVAILABLE_TIMESTAMP
+
+    now = time.monotonic()
+    if _LAST_UNAVAILABLE_TIMESTAMP is not None:
+        if now - _LAST_UNAVAILABLE_TIMESTAMP < UNAVAILABLE_CACHE_TTL_SECONDS:
+            logger.debug("Ollama availability cached as unavailable")
+            return False
+        _LAST_UNAVAILABLE_TIMESTAMP = None
+
+    if client is not None:
+        if hasattr(client, "is_available"):
+            try:
+                available = bool(client.is_available(timeout=timeout))
+            except TypeError:
+                available = bool(client.is_available())
+            except Exception as e:
+                logger.info("Custom LLM client availability check failed: %s", e)
+                available = False
+        else:
+            available = True
+    else:
+        ollama_client = OllamaClient()
+        available = ollama_client.is_available(timeout=timeout)
+
+    if not available:
+        _LAST_UNAVAILABLE_TIMESTAMP = now
+    else:
+        _LAST_UNAVAILABLE_TIMESTAMP = None
+
+    return available
 
 
 def _extract_content(response: Any) -> str:

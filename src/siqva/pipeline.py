@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date
 from enum import Enum
@@ -23,6 +24,8 @@ from .plots import (
     plot_ts_diagram,
 )
 from .spec import Intent, QuerySpec, Variable
+
+logger = logging.getLogger(__name__)
 
 
 class PipelineStatus(str, Enum):
@@ -51,6 +54,8 @@ class PipelineResult:
     card: Optional[QueryCard] = None
     script: Optional[str] = None
     error_message: Optional[str] = None
+    warning: Optional[str] = None
+    warnings: list[str] = field(default_factory=list)
 
     @property
     def is_success(self) -> bool:
@@ -154,10 +159,15 @@ def run_spec(
 
     # 3. Query card and script persistence
     card = build_card(spec, fetch_res, analysis)
-    if db_path is not None:
-        save_card(card, db_path=db_path)
-    else:
-        save_card(card)
+    warning_msg: Optional[str] = None
+    try:
+        if db_path is not None:
+            save_card(card, db_path=db_path)
+        else:
+            save_card(card)
+    except Exception as exc:
+        logger.error("Failed to save query card to history: %s", exc, exc_info=True)
+        warning_msg = "Result could not be saved to history"
 
     script = generate_script(card)
 
@@ -169,6 +179,8 @@ def run_spec(
         figures=figures,
         card=card,
         script=script,
+        warning=warning_msg,
+        warnings=[warning_msg] if warning_msg else [],
     )
 
 

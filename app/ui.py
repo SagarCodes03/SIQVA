@@ -6,6 +6,7 @@ and reproducible script generation under the Deep Ocean dark theme.
 
 from __future__ import annotations
 
+import html
 import json
 import sys
 from datetime import date, datetime
@@ -264,17 +265,37 @@ else:
 # =====================================================================
 # Helper: render pipeline results (shared by both pages)
 # =====================================================================
+def build_clarification_banner_html(message: str) -> str:
+    """Build sanitized HTML banner for clarification messages."""
+    safe_msg = html.escape(str(message))
+    return (
+        f'<div class="banner-warning">\n'
+        f'    <h4>⚠️ Clarification Required</h4>\n'
+        f'    <p>{safe_msg}</p>\n'
+        f'</div>'
+    )
+
+
+def build_graph_card_html(icon: str, title: str, desc: str) -> str:
+    """Build sanitized HTML for graph selector cards."""
+    safe_icon = html.escape(str(icon))
+    safe_title = html.escape(str(title))
+    safe_desc = html.escape(str(desc))
+    return (
+        f'<div class="graph-card">\n'
+        f'    <div class="graph-card-icon">{safe_icon}</div>\n'
+        f'    <div class="graph-card-title">{safe_title}</div>\n'
+        f'    <div class="graph-card-desc">{safe_desc}</div>\n'
+        f'</div>'
+    )
+
+
 def _render_pipeline_result(res: PipelineResult) -> None:
     """Render a PipelineResult with metrics, tabs, plots, stats, card, and script."""
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
         st.markdown(
-            f"""
-            <div class="banner-warning">
-                <h4>⚠️ Clarification Required</h4>
-                <p>{clarification.message}</p>
-            </div>
-            """,
+            build_clarification_banner_html(clarification.message),
             unsafe_allow_html=True,
         )
         if clarification.missing_fields:
@@ -297,6 +318,9 @@ def _render_pipeline_result(res: PipelineResult) -> None:
 
     if res.status != PipelineStatus.SUCCESS:
         return
+
+    if res.warning:
+        st.warning(f"⚠️ {res.warning}")
 
     # Summary Metrics Bar
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -527,13 +551,7 @@ elif page == "📊 Plot Graphs":
             with cols[col_idx]:
                 # Styled card button
                 st.markdown(
-                    f"""
-                    <div class="graph-card">
-                        <div class="graph-card-icon">{gt['icon']}</div>
-                        <div class="graph-card-title">{gt['title']}</div>
-                        <div class="graph-card-desc">{gt['desc']}</div>
-                    </div>
-                    """,
+                    build_graph_card_html(gt['icon'], gt['title'], gt['desc']),
                     unsafe_allow_html=True,
                 )
                 if st.button(f"Generate", key=f"btn_{gt['key']}", use_container_width=True):
