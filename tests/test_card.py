@@ -1,6 +1,8 @@
 """Unit tests for siqva.card module (QueryCard, script generation, SQLite persistence, and diff re-run)."""
 
 import os
+import json
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -14,12 +16,14 @@ from siqva.card import (
     DiffSummary,
     QueryCard,
     build_card,
+    format_history_label,
     generate_script,
     list_cards,
     load_card,
     rerun,
     save_card,
 )
+from siqva.gazetteer import KNOWN_REGIONS
 from siqva.fetcher import (
     FetchMetadata,
     FetchResult,
@@ -102,6 +106,22 @@ def test_build_card_contains_all_provenance_and_spec_fields(sample_spec, sample_
     assert card.created_at != ""
 
 
+def test_history_label_truncates_question_and_includes_date_and_region(sample_spec, sample_fetch_result):
+    north_atlantic_spec = sample_spec.model_copy(update={"region": KNOWN_REGIONS["North Atlantic"]})
+    card = build_card(
+        north_atlantic_spec,
+        sample_fetch_result,
+        question="Show temperature and salinity profiles in the North Atlantic during 2022",
+    )
+
+    label = format_history_label(card)
+
+    assert label.split(" \u00b7 ")[0].endswith("\u2026")
+    assert len(label.split(" \u00b7 ")[0]) <= 40
+    assert card.created_at[:10] in label
+    assert label.endswith("North Atlantic")
+
+
 def test_generate_script_compiles_cleanly_and_has_verified_format(sample_spec, sample_fetch_result):
     """Proves generate_script produces a valid Python script with verified box format and explicit mode."""
     card = build_card(sample_spec, sample_fetch_result)
@@ -163,6 +183,43 @@ def test_sqlite_persistence_save_load_list(tmp_path, sample_spec, sample_fetch_r
     cards = list_cards(limit=10, db_path=db_file)
     assert len(cards) == 2
     assert {c.card_id for c in cards} == {"card_001", "card_002"}
+
+
+def test_list_cards_deduplicates_identical_spec_and_mode_newest_first(
+    tmp_path, sample_spec, sample_fetch_result
+):
+    db_file = tmp_path / "cards.sqlite"
+    older = build_card(sample_spec, sample_fetch_result, card_id="older").model_copy(
+        update={"created_at": "2024-01-01T00:00:00Z"}
+    )
+    newer = build_card(sample_spec, sample_fetch_result, card_id="newer").model_copy(
+        update={"created_at": "2024-02-01T00:00:00Z"}
+    )
+    save_card(older, db_path=db_file)
+    save_card(newer, db_path=db_file)
+
+    cards = list_cards(limit=10, db_path=db_file)
+
+    assert [card.card_id for card in cards] == ["newer"]
+
+
+def test_old_card_without_question_uses_history_label_fallback(tmp_path, sample_spec, sample_fetch_result):
+    db_file = tmp_path / "cards.sqlite"
+    card = build_card(sample_spec, sample_fetch_result, card_id="old-card")
+    save_card(card, db_path=db_file)
+    old_payload = card.model_dump(mode="json")
+    old_payload.pop("question")
+    with sqlite3.connect(db_file) as conn:
+        conn.execute(
+            "UPDATE query_cards SET card_json = ? WHERE card_id = ?",
+            (json.dumps(old_payload), card.card_id),
+        )
+
+    old_card = load_card(card.card_id, db_path=db_file)
+
+    assert old_card is not None
+    assert old_card.question is None
+    assert format_history_label(old_card).startswith("Profile query \u00b7")
 
 
 def test_rerun_identical_data_summary(tmp_path, sample_spec, sample_fetch_result):
@@ -373,7 +430,7 @@ def test_sqlite_connections_closed_and_deletable(tmp_path, sample_spec, sample_f
 
     # Multiple consecutive lists
     cards = list_cards(limit=10, db_path=db_file)
-    assert len(cards) == 2
+    assert len(cards) == 1
 
     # Database file must be immediately deletable
     db_file.unlink()

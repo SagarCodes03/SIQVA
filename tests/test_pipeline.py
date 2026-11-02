@@ -73,6 +73,7 @@ def test_pipeline_run_spec_success(tmp_path, sample_spec, mock_fetch_result):
         sample_spec,
         fetcher_fn=lambda *a, **kw: mock_fetch_result,
         db_path=db_file,
+        question="Temperature and salinity profiles in the North Atlantic",
     )
 
     assert res.status == PipelineStatus.SUCCESS
@@ -80,6 +81,7 @@ def test_pipeline_run_spec_success(tmp_path, sample_spec, mock_fetch_result):
     assert res.spec == sample_spec
     assert res.analysis is not None
     assert res.card is not None
+    assert res.card.question == "Temperature and salinity profiles in the North Atlantic"
     assert res.script is not None
     assert "map" in res.figures
     assert "profile" in res.figures
