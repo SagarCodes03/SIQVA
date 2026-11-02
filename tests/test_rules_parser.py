@@ -3,7 +3,7 @@
 from datetime import date
 import pytest
 
-from siqva.gazetteer import KNOWN_REGIONS
+from siqva.gazetteer import KNOWN_REGIONS, RegionStatus
 from siqva.parser import ClarificationNeeded, parse
 from siqva.rules_parser import parse_rules
 from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, Variable
@@ -126,21 +126,27 @@ def test_q13_ambiguous_region():
     q = "Map of floats in the Sea for 2022"
     res = parse_rules(q, today=REF_DATE)
     assert res.region is None
-    assert any("region" in a for a in res.ambiguous)
+    assert res.region_resolution is not None
+    assert res.region_resolution.status == RegionStatus.AMBIGUOUS
+    assert res.region_resolution.candidates == ["Arabian Sea", "Mediterranean Sea"]
 
 
 def test_q14_unsupported_region_north_pacific():
     q = "Show temperature profiles in the North Pacific for March 2023"
     res = parse_rules(q, today=REF_DATE)
     assert res.region is None
-    assert "region" in res.missing
+    assert res.region_resolution is not None
+    assert res.region_resolution.status == RegionStatus.UNKNOWN
+    assert res.region_resolution.query == "North Pacific"
 
 
 def test_q15_unsupported_region_red_sea():
     q = "Salinity observations in the Red Sea over the last 30 days"
     res = parse_rules(q, today=REF_DATE)
     assert res.region is None
-    assert "region" in res.missing
+    assert res.region_resolution is not None
+    assert res.region_resolution.status == RegionStatus.UNKNOWN
+    assert res.region_resolution.query == "Red Sea"
 
 
 def test_q16_coordinate_string_south_north():

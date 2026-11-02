@@ -19,7 +19,7 @@ from typing import Any, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .gazetteer import RegionStatus, resolve_region
+from .gazetteer import KNOWN_REGIONS, RegionStatus, resolve_region
 from .llm_parser import (
     DEFAULT_MODEL,
     check_llm_availability,
@@ -113,8 +113,23 @@ def parse_detailed(
     # 2. Region resolution
     region: Optional[BoundingBox] = rules_res.region
     region_name: Optional[str] = rules_res.region_name
+    region_issue = rules_res.region_resolution
     if region is not None:
         provenance["region"] = "rules"
+    elif region_issue is not None:
+        if region_issue.status == RegionStatus.AMBIGUOUS:
+            ambiguous_fields.append("region")
+            candidates = ", ".join(region_issue.candidates)
+            suggestions.append(
+                f"The region '{region_issue.query}' is ambiguous. Candidates: {candidates}. "
+                "Please choose one region or provide coordinates."
+            )
+        else:
+            supported = ", ".join(KNOWN_REGIONS)
+            suggestions.append(
+                f"The mentioned region '{region_issue.query}' is not supported. "
+                f"Supported regions: {supported}. Or provide coordinates."
+            )
     else:
         # Check if rules captured a candidate name
         if rules_res.region_name:
@@ -136,7 +151,10 @@ def parse_detailed(
 
         if region is None:
             missing_fields.append("region")
-            suggestions.append("Please specify an ocean region (e.g. 'Arabian Sea', 'North Atlantic') or coordinates.")
+            suggestions.append(
+                "No region was mentioned. Please specify an ocean region "
+                "(e.g. 'Arabian Sea', 'North Atlantic') or coordinates."
+            )
 
     # 3. Date range resolution
     date_range: Optional[DateRange] = rules_res.date_range

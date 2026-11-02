@@ -82,6 +82,27 @@ def test_parse_missing_region_asks_clarification():
 
     assert isinstance(res, ClarificationNeeded)
     assert "region" in res.missing_fields
+    assert "no region was mentioned" in res.message.lower()
+
+
+def test_parse_unsupported_region_lists_supported_names_without_guessing():
+    res = parse("salinity profiles in the South Atlantic in 2021", allow_llm=False)
+
+    assert isinstance(res, ClarificationNeeded)
+    assert "not supported" in res.message.lower()
+    assert "South Atlantic" in res.message
+    assert "Arabian Sea" in res.message
+    assert "Mediterranean Sea" in res.message
+
+
+def test_parse_ambiguous_region_lists_candidates_without_guessing():
+    res = parse("temperature profiles in the Sea in 2021", allow_llm=False)
+
+    assert isinstance(res, ClarificationNeeded)
+    assert "region" in res.ambiguous_fields
+    assert "ambiguous" in res.message.lower()
+    assert "Arabian Sea" in res.message
+    assert "Mediterranean Sea" in res.message
 
 
 def test_parse_oversized_query_returns_suggestion():

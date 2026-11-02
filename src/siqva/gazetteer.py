@@ -6,7 +6,7 @@ import re
 from enum import Enum
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from rapidfuzz import fuzz
 
 from .spec import BoundingBox
@@ -30,6 +30,8 @@ class RegionResolution(BaseModel):
     bbox: Optional[BoundingBox] = None
     score: float
     clarification_request: Optional[str] = None
+    query: Optional[str] = None
+    candidates: list[str] = Field(default_factory=list)
 
 
 # Approximate bounding boxes for standard oceanographic areas.
@@ -252,6 +254,7 @@ def resolve_region(
             bbox=None,
             score=0.0,
             clarification_request=f"No region specified. Please specify one of: {available}, or provide coordinates.",
+            query=raw_text,
         )
 
     # 1. Look for coordinate strings
@@ -280,6 +283,7 @@ def resolve_region(
                 f"Unknown region '{raw_text}'. Supported regions are: {available}. "
                 "Or specify coordinates like '10N-20N, 60E-70E'."
             ),
+            query=raw_text,
         )
 
     # 2. Exact or Alias match
@@ -318,6 +322,8 @@ def resolve_region(
                 f"Ambiguous region '{raw_text}'. Did you mean {candidates_str}? "
                 "Please clarify your requested region."
             ),
+            query=raw_text,
+            candidates=["Arabian Sea", "Mediterranean Sea"],
         )
 
     region_scores: dict[str, float] = {}
@@ -337,6 +343,7 @@ def resolve_region(
                 f"Unknown region '{raw_text}'. Supported regions are: {available}. "
                 "Or specify coordinates like '10N-20N, 60E-70E'."
             ),
+            query=raw_text,
         )
 
     ranked = sorted(region_scores.items(), key=lambda item: item[1], reverse=True)
@@ -352,6 +359,7 @@ def resolve_region(
                 f"Unknown region '{raw_text}'. Supported regions are: {available}. "
                 "Or specify coordinates like '10N-20N, 60E-70E'."
             ),
+            query=raw_text,
         )
 
     # Check for ambiguous close matches
@@ -372,6 +380,8 @@ def resolve_region(
                 f"Ambiguous region '{raw_text}'. Did you mean {candidates_str}? "
                 "Please clarify your requested region."
             ),
+            query=raw_text,
+            candidates=close_matches,
         )
 
     # Unambiguous winner above threshold

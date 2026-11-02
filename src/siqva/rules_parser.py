@@ -28,6 +28,7 @@ class RulesParseResult(BaseModel):
 
     region: Optional[BoundingBox] = None
     region_name: Optional[str] = None
+    region_resolution: Optional[RegionResolution] = None
     date_range: Optional[DateRange] = None
     variables: Optional[list[Variable]] = None
     depth_range: Optional[DepthRange] = None
@@ -89,11 +90,13 @@ def _strip_prepositions(text: str) -> str:
     return " ".join(tokens)
 
 
-def _extract_region(question: str) -> tuple[Optional[BoundingBox], Optional[str], Optional[str]]:
+def _extract_region(
+    question: str,
+) -> tuple[Optional[BoundingBox], Optional[str], Optional[RegionResolution]]:
     """Scan the sentence for coordinate strings first, then n-gram windows.
 
     Returns:
-        (bbox, region_name, ambiguous_note)
+        (bbox, region_name, unresolved_region)
     """
     # 1. Scan for coordinates first across full string
     coord_res = resolve_region(question)
@@ -123,6 +126,7 @@ def _extract_region(question: str) -> tuple[Optional[BoundingBox], Optional[str]
 
     matches: list[tuple[int, float, RegionResolution, str]] = []
     ambiguous_matches: list[RegionResolution] = []
+    unknown_matches: list[tuple[bool, int, RegionResolution]] = []
     seen_windows: set[str] = set()
 
     # Check n-grams from length 5 down to 1
@@ -149,6 +153,11 @@ def _extract_region(question: str) -> tuple[Optional[BoundingBox], Optional[str]
                 matches.append((len(cleaned.split()), res.score, res, cleaned))
             elif res.status == RegionStatus.AMBIGUOUS:
                 ambiguous_matches.append(res)
+            elif res.status == RegionStatus.UNKNOWN:
+                cleaned_words = set(re.findall(r"\b[a-zA-Z]+\b", cleaned.lower()))
+                if cleaned_words & (_OCEAN_WORDS | {"sea", "ocean", "bay"}):
+                    is_composite = (i, i + n - 1) in composite_spans
+                    unknown_matches.append((is_composite, len(cleaned.split()), res))
 
     if matches:
         # Sort by window token length (descending) then similarity score (descending)
@@ -157,7 +166,11 @@ def _extract_region(question: str) -> tuple[Optional[BoundingBox], Optional[str]
         return best_res.bbox, best_res.region_name, None
 
     if ambiguous_matches:
-        return None, None, ambiguous_matches[0].clarification_request
+        return None, None, ambiguous_matches[0]
+
+    if unknown_matches:
+        unknown_matches.sort(key=lambda match: (match[0], -match[1]), reverse=True)
+        return None, None, unknown_matches[0][2]
 
     return None, None, None
 
@@ -517,10 +530,8 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
     ambiguous: list[str] = []
 
     # 1. Region
-    bbox, region_name, reg_amb = _extract_region(question)
-    if reg_amb:
-        ambiguous.append(f"region ({reg_amb})")
-    elif bbox is None:
+    bbox, region_name, region_resolution = _extract_region(question)
+    if bbox is None and region_resolution is None:
         missing.append("region")
 
     # 2. Date range
@@ -593,6 +604,7 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
     return RulesParseResult(
         region=bbox,
         region_name=region_name,
+        region_resolution=region_resolution,
         date_range=date_range,
         variables=variables,
         depth_range=depth_range,
