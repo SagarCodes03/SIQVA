@@ -25,6 +25,7 @@ from .fetcher import (
 )
 from .qc import get_qc_filter_description
 from .spec import DataMode, DepthRange, QuerySpec
+from .gazetteer import KNOWN_REGIONS
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "cards.sqlite"
@@ -62,6 +63,7 @@ class QueryCard(BaseModel):
     profile_count_verified: bool
     data_hash: str
     created_at: str
+    question: Optional[str] = None
 
 
 class DiffSummary(BaseModel):
@@ -91,6 +93,7 @@ def build_card(
     fetch_result: FetchResult,
     analysis: Optional[AnalysisResult] = None,
     card_id: Optional[str] = None,
+    question: Optional[str] = None,
 ) -> QueryCard:
     """Build an immutable QueryCard from a spec, fetch result, and optional analysis."""
     meta = fetch_result.metadata
@@ -141,7 +144,21 @@ def build_card(
         profile_count_verified=fetch_result.profile_count_verified,
         data_hash=d_hash,
         created_at=created_at,
+        question=question,
     )
+
+
+def format_history_label(card: QueryCard, max_question_length: int = 40) -> str:
+    """Return a concise, deterministic sidebar label for a stored query card."""
+    question = (card.question or "").strip() or f"{card.spec.intent.value.title()} query"
+    if len(question) > max_question_length:
+        question = f"{question[: max_question_length - 1].rstrip()}\u2026"
+
+    region_name = next(
+        (name for name, bbox in KNOWN_REGIONS.items() if bbox == card.spec.region),
+        "custom coordinates",
+    )
+    return f"{question} \u00b7 {card.created_at[:10]} \u00b7 {region_name}"
 
 
 def generate_script(card: QueryCard) -> str:
@@ -267,19 +284,27 @@ def load_card(card_id: str, db_path: Path | str = DEFAULT_DB_PATH) -> Optional[Q
 
 
 def list_cards(limit: int = 50, db_path: Path | str = DEFAULT_DB_PATH) -> list[QueryCard]:
-    """List recent stored QueryCards ordered by creation date descending."""
+    """List newest cards, with one entry for each spec-hash and mode pair."""
     path = _resolve_db_path(db_path)
     if not path.exists():
         return []
 
     with closing(sqlite3.connect(path)) as conn:
         _init_db(conn)
-        cursor = conn.execute(
-            "SELECT card_json FROM query_cards ORDER BY created_at DESC LIMIT ?",
-            (limit,),
-        )
+        cursor = conn.execute("SELECT card_json FROM query_cards ORDER BY created_at DESC")
         rows = cursor.fetchall()
-        return [QueryCard.model_validate_json(r[0]) for r in rows]
+        cards: list[QueryCard] = []
+        seen: set[tuple[str, DataMode]] = set()
+        for row in rows:
+            card = QueryCard.model_validate_json(row[0])
+            dedupe_key = (card.spec_hash, card.mode)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            cards.append(card)
+            if len(cards) == limit:
+                break
+        return cards
 
 
 # ==============================================================================

@@ -3,7 +3,8 @@
 from datetime import date
 import pytest
 
-from siqva.gazetteer import KNOWN_REGIONS
+from siqva.gazetteer import KNOWN_REGIONS, RegionStatus
+from siqva.parser import ClarificationNeeded, parse
 from siqva.rules_parser import parse_rules
 from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, Variable
 
@@ -125,21 +126,27 @@ def test_q13_ambiguous_region():
     q = "Map of floats in the Sea for 2022"
     res = parse_rules(q, today=REF_DATE)
     assert res.region is None
-    assert any("region" in a for a in res.ambiguous)
+    assert res.region_resolution is not None
+    assert res.region_resolution.status == RegionStatus.AMBIGUOUS
+    assert res.region_resolution.candidates == ["Arabian Sea", "Mediterranean Sea"]
 
 
 def test_q14_unsupported_region_north_pacific():
     q = "Show temperature profiles in the North Pacific for March 2023"
     res = parse_rules(q, today=REF_DATE)
     assert res.region is None
-    assert "region" in res.missing
+    assert res.region_resolution is not None
+    assert res.region_resolution.status == RegionStatus.UNKNOWN
+    assert res.region_resolution.query == "North Pacific"
 
 
 def test_q15_unsupported_region_red_sea():
     q = "Salinity observations in the Red Sea over the last 30 days"
     res = parse_rules(q, today=REF_DATE)
     assert res.region is None
-    assert "region" in res.missing
+    assert res.region_resolution is not None
+    assert res.region_resolution.status == RegionStatus.UNKNOWN
+    assert res.region_resolution.query == "Red Sea"
 
 
 def test_q16_coordinate_string_south_north():
@@ -350,5 +357,56 @@ def test_requirement_5_ambiguous_dates_not_guessed():
     res_no_date = parse_rules("Temperature profiles in Arabian Sea", today=REF_DATE)
     assert res_no_date.date_range is None
     assert "date_range" in res_no_date.missing
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["all of 2022", "the whole of 2022", "during 2022", "in 2022", "year 2022"],
+)
+def test_whole_year_phrases_resolve_to_calendar_year(phrase: str):
+    res = parse_rules(f"Temperature profiles in Arabian Sea {phrase}", today=REF_DATE)
+    assert res.date_range == DateRange(start=date(2022, 1, 1), end=date(2022, 12, 31))
+
+
+@pytest.mark.parametrize(
+    "phrase",
+    ["2024-2025", "2024 to 2025", "from 2024 to 2025", "between 2024 and 2025"],
+)
+def test_multi_year_phrases_resolve_to_full_calendar_years(phrase: str):
+    today = date(2026, 1, 1)
+    res = parse_rules(f"Temperature profiles in Arabian Sea {phrase}", today=today)
+    assert res.date_range == DateRange(start=date(2024, 1, 1), end=date(2025, 12, 31))
+
+
+def test_month_range_with_shared_year_resolves():
+    res = parse_rules("Temperature profiles in Arabian Sea Jan to March 2022", today=REF_DATE)
+    assert res.date_range == DateRange(start=date(2022, 1, 1), end=date(2022, 3, 31))
+
+
+def test_unconnected_different_months_require_clarification():
+    res = parse(
+        "Temperature profiles in Arabian Sea April March 2025",
+        today=date(2026, 1, 1),
+        allow_llm=False,
+    )
+    assert isinstance(res, ClarificationNeeded)
+    assert "date_range" in res.ambiguous_fields
+    assert "april" in res.message.lower()
+    assert "march" in res.message.lower()
+
+
+def test_future_ending_range_is_rejected_without_clipping():
+    today = date(2024, 6, 15)
+    res = parse_rules("Temperature profiles in Arabian Sea from 2024 to 2025", today=today)
+    assert res.date_range is None
+    assert any("ends in the future" in item for item in res.ambiguous)
+
+    outcome = parse(
+        "Temperature profiles in Arabian Sea from 2024 to 2025",
+        today=today,
+        allow_llm=False,
+    )
+    assert isinstance(outcome, ClarificationNeeded)
+    assert "ends in the future" in outcome.message
 
 

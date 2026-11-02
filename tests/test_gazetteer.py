@@ -141,6 +141,7 @@ def test_ambiguous_inputs(ambiguous_input: str):
     assert res.clarification_request is not None
     assert "Ambiguous region" in res.clarification_request
     assert "Please clarify" in res.clarification_request
+    assert res.candidates == ["Arabian Sea", "Mediterranean Sea"]
 
 
 # 7. Other unknown inputs (score below threshold -> must not guess bbox)

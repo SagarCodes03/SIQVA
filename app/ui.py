@@ -21,9 +21,18 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from siqva.analyzer import AnalysisResult
-from siqva.card import DiffSummary, QueryCard, generate_script, list_cards, load_card, rerun
+from siqva.card import (
+    DiffSummary,
+    QueryCard,
+    format_history_label,
+    generate_script,
+    list_cards,
+    load_card,
+    rerun,
+)
 from siqva.fetcher import FetchResult, FetchStatus
 from siqva.gazetteer import KNOWN_REGIONS
+from siqva.interpretation import format_understood_as
 from siqva.parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
 from siqva.spec import (
@@ -693,6 +702,14 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
 
 def _render_pipeline_result(res: PipelineResult) -> None:
     """Render a PipelineResult with metrics, tabs, plots, stats, card, and script (Zero Emojis)."""
+    if res.parse_outcome is not None:
+        st.caption(
+            format_understood_as(
+                res.parse_outcome.understood,
+                res.parse_outcome.provenance,
+            )
+        )
+
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
         st.markdown(
@@ -931,9 +948,9 @@ with st.sidebar:
         recent_cards = []
 
     if recent_cards:
-        for idx, c in enumerate(recent_cards, start=1):
+        for c in recent_cards:
             if st.button(
-                f"• history-{idx} [{c.card_id[:6]} | {c.mode.value}]",
+                format_history_label(c),
                 key=f"hist_{c.card_id}",
                 use_container_width=True,
             ):
@@ -1010,7 +1027,11 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
             with st.spinner("FETCHING FLOAT PROFILE..."):
                 res = run(question=nl, force_refresh=False)
                 if res.spec and res.spec.mode == DataMode.RESEARCH and float_mode != "research":
-                    res = run_spec(res.spec.model_copy(update={"mode": DataMode(float_mode)}), force_refresh=False)
+                    res = run_spec(
+                        res.spec.model_copy(update={"mode": DataMode(float_mode)}),
+                        force_refresh=False,
+                        question=nl,
+                    )
                 st.session_state["active_plot_res"] = res
                 st.session_state["active_plot_title"] = gt_def["title"]
                 st.rerun()
@@ -1023,17 +1044,12 @@ if st.session_state["active_page"] == "query":
     if st.session_state.get("loaded_card_id"):
         card = load_card(st.session_state["loaded_card_id"])
         if card:
-            with st.spinner("RESTORING HISTORICAL SESSION DATA..."):
-                try:
-                    loaded_res = run_spec(card.spec, force_refresh=False)
-                    st.session_state["pipeline_res"] = loaded_res
-                except Exception:
-                    st.session_state["pipeline_res"] = PipelineResult(
-                        status=PipelineStatus.SUCCESS,
-                        spec=card.spec,
-                        card=card,
-                        script=generate_script(card),
-                    )
+            st.session_state["pipeline_res"] = PipelineResult(
+                status=PipelineStatus.SUCCESS,
+                spec=card.spec,
+                card=card,
+                script=generate_script(card),
+            )
         st.session_state["loaded_card_id"] = None
 
     # Top-Left Aligned Header Bar (flush near sidebar)
@@ -1086,6 +1102,7 @@ if st.session_state["active_page"] == "query":
                     pipeline_res = run_spec(
                         pipeline_res.spec.model_copy(update={"mode": DataMode(st.session_state["delivery_mode"])}),
                         force_refresh=False,
+                        question=user_question.strip(),
                     )
                 st.session_state["pipeline_res"] = pipeline_res
                 st.rerun()

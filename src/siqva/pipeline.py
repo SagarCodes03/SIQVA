@@ -68,6 +68,7 @@ def run_spec(
     force_refresh: bool = False,
     db_path: Optional[Path] = None,
     fetcher_fn: Any = fetch,
+    question: Optional[str] = None,
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
@@ -158,7 +159,7 @@ def run_spec(
                 pass
 
     # 3. Query card and script persistence
-    card = build_card(spec, fetch_res, analysis)
+    card = build_card(spec, fetch_res, analysis, question=question)
     warning_msg: Optional[str] = None
     try:
         if db_path is not None:
@@ -216,6 +217,7 @@ def run(
         cache_dir=cache_dir,
         force_refresh=force_refresh,
         db_path=db_path,
+        question=question,
         **kwargs,
     )
     res.question = question
