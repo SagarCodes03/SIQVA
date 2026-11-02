@@ -126,6 +126,9 @@ def parse_detailed(
         provenance["date_range"] = "rules"
     elif "date_range" in ambiguous_fields:
         # Never guess ambiguous relative dates ("March" without year, "recent", "last month")
+        suggestions.extend(
+            item for item in rules_res.ambiguous if item.startswith("date_range")
+        )
         suggestions.append(
             "Date is ambiguous or missing a year. Please specify an exact year or date range (e.g. 'March 2022' or '2022-01-01 to 2022-01-15')."
         )

@@ -162,10 +162,23 @@ def _extract_region(question: str) -> tuple[Optional[BoundingBox], Optional[str]
     return None, None, None
 
 
-def _extract_date_range(text: str, today: date) -> Optional[DateRange]:
-    """Extract date range using regex patterns and dateparser relative calculations."""
+def _extract_date_range(text: str, today: date) -> tuple[Optional[DateRange], Optional[str]]:
+    """Extract a date range and a clarification note for rejected ranges.
+
+    Ranges that end after ``today`` are rejected rather than silently clipped.
+    """
     base_dt = datetime(today.year, today.month, today.day)
     settings = {"RELATIVE_BASE": base_dt, "PREFER_DAY_OF_MONTH": "first"}
+
+    def accepted(date_range: DateRange) -> tuple[Optional[DateRange], Optional[str]]:
+        if date_range.end > today:
+            return (
+                None,
+                "date_range (requested range ends in the future: "
+                f"{date_range.end.isoformat()}; choose an end date on or before "
+                f"{today.isoformat()})",
+            )
+        return date_range, None
 
     # 1. 'last N days/weeks/months/years' or 'past N ...'
     m_rel = re.search(r"\b(?:last|past)\s+(\d+)\s+(day|week|month|year)s?\b", text, re.IGNORECASE)
@@ -173,7 +186,7 @@ def _extract_date_range(text: str, today: date) -> Optional[DateRange]:
         num, unit = int(m_rel.group(1)), m_rel.group(2).lower()
         dt_start = dateparser.parse(f"{num} {unit}s ago", settings=settings)
         if dt_start:
-            return DateRange(start=dt_start.date(), end=today)
+            return accepted(DateRange(start=dt_start.date(), end=today))
 
     # 2. 'since <date>'
     m_since = re.search(
@@ -184,7 +197,7 @@ def _extract_date_range(text: str, today: date) -> Optional[DateRange]:
     if m_since:
         dt_start = dateparser.parse(m_since.group(1), settings=settings)
         if dt_start:
-            return DateRange(start=dt_start.date(), end=today)
+            return accepted(DateRange(start=dt_start.date(), end=today))
 
     # 3. YYYY-YYYY or YYYY to YYYY or between YYYY and YYYY
     m_yrange = re.search(
@@ -194,7 +207,9 @@ def _extract_date_range(text: str, today: date) -> Optional[DateRange]:
     )
     if m_yrange:
         y1, y2 = int(m_yrange.group(1)), int(m_yrange.group(2))
-        return DateRange(start=date(min(y1, y2), 1, 1), end=date(max(y1, y2), 12, 31))
+        return accepted(
+            DateRange(start=date(min(y1, y2), 1, 1), end=date(max(y1, y2), 12, 31))
+        )
 
     # 4. Explicit ISO date range: YYYY-MM-DD to YYYY-MM-DD
     m_iso = re.search(
@@ -205,24 +220,46 @@ def _extract_date_range(text: str, today: date) -> Optional[DateRange]:
     if m_iso:
         d1 = datetime.strptime(m_iso.group(1), "%Y-%m-%d").date()
         d2 = datetime.strptime(m_iso.group(2), "%Y-%m-%d").date()
-        return DateRange(start=min(d1, d2), end=max(d1, d2))
+        return accepted(DateRange(start=min(d1, d2), end=max(d1, d2)))
 
-    # 5. Month Year: e.g. 'March 2023'
+    # 5. Month-to-month range in one year: e.g. 'Jan to March 2022'.
+    m_month_range = re.search(
+        rf"\b({_MONTHS_PATTERN})\s*(?:to|-|through|until)\s*({_MONTHS_PATTERN})\s+"
+        r"(20\d{2}|19\d{2})\b",
+        text,
+        re.IGNORECASE,
+    )
+    if m_month_range:
+        start_month = dateparser.parse(m_month_range.group(1), settings=settings)
+        end_month = dateparser.parse(m_month_range.group(2), settings=settings)
+        year = int(m_month_range.group(3))
+        if start_month and end_month:
+            start = date(year, start_month.month, 1)
+            end_month_number = end_month.month
+            end = date(year, end_month_number, calendar.monthrange(year, end_month_number)[1])
+            return accepted(DateRange(start=min(start, end), end=max(start, end)))
+
+    # 6. Month Year: e.g. 'March 2023'
     m_my = re.search(rf"\b({_MONTHS_PATTERN})\s+(20\d{{2}}|19\d{{2}})\b", text, re.IGNORECASE)
     if m_my:
         dt = dateparser.parse(m_my.group(0), settings=settings)
         if dt:
             y, m = dt.year, dt.month
             last_day = calendar.monthrange(y, m)[1]
-            return DateRange(start=date(y, m, 1), end=date(y, m, last_day))
+            return accepted(DateRange(start=date(y, m, 1), end=date(y, m, last_day)))
 
-    # 6. Single year: 'in 2022' or 'for 2022' or 'during 2022'
-    m_year = re.search(r"\b(?:in|during|for)\s+(20\d{2}|19\d{2})\b", text, re.IGNORECASE)
+    # 7. Whole year: 'all of 2022', 'the whole of 2022', 'year 2022', etc.
+    m_year = re.search(
+        r"\b(?:all\s+of|the\s+whole\s+of|during|in|for|year|in\s+year)\s+"
+        r"(20\d{2}|19\d{2})\b",
+        text,
+        re.IGNORECASE,
+    )
     if m_year:
         y = int(m_year.group(1))
-        return DateRange(start=date(y, 1, 1), end=date(y, 12, 31))
+        return accepted(DateRange(start=date(y, 1, 1), end=date(y, 12, 31)))
 
-    return None
+    return None, None
 
 
 def _extract_variables(text: str) -> Optional[list[Variable]]:
@@ -487,25 +524,41 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
         missing.append("region")
 
     # 2. Date range
-    date_range = _extract_date_range(question, today)
+    adjacent_months = re.search(
+        rf"\b({_MONTHS_PATTERN})\s+({_MONTHS_PATTERN})\s+(20\d{{2}}|19\d{{2}})\b",
+        question,
+        re.IGNORECASE,
+    )
+    if adjacent_months and adjacent_months.group(1).lower() != adjacent_months.group(2).lower():
+        date_range = None
+        date_issue = (
+            "date_range (ambiguous months: "
+            f"{adjacent_months.group(1)} and {adjacent_months.group(2)} "
+            f"{adjacent_months.group(3)}; add a connector such as 'to')"
+        )
+    else:
+        date_range, date_issue = _extract_date_range(question, today)
     if date_range is None:
-        lower_q = question.lower()
-        bare_month = re.search(
-            r"\b(?:january|february|march|april|june|july|august|september|october|november|december|"
-            r"jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\bMay\b|in\s+may|for\s+may|during\s+may)\b",
-            question,
-            re.IGNORECASE,
-        )
-        ambiguous_relative = re.search(
-            r"\b(last month|this month|this year|last year|recent|recently)\b",
-            lower_q,
-        )
-        if bare_month or ambiguous_relative:
-            ambiguous.append(
-                "date_range (ambiguous expression: requires explicit year or date range)"
-            )
+        if date_issue:
+            ambiguous.append(date_issue)
         else:
-            missing.append("date_range")
+            lower_q = question.lower()
+            bare_month = re.search(
+                r"\b(?:january|february|march|april|june|july|august|september|october|november|december|"
+                r"jan|feb|mar|apr|jun|jul|aug|sep|oct|nov|dec|\bMay\b|in\s+may|for\s+may|during\s+may)\b",
+                question,
+                re.IGNORECASE,
+            )
+            ambiguous_relative = re.search(
+                r"\b(last month|this month|this year|last year|recent|recently)\b",
+                lower_q,
+            )
+            if bare_month or ambiguous_relative:
+                ambiguous.append(
+                    "date_range (ambiguous expression: requires explicit year or date range)"
+                )
+            else:
+                missing.append("date_range")
 
     # 3. Variables
     variables = _extract_variables(question)
