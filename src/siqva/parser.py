@@ -47,6 +47,20 @@ class ClarificationNeeded(BaseModel):
     suggestions: list[str] = Field(default_factory=list)
 
 
+class UnderstoodQuery(BaseModel):
+    """Fields resolved during parsing, including those available before clarification."""
+
+    model_config = ConfigDict(frozen=True)
+
+    region: Optional[BoundingBox] = None
+    region_name: Optional[str] = None
+    date_range: Optional[DateRange] = None
+    variables: Optional[list[Variable]] = None
+    depth_range: Optional[DepthRange] = None
+    mode: Optional[DataMode] = None
+    intent: Optional[Intent] = None
+
+
 class ParseOutcome(BaseModel):
     """Comprehensive parse outcome with the resolved spec or clarification, plus field provenance."""
 
@@ -55,6 +69,7 @@ class ParseOutcome(BaseModel):
     spec: Optional[QuerySpec] = None
     clarification: Optional[ClarificationNeeded] = None
     provenance: dict[str, str] = Field(default_factory=dict)
+    understood: UnderstoodQuery = Field(default_factory=UnderstoodQuery)
 
     @property
     def is_success(self) -> bool:
@@ -97,6 +112,7 @@ def parse_detailed(
 
     # 2. Region resolution
     region: Optional[BoundingBox] = rules_res.region
+    region_name: Optional[str] = rules_res.region_name
     if region is not None:
         provenance["region"] = "rules"
     else:
@@ -105,6 +121,7 @@ def parse_detailed(
             res_reg = resolve_region(rules_res.region_name)
             if res_reg.status == RegionStatus.RESOLVED and res_reg.bbox is not None:
                 region = res_reg.bbox
+                region_name = res_reg.region_name
                 provenance["region"] = "rules"
 
         # Fallback to LLM for region name if still missing
@@ -114,6 +131,7 @@ def parse_detailed(
                 res_reg = resolve_region(llm_region_name)
                 if res_reg.status == RegionStatus.RESOLVED and res_reg.bbox is not None:
                     region = res_reg.bbox
+                    region_name = res_reg.region_name
                     provenance["region"] = "llm"
 
         if region is None:
@@ -212,6 +230,16 @@ def parse_detailed(
             intent = Intent.PROFILE
             provenance["intent"] = "default"
 
+    understood = UnderstoodQuery(
+        region=region,
+        region_name=region_name,
+        date_range=date_range,
+        variables=variables,
+        depth_range=depth_range,
+        mode=mode,
+        intent=intent,
+    )
+
     # 8. Check for mandatory missing or ambiguous fields
     if missing_fields or ambiguous_fields or region is None or date_range is None or not variables:
         reasons = []
@@ -234,6 +262,7 @@ def parse_detailed(
                 suggestions=suggestions,
             ),
             provenance=provenance,
+            understood=understood,
         )
 
     # 9. Build candidate spec and validate
@@ -248,7 +277,12 @@ def parse_detailed(
 
     try:
         validate_spec(candidate_spec)
-        return ParseOutcome(spec=candidate_spec, clarification=None, provenance=provenance)
+        return ParseOutcome(
+            spec=candidate_spec,
+            clarification=None,
+            provenance=provenance,
+            understood=understood,
+        )
     except OversizedRequestError as err:
         return ParseOutcome(
             spec=None,
@@ -259,6 +293,7 @@ def parse_detailed(
                 suggestions=[err.suggestion],
             ),
             provenance=provenance,
+            understood=understood,
         )
     except SpecValidationError as err:
         # Retry once: check if dates were simply inverted start > end
@@ -271,7 +306,12 @@ def parse_detailed(
                 fixed_spec = candidate_spec.model_copy(update={"date_range": fixed_dates})
                 validate_spec(fixed_spec)
                 provenance["date_range"] = f"{provenance.get('date_range', 'rules')}_swapped"
-                return ParseOutcome(spec=fixed_spec, clarification=None, provenance=provenance)
+                return ParseOutcome(
+                    spec=fixed_spec,
+                    clarification=None,
+                    provenance=provenance,
+                    understood=understood.model_copy(update={"date_range": fixed_dates}),
+                )
             except Exception:
                 pass
 
@@ -284,6 +324,7 @@ def parse_detailed(
                 suggestions=["Please refine query bounds or date range."],
             ),
             provenance=provenance,
+            understood=understood,
         )
 
 

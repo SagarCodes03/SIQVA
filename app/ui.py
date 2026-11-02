@@ -24,6 +24,7 @@ from siqva.analyzer import AnalysisResult
 from siqva.card import DiffSummary, QueryCard, generate_script, list_cards, load_card, rerun
 from siqva.fetcher import FetchResult, FetchStatus
 from siqva.gazetteer import KNOWN_REGIONS
+from siqva.interpretation import format_understood_as
 from siqva.parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
 from siqva.spec import (
@@ -693,6 +694,14 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
 
 def _render_pipeline_result(res: PipelineResult) -> None:
     """Render a PipelineResult with metrics, tabs, plots, stats, card, and script (Zero Emojis)."""
+    if res.parse_outcome is not None:
+        st.caption(
+            format_understood_as(
+                res.parse_outcome.understood,
+                res.parse_outcome.provenance,
+            )
+        )
+
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
         st.markdown(
