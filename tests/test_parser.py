@@ -115,6 +115,27 @@ def test_parse_oversized_query_returns_suggestion():
     assert len(res.suggestions) > 0
 
 
+def test_parse_pacific_ocean_alone_gives_dedicated_message():
+    """Pacific Ocean query gives dedicated message explaining size and 180 antimeridian."""
+    res = parse("temperature in the Pacific Ocean in January 2022", allow_llm=False)
+    assert isinstance(res, ClarificationNeeded)
+    assert "too large for one query" in res.message.lower()
+    assert "crosses the 180° meridian" in res.message
+    assert "Nino 3.4" in res.message
+    assert "Eastern equatorial Pacific" in res.message
+
+
+def test_parse_nino_subregion_resolves():
+    """Nino 3.4 query resolves properly via rules."""
+    res = parse("temperature in Nino 3.4 in January 2022", allow_llm=False)
+    assert isinstance(res, QuerySpec)
+    assert res.region.lon_min == -170.0
+    assert res.region.lon_max == -120.0
+    assert res.region.lat_min == -5.0
+    assert res.region.lat_max == 5.0
+
+
+
 def test_parse_llm_fallback_for_unfilled_intent():
     """Proves LLM client is used only for unfilled fields (e.g. intent tie-breaker)."""
     # Intent ambiguous in rules: "look at temperature in Arabian Sea in January 2022"

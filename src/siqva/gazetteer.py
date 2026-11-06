@@ -52,6 +52,16 @@ KNOWN_REGIONS: dict[str, BoundingBox] = {
     "North Atlantic": BoundingBox(lon_min=-80.0, lon_max=0.0, lat_min=0.0, lat_max=65.0),
     # Approximate definition for the Mediterranean Sea, not an official boundary
     "Mediterranean Sea": BoundingBox(lon_min=-6.0, lon_max=36.0, lat_min=30.0, lat_max=46.0),
+    # NOAA Climate Prediction Center (CPC) standard definition: 0°-10°S, 90°W-80°W
+    # Source: https://www.cpc.ncep.noaa.gov/data/indices/
+    "Nino 1+2": BoundingBox(lon_min=-90.0, lon_max=-80.0, lat_min=-10.0, lat_max=0.0),
+    # NOAA Climate Prediction Center (CPC) standard definition: 5°N-5°S, 150°W-90°W
+    # Source: https://www.cpc.ncep.noaa.gov/data/indices/
+    "Nino 3": BoundingBox(lon_min=-150.0, lon_max=-90.0, lat_min=-5.0, lat_max=5.0),
+    # NOAA Climate Prediction Center (CPC) standard definition: 5°N-5°S, 170°W-120°W
+    # Source: https://www.cpc.ncep.noaa.gov/data/indices/
+    "Nino 3.4": BoundingBox(lon_min=-170.0, lon_max=-120.0, lat_min=-5.0, lat_max=5.0),
+    # NOTE: Nino 4 (5°N–5°S, 160°E–150°W) is intentionally excluded because it crosses the 180° antimeridian.
 }
 
 # Alias dictionary mapping common variations to canonical region names
@@ -84,6 +94,35 @@ REGION_ALIASES: dict[str, str] = {
     "the mediterranean sea": "Mediterranean Sea",
     "mediterranean": "Mediterranean Sea",
     "med sea": "Mediterranean Sea",
+    # Nino 1+2
+    "nino 1+2": "Nino 1+2",
+    "nino 1-2": "Nino 1+2",
+    "nino1+2": "Nino 1+2",
+    "nino12": "Nino 1+2",
+    "nino 1 2": "Nino 1+2",
+    "nino 1 and 2": "Nino 1+2",
+    "niño 1+2": "Nino 1+2",
+    "niño 1-2": "Nino 1+2",
+    "niño 1 2": "Nino 1+2",
+    "el nino 1+2": "Nino 1+2",
+    "el niño 1+2": "Nino 1+2",
+    # Nino 3
+    "nino 3": "Nino 3",
+    "nino3": "Nino 3",
+    "niño 3": "Nino 3",
+    "el nino 3": "Nino 3",
+    "el niño 3": "Nino 3",
+    # Nino 3.4
+    "nino 3.4": "Nino 3.4",
+    "nino 3-4": "Nino 3.4",
+    "nino3.4": "Nino 3.4",
+    "nino34": "Nino 3.4",
+    "nino 3 4": "Nino 3.4",
+    "nino 3 and 4": "Nino 3.4",
+    "niño 3.4": "Nino 3.4",
+    "niño 3 4": "Nino 3.4",
+    "el nino 3.4": "Nino 3.4",
+    "el niño 3.4": "Nino 3.4",
 }
 
 # Compass / ocean word protection constants
@@ -135,6 +174,24 @@ _REGION_METADATA: dict[str, dict] = {
         "directions": set(),
         "body_type": "sea",
         "substantive": {"mediterranean"},
+    },
+    "Nino 1+2": {
+        "ocean": "pacific",
+        "directions": set(),
+        "body_type": None,
+        "substantive": {"nino", "niño", "1+2", "1-2", "12"},
+    },
+    "Nino 3": {
+        "ocean": "pacific",
+        "directions": set(),
+        "body_type": None,
+        "substantive": {"nino", "niño", "3"},
+    },
+    "Nino 3.4": {
+        "ocean": "pacific",
+        "directions": set(),
+        "body_type": None,
+        "substantive": {"nino", "niño", "3.4", "34"},
     },
 }
 
@@ -222,9 +279,9 @@ def _is_candidate_compatible(query: str, canonical_name: str) -> bool:
         return False
 
     # 4. Body type protection: sea vs ocean
-    if "sea" in q_words and meta["body_type"] != "sea":
+    if "sea" in q_words and meta["body_type"] is not None and meta["body_type"] != "sea":
         return False
-    if "ocean" in q_words and meta["body_type"] != "ocean":
+    if "ocean" in q_words and meta["body_type"] is not None and meta["body_type"] != "ocean":
         return False
 
     return True
@@ -269,19 +326,25 @@ def resolve_region(
             clarification_request=None,
         )
 
-    # Reject queries consisting purely of direction words or stopwords (e.g. "North", "in the North")
-    q_words = set(re.findall(r"\b[a-zA-Z]+\b", raw_text.lower()))
-    has_substantive = bool(q_words - _ALL_DIRECTION_WORDS - _GENERIC_BODY_WORDS)
-    has_ocean_or_body = bool((q_words & _OCEAN_WORDS) or (q_words & {"sea", "bay", "ocean"}))
-    if not has_substantive and not has_ocean_or_body:
+    # Whole Pacific Ocean query guard (too large for a single query and crosses the antimeridian)
+    normalized = raw_text.lower()
+    if normalized in (
+        "pacific",
+        "the pacific",
+        "pacific ocean",
+        "the pacific ocean",
+        "whole pacific",
+        "whole pacific ocean",
+    ):
         return RegionResolution(
             status=RegionStatus.UNKNOWN,
             region_name=None,
             bbox=None,
             score=0.0,
             clarification_request=(
-                f"Unknown region '{raw_text}'. Supported regions are: {available}. "
-                "Or specify coordinates like '10N-20N, 60E-70E'."
+                "The Pacific Ocean as a whole is too large for one query and crosses the 180° meridian. "
+                "Supported Pacific regions: Eastern equatorial Pacific, Nino 3.4, Nino 3, Nino 1+2. "
+                "Or provide coordinates like '5S-5N, 170W-120W'."
             ),
             query=raw_text,
         )
@@ -308,6 +371,23 @@ def resolve_region(
                 score=100.0,
                 clarification_request=None,
             )
+
+    # Reject queries consisting purely of direction words or stopwords (e.g. "North", "in the North")
+    q_words = set(re.findall(r"\b\w+\b", raw_text.lower(), re.UNICODE))
+    has_substantive = bool(q_words - _ALL_DIRECTION_WORDS - _GENERIC_BODY_WORDS)
+    has_ocean_or_body = bool((q_words & _OCEAN_WORDS) or (q_words & {"sea", "bay", "ocean"}))
+    if not has_substantive and not has_ocean_or_body:
+        return RegionResolution(
+            status=RegionStatus.UNKNOWN,
+            region_name=None,
+            bbox=None,
+            score=0.0,
+            clarification_request=(
+                f"Unknown region '{raw_text}'. Supported regions are: {available}. "
+                "Or specify coordinates like '10N-20N, 60E-70E'."
+            ),
+            query=raw_text,
+        )
 
     # 3. Fuzzy matching with rapidfuzz and direction/ocean protection
     normalized = raw_text.lower()

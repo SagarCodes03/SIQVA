@@ -8,6 +8,7 @@ from siqva.validator import (
     DEFAULT_MAX_REQUEST_SIZE,
     OversizedRequestError,
     SpecValidationError,
+    format_oversized_suggestion,
     validate_spec,
 )
 
@@ -160,3 +161,47 @@ def test_validator_defaults_depth_range_when_none():
     with pytest.raises(OversizedRequestError) as exc_info:
         validate_spec(spec_none, max_request_size=200.0)
     assert exc_info.value.size == 250.0
+
+
+def test_format_oversized_suggestion_computed_from_real_numbers():
+    """Proves format_oversized_suggestion computes realistic max days and actionable 3-part guidance."""
+    # Eastern equatorial Pacific: area = 1800 deg^2, depth span 500 dbar, 30 days
+    # Cost = 1800 * 30 * 1.0 = 54,000 cost units (limit 15,000)
+    # Max days at depth = 15000 / 1800 = 8 days
+    msg = format_oversized_suggestion(
+        area=1800.0,
+        days=30,
+        depth_span=500.0,
+        cost=54000.0,
+        max_request_size=15000.0,
+        region_name="Eastern equatorial Pacific",
+        min_depth=0.0,
+        max_depth=500.0,
+    )
+
+    assert "Eastern equatorial Pacific" in msg
+    assert "1,800.0°²" in msg
+    assert "54,000" in msg
+    assert "15,000" in msg
+    assert "at most 8 days" in msg
+    assert "1. Shorter period: narrowing the date range to 8 days or fewer" in msg
+    assert "2. Shallower depth:" in msg
+    assert "3. Smaller region: shrinking the bounding box" in msg
+
+
+def test_antimeridian_rejection_message_is_plain_words():
+    """Proves crossing the 180 antimeridian explains the limitation in plain words."""
+    spec = QuerySpec(
+        region=[170.0, -170.0, -5.0, 5.0],
+        date_range=["2023-01-01", "2023-01-10"],
+        variables=["TEMP"],
+        intent=Intent.PROFILE,
+    )
+    with pytest.raises(SpecValidationError) as exc_info:
+        validate_spec(spec)
+
+    err_msg = str(exc_info.value)
+    assert "180° meridian (antimeridian)" in err_msg
+    assert "lon_min (170.0) cannot be greater than lon_max (-170.0)" in err_msg
+    assert "separate eastern and western boxes" in err_msg
+

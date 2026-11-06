@@ -162,3 +162,71 @@ def test_unknown_inputs(unknown_input: str):
     assert res.region_name is None
     assert res.clarification_request is not None
     assert "Supported regions are" in res.clarification_request or "No region specified" in res.clarification_request
+
+
+# 8. Nino Pacific Sub-Regions (NOAA CPC definitions)
+@pytest.mark.parametrize(
+    "name,expected_bbox",
+    [
+        ("Nino 1+2", BoundingBox(lon_min=-90.0, lon_max=-80.0, lat_min=-10.0, lat_max=0.0)),
+        ("Nino 3", BoundingBox(lon_min=-150.0, lon_max=-90.0, lat_min=-5.0, lat_max=5.0)),
+        ("Nino 3.4", BoundingBox(lon_min=-170.0, lon_max=-120.0, lat_min=-5.0, lat_max=5.0)),
+    ],
+)
+def test_nino_regions_exact(name: str, expected_bbox: BoundingBox):
+    res = resolve_region(name)
+    assert res.status == RegionStatus.RESOLVED
+    assert res.region_name == name
+    assert res.bbox == expected_bbox
+    assert res.bbox == KNOWN_REGIONS[name]
+    assert res.score == 100.0
+
+
+@pytest.mark.parametrize(
+    "alias,expected_canonical",
+    [
+        ("nino 1+2", "Nino 1+2"),
+        ("niño 1+2", "Nino 1+2"),
+        ("el nino 1+2", "Nino 1+2"),
+        ("nino 1-2", "Nino 1+2"),
+        ("nino 3", "Nino 3"),
+        ("niño 3", "Nino 3"),
+        ("el nino 3", "Nino 3"),
+        ("nino 3.4", "Nino 3.4"),
+        ("niño 3.4", "Nino 3.4"),
+        ("el nino 3.4", "Nino 3.4"),
+        ("nino 3-4", "Nino 3.4"),
+    ],
+)
+def test_nino_regions_aliases(alias: str, expected_canonical: str):
+    res = resolve_region(alias)
+    assert res.status == RegionStatus.RESOLVED
+    assert res.region_name == expected_canonical
+
+
+def test_nino_4_excluded_due_to_antimeridian():
+    """Nino 4 crosses the 180 antimeridian (160E to 150W) and must not be in KNOWN_REGIONS."""
+    assert "Nino 4" not in KNOWN_REGIONS
+    assert "Niño 4" not in KNOWN_REGIONS
+
+
+@pytest.mark.parametrize(
+    "pacific_query",
+    [
+        "Pacific Ocean",
+        "Pacific",
+        "the Pacific",
+        "the Pacific Ocean",
+    ],
+)
+def test_pacific_ocean_alone_gives_dedicated_too_large_message(pacific_query: str):
+    res = resolve_region(pacific_query)
+    assert res.status == RegionStatus.UNKNOWN
+    assert res.bbox is None
+    assert res.clarification_request is not None
+    assert "too large for one query" in res.clarification_request
+    assert "crosses the 180° meridian" in res.clarification_request
+    assert "Supported Pacific regions" in res.clarification_request
+    assert "Eastern equatorial Pacific" in res.clarification_request
+    assert "Nino 3.4" in res.clarification_request
+
