@@ -64,6 +64,7 @@ src/siqva/
   rules_parser.py  # dates, variables, mode, intent via rules
   llm_parser.py    # constrained-output fallback (Ollama)
   parser.py        # parse(question) -> QuerySpec | ClarificationNeeded
+  interpretation.py# deterministic "Understood as" formatting
   fetcher.py       # argopy access, caching by spec hash
   qc.py            # mode / QC filtering
   analyzer.py      # stats + coverage metadata
@@ -78,10 +79,25 @@ tests/
 ## 6. Parser design (important for a 3B model)
 
 - Hybrid: **rules first, LLM only for what rules leave unfilled.**
-  - Dates: `dateparser` / regex. Variables: synonym dictionary to Argo names
-    (TEMP, PSAL, PRES). Region: gazetteer + fuzzy match, or coordinate regex.
-    Mode/QC: default `research`; change only on explicit user words
-    ("real-time", "all data"). Intent: keyword rules, LLM as tie-breaker.
+  - Dates: `dateparser` / regex.
+    - Resolves numeric relative phrases (`past/last N days/weeks/months/years`) using anchor `today`, ending at `today`.
+    - Resolves `since <date>` ending at `today`.
+    - Resolves explicit year patterns: single years (`in 2022`, `for 2022`, `during 2022`, `all of 2022`, `the whole of 2022`, `year 2022` -> `YYYY-01-01` to `YYYY-12-31`), year ranges (`2021-2023`, `between 2021 and 2023`), month-year (`March 2023`), month ranges (`Jan to March 2022`), and ISO ranges.
+    - Rejects with clarification any future-ending dates (`requested range ends in the future`).
+    - Rejects with clarification adjacent ambiguous months lacking connectors (`April march 2025`).
+    - Rejects with clarification unquantified relative terms (`last month`, `this month`, `this year`, `last year`, `recent`, `recently`) and bare months without years (`in March`): requires explicit year or date range.
+  - Variables: synonym dictionary to Argo names (TEMP, PSAL, PRES).
+  - Region: gazetteer + fuzzy match, or coordinate regex.
+    - Coordinate regex (e.g. `10N-20N, 60E-70E`) resolves directly to bounding box.
+    - Exact canonical name and alias lookup (e.g. `Arabian Sea`).
+    - Directional/generic word guards prevent matching pure direction words.
+    - Three clarification cases: (1) no region specified (lists supported regions or coordinates); (2) unsupported region (e.g. `Pacific`, `South Atlantic`, lists supported regions); (3) ambiguous region (lists close candidates, e.g. `Did you mean 'Arabian Sea' or 'Mediterranean Sea'`).
+    - The bounding box is **never guessed**. If unknown or ambiguous, `bbox=None` is returned.
+  - Mode/QC: default `research`; change only on explicit user words ("real-time", "all data").
+  - Intent: keyword rules, LLM as tie-breaker.
+- Query interpretation ("Understood as"):
+  - `src/siqva/interpretation.py` formats resolved fields with provenance labels (`[rules]`, `[llm]`, `[default]`).
+  - Rendered in Streamlit UI via `st.caption(...)` above both successful results and clarification requests.
 - LLM calls: temperature 0, JSON-schema-constrained output (generate the
   schema from the Pydantic model; use Ollama's `format` option), short prompt,
   4-6 examples, one field per call if accuracy is low.
@@ -112,6 +128,10 @@ suggestion to narrow region or window, not a silent truncation.
 - Normalise the spec, hash it, and use the hash as the cache key (Parquet).
 - Record source (ERDDAP/GDAC), argopy and xarray versions, fetch timestamp, and
   a data hash in every card.
+- `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases.
+- `list_cards()` deduplicates entries by `(spec_hash, mode)` returning newest cards.
+- Sidebar history label format: `"{question} · {created_at[:10]} · {region_name}"` (question truncated to 40 characters, falling back to `"{Intent} query"`).
+- Clicking a history entry restores the card metadata, spec, and generated script in the UI, but does **not** restore plots or raw data.
 - Re-run recomputes the fetch and compares hashes. If data differs, report a
   diff summary (e.g. new delayed-mode corrections). A change is not an error.
 - Cached results must be labelled as cached in the UI.

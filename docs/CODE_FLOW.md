@@ -86,6 +86,7 @@ User Question (Natural Language)
 | `src/siqva/rules_parser.py` | Extracts variables, dates, regions, delivery modes, depth limits, and user intent using deterministic regular expressions and dictionary rules. |
 | `src/siqva/llm_parser.py` | Provides JSON-schema-constrained Ollama fallback extraction for individual fields that rule-based parsing leaves unfilled. |
 | `src/siqva/parser.py` | Orchestrates the hybrid parsing strategy: runs rules first, calls the LLM fallback only if needed, validates the candidate spec, and returns a `QuerySpec` or `ClarificationNeeded`. |
+| `src/siqva/interpretation.py` | Formats deterministic "Understood as" query summaries with field-level provenance tags (`[rules]`, `[llm]`, `[default]`). |
 | `src/siqva/fetcher.py` | Interfaces with `argopy.DataFetcher` using explicit modes, evaluates local float-index profile guards, manages Parquet caching with sidecar JSON, and handles network timeouts. |
 | `src/siqva/qc.py` | Documents mode filtering behaviors (research, standard, expert) and performs non-destructive quality control auditing per variable and profile. |
 | `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, on-demand physics orchestration, skipped-profile tracking, and deterministic template summaries. |
@@ -108,13 +109,37 @@ When a query is processed through `siqva.pipeline.run(question)`:
 
 2. **Parsing (Rules First, LLM Fallback)**
    - **File**: `src/siqva/parser.py` -> `parse_detailed(question)`
-   - **Input**: Question string, optional reference `today` date.
+   - **Input**: Question string, optional reference `today` date (defaults to `date.today()`).
    - **Internal Steps**:
-     1. Calls `rules_parser.py` -> `parse_rules(question)`.
-     2. Extracts dates via regex/dateparser, variables via synonym map, region via gazetteer lookup, depth range via regex, mode via explicit phrases, and intent via keyword rules.
-     3. If any required field (`region`, `date_range`, `variables`) remains missing and `allow_llm=True`, calls `llm_parser.py` targeted fallback functions (`extract_intent_llm`, `extract_variables_llm`, `extract_region_name_llm`, `extract_date_range_llm`, `extract_depth_range_llm`).
-     4. Default assignments: depth range defaults to `0–500 dbar` when omitted; mode defaults to `DataMode.RESEARCH`.
-   - **Output**: `ParseOutcome` containing candidate `QuerySpec` (or `ClarificationNeeded`).
+     1. Calls `rules_parser.py` -> `parse_rules(question, today)`.
+     2. **Date Phrase Resolution**:
+        - Explicit year expressions: single years (`all of 2022`, `the whole of 2022`, `during 2022`, `in 2022`, `for 2022`, `year 2022`) -> `YYYY-01-01` to `YYYY-12-31`.
+        - Year ranges: `2021-2023`, `2021 to 2023`, `between 2021 and 2023` -> `YYYY1-01-01` to `YYYY2-12-31`.
+        - Month-to-month spans within a year: `Jan to March 2022` -> `date(year, m1, 1)` to `date(year, m2, last_day)`.
+        - Month-Year: `March 2023` -> full calendar month.
+        - ISO ranges: `YYYY-MM-DD to YYYY-MM-DD`.
+        - Quantified relative phrases: `past/last N days/weeks/months/years` and `since <date>` parsed with `dateparser` anchored at `RELATIVE_BASE = today`, ending at `today`.
+        - **Rejection & Clarifications**:
+          - Future dates: Any range ending after `today` is rejected with clarification: `requested range ends in the future: {end}; choose an end date on or before {today}`.
+          - Ambiguous adjacent months: e.g. `April march 2025` lacks a connector, rejected with: `ambiguous months: April and march 2025; add a connector such as 'to'`.
+          - Unquantified relative words (`last month`, `this month`, `last year`, `this year`, `recent`, `recently`) and bare months (`in March`) are NOT guessed: triggers clarification requiring an explicit year or date range.
+     3. **Region Resolution**:
+        - Coordinate patterns: `_parse_coordinates` resolves coordinates (e.g. `10N-20N, 60E-70E`) directly to bounding boxes.
+        - Exact names and aliases: matches canonical names in `KNOWN_REGIONS` and `REGION_ALIASES`.
+        - Guarded fuzzy matching: uses `rapidfuzz` (threshold 75.0, ambiguity margin 5.0) with compass direction and generic body word filtering so direction words ("North") are never matched to ocean basins.
+        - **Three Clarification Cases**:
+          - *No region specified*: Returns `Unknown region ''` with list of supported regions or coordinates.
+          - *Unsupported region*: Recognized ocean/sea outside supported regions (e.g. `South Atlantic`, `Pacific`) returns `The mentioned region '{region}' is not supported. Supported regions: ... Or provide coordinates.`
+          - *Ambiguous region*: Multiple candidates within ambiguity margin (or generic words like `sea`) return `Ambiguous region '{text}'. Did you mean 'Arabian Sea' or 'Mediterranean Sea'? Please clarify your requested region.`
+        - **Strict Invariant**: Bounding box is **never guessed**. If unknown or ambiguous, `bbox=None` is returned.
+     4. **Variables**: Extracted via synonym mapping to Argo variables (`TEMP`, `PSAL`, `PRES`).
+     5. **Delivery Mode & Intent**: Mode defaults to `DataMode.RESEARCH` unless explicit terms ("real-time", "near real-time", "include all data") occur. Intent defaults to `Intent.PROFILE` unless keywords or physics patterns match.
+     6. **LLM Fallback**: If required fields (`region`, `date_range`, `variables`) remain missing and `allow_llm=True`, invokes targeted, single-field JSON-schema constrained Ollama calls (`llm_parser.py`).
+     7. **Understood As Query Line**:
+        - Formatted by `src/siqva/interpretation.py` -> `format_understood_as(understood, provenance)`.
+        - Generates a concise summary showing resolved parameters with provenance tags: `Region: Arabian Sea [...] [rules]; Dates: 2022-01-01 to 2022-12-31 [rules]; Variables: TEMP [rules]; Depth: 0–500 dbar (default) [default]; Mode: research [default]; Intent: profile [default]`.
+        - Rendered in Streamlit UI via `st.caption(...)` above **both** successful query results and clarification banners.
+   - **Output**: `ParseOutcome` containing candidate `QuerySpec` (or `ClarificationNeeded`), `provenance` dictionary, and `UnderstoodQuery`.
 
 3. **Validation & Size Capping**
    - **File**: `src/siqva/validator.py` -> `validate_spec(spec)`
@@ -456,6 +481,21 @@ Stored in SQLite database (`data/cards.sqlite`, table `query_cards`):
 - `fetch_timestamp`: ISO 8601 UTC timestamp.
 - `data_hash`: Canonical SHA-256 hash of fetched observation table.
 - `row_count`, `profile_count`: Verified counts.
+- `question`: Natural-language question string that generated the card (optional, `None` for legacy or direct-spec queries).
+
+### History Persistence and UI Reload
+1. **Database Schema & Backward Compatibility**:
+   - The SQLite `query_cards` table includes `question TEXT`.
+   - On connection, `_init_db` automatically runs `ALTER TABLE query_cards ADD COLUMN question TEXT` within an exception-safe check if upgrading from an older schema. Legacy cards missing a question load with `question = None`.
+2. **Deduplication in History**:
+   - `list_cards(limit=50)` orders by `created_at DESC` and deduplicates by `(spec_hash, mode)`, ensuring each unique parameter and mode pair appears only once with its newest timestamp.
+3. **Readable History Labels**:
+   - `format_history_label(card)` formats sidebar history buttons as:
+     `"{question} · {created_at[:10]} · {region_name}"`
+   - The question is truncated to at most 40 characters (with ellipsis `…`). If `card.question` is empty or None, it falls back to `"{Intent} query"`.
+4. **History Entry Reload Behavior**:
+   - Clicking a sidebar history entry loads the saved `QueryCard` by `card_id` from SQLite and restores the card, spec, and generated standalone script.
+   - **Important**: Clicking history does **not** reload raw observation data or rebuild Plotly figures; data and plots are not stored in SQLite. (Full cache reload with plots is planned for Q11).
 
 ### Canonical Data Hash
 `compute_canonical_data_hash(df)` guarantees deterministic hashing across environments:
