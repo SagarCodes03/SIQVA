@@ -7,8 +7,11 @@ import pytest
 from siqva.plots import (
     COLOR_AMBER,
     THEME_BG,
+    plot_acoustic_profile,
+    plot_cyclone_tchp,
     plot_depth_profile,
     plot_position_map,
+    plot_thermocline_and_barrier,
     plot_ts_diagram,
 )
 from siqva.spec import Variable
@@ -107,3 +110,15 @@ def test_position_map_empty():
     fig = plot_position_map(pd.DataFrame())
     assert len(fig.data) == 0
     assert any("No position data" in a.text for a in fig.layout.annotations)
+
+
+def test_physics_plots_with_missing_gsw_return_placeholder(sample_df, monkeypatch):
+    """Proves all physics plots return a valid themed figure with placeholder annotation when gsw is None."""
+    monkeypatch.setattr("siqva.plots.gsw", None)
+
+    for plot_func in [plot_thermocline_and_barrier, plot_cyclone_tchp, plot_acoustic_profile]:
+        fig = plot_func(sample_df, summary=None)
+        assert len(fig.data) == 0
+        annot_texts = [a.text for a in fig.layout.annotations if a.text]
+        assert any("requires 'gsw' library" in text for text in annot_texts)
+
