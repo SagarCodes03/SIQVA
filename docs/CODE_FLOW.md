@@ -129,8 +129,10 @@ When a query is processed through `siqva.pipeline.run(question)`:
         - Guarded fuzzy matching: uses `rapidfuzz` (threshold 75.0, ambiguity margin 5.0) with compass direction and generic body word filtering so direction words ("North") are never matched to ocean basins.
         - **Three Clarification Cases**:
           - *No region specified*: Returns `Unknown region ''` with list of supported regions or coordinates.
-          - *Unsupported region*: Recognized ocean/sea outside supported regions (e.g. `South Atlantic`, `Pacific`) returns `The mentioned region '{region}' is not supported. Supported regions: ... Or provide coordinates.`
+          - *Unsupported region*: Recognized ocean/sea outside supported regions (e.g. `South Atlantic`) returns `The mentioned region '{region}' is not supported. Supported regions: ... Or provide coordinates.`
           - *Ambiguous region*: Multiple candidates within ambiguity margin (or generic words like `sea`) return `Ambiguous region '{text}'. Did you mean 'Arabian Sea' or 'Mediterranean Sea'? Please clarify your requested region.`
+        - **Dedicated Pacific Basin Guard**: Whole "Pacific Ocean" (or "Pacific") returns a dedicated clarification explaining that the basin is too large for a single query and crosses the 180° meridian, suggesting supported Pacific regions (`Eastern equatorial Pacific`, `Nino 3.4`, `Nino 3`, `Nino 1+2`) or coordinates.
+        - **Supported Sub-Regions**: Includes standard NOAA CPC El Niño regions: `Nino 1+2` (0°–10°S, 90°W–80°W), `Nino 3` (5°N–5°S, 150°W–90°W), and `Nino 3.4` (5°N–5°S, 170°W–120°W). `Nino 4` is omitted because it crosses the antimeridian.
         - **Strict Invariant**: Bounding box is **never guessed**. If unknown or ambiguous, `bbox=None` is returned.
      4. **Variables**: Extracted via synonym mapping to Argo variables (`TEMP`, `PSAL`, `PRES`).
      5. **Delivery Mode & Intent**: Mode defaults to `DataMode.RESEARCH` unless explicit terms ("real-time", "near real-time", "include all data") occur. Intent defaults to `Intent.PROFILE` unless keywords or physics patterns match.
@@ -145,12 +147,21 @@ When a query is processed through `siqva.pipeline.run(question)`:
    - **File**: `src/siqva/validator.py` -> `validate_spec(spec)`
    - **Input**: Candidate `QuerySpec`.
    - **Checks**:
-     - Longitudes within `[-180, 180]` and `lon_min <= lon_max`.
+     - Longitudes within `[-180, 180]` and `lon_min <= lon_max`. Bounding boxes crossing the 180° meridian (antimeridian where `lon_min > lon_max`) are rejected with an explicit, plain-words explanation directing the user to split the query into eastern and western boxes.
      - Latitudes within `[-90, 90]` and `lat_min <= lat_max`.
      - Dates chronological: `start <= end`.
      - Variables in allowed set (`TEMP`, `PSAL`, `PRES`).
      - Depth range valid: `0 <= min_depth <= max_depth`.
      - Cost estimate cap: `cost = area_deg2 * days * (depth_span / 500.0) <= 15,000.0`.
+   - **Actionable Oversized Guidance**:
+     - When `cost > 15,000.0`, `format_oversized_suggestion` computes real numbers:
+       - Region name and exact area in deg²
+       - Requested duration in days and depth span in dbar
+       - Maximum days that fit at the requested depth span
+       - Three actionable suggestions:
+         1. *Shorter period*: reduce days to $\le \text{max\_days}$.
+         2. *Shallower depth*: target maximum depth span that fits the requested days.
+         3. *Smaller region*: narrow bounding box or specify custom coordinates.
    - **Output**: Returns `None` if valid; raises `SpecValidationError` or `OversizedRequestError`.
 
 4. **Data Retrieval & Pre-Fetch Guards**

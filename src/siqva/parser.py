@@ -124,6 +124,19 @@ def parse_detailed(
                 f"The region '{region_issue.query}' is ambiguous. Candidates: {candidates}. "
                 "Please choose one region or provide coordinates."
             )
+        elif region_issue.clarification_request and "too large" in region_issue.clarification_request:
+            suggestions.append(region_issue.clarification_request)
+        elif region_issue.query.strip().lower() in (
+            "pacific",
+            "the pacific",
+            "pacific ocean",
+            "the pacific ocean",
+        ):
+            suggestions.append(
+                "The Pacific Ocean as a whole is too large for one query and crosses the 180° meridian. "
+                "Supported Pacific regions: Eastern equatorial Pacific, Nino 3.4, Nino 3, Nino 1+2. "
+                "Or provide coordinates like '5S-5N, 170W-120W'."
+            )
         else:
             supported = ", ".join(KNOWN_REGIONS)
             suggestions.append(

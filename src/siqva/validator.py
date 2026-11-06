@@ -39,6 +39,46 @@ class OversizedRequestError(SpecValidationError):
         self.depth_span = depth_span
 
 
+def format_oversized_suggestion(
+    area: float,
+    days: int,
+    depth_span: float,
+    cost: float,
+    max_request_size: float = DEFAULT_MAX_REQUEST_SIZE,
+    region_name: Optional[str] = None,
+    min_depth: float = 0.0,
+    max_depth: float = 500.0,
+) -> str:
+    """Pure function generating actionable narrowing guidance from concrete numerical constraints."""
+    reg_label = f"region '{region_name}' ({area:,.1f}°²)" if region_name else f"area {area:,.1f}°²"
+    depth_factor = depth_span / 500.0
+    cost_per_day = area * depth_factor
+    max_days_at_depth = max(1, int(max_request_size / cost_per_day)) if cost_per_day > 0 else 1
+
+    # Max depth span for requested days
+    target_depth_span = (max_request_size / (area * days)) * 500.0 if (area * days) > 0 else 0.0
+
+    lines = [
+        f"Request volume ({cost:,.1f} cost units) exceeds the maximum limit ({max_request_size:,.1f}).",
+        f"Current {reg_label} across {days} days with depth range {min_depth:.0f}–{max_depth:.0f} dbar (span {depth_span:.0f} dbar).",
+        f"At this depth range, at most {max_days_at_depth} days fit under the limit.",
+        "Please narrow your query with one of the following:",
+        f"1. Shorter period: narrowing the date range to {max_days_at_depth} days or fewer (e.g. at most {max_days_at_depth} days at this depth).",
+    ]
+    if target_depth_span >= 10.0:
+        lines.append(
+            f"2. Shallower depth: choosing a shallower depth range with a span of at most {int(target_depth_span)} dbar (e.g. {min_depth:.0f}–{min_depth + int(target_depth_span):.0f} dbar) for {days} days."
+        )
+    else:
+        lines.append(
+            "2. Shallower depth: choosing a shallower depth range (e.g. surface layer 0–10 dbar) combined with a shorter period."
+        )
+    lines.append(
+        f"3. Smaller region: shrinking the bounding box or specifying precise coordinates to reduce the area from {area:,.1f}°²."
+    )
+    return " ".join(lines)
+
+
 def validate_spec(
     spec: QuerySpec,
     max_request_size: float = DEFAULT_MAX_REQUEST_SIZE,
@@ -65,7 +105,8 @@ def validate_spec(
         )
     if bbox.lon_min > bbox.lon_max:
         raise SpecValidationError(
-            f"lon_min ({bbox.lon_min}) cannot be greater than lon_max ({bbox.lon_max})"
+            f"Bounding boxes crossing the 180° meridian (antimeridian) where lon_min ({bbox.lon_min}) cannot be greater than lon_max ({bbox.lon_max}) "
+            "are not supported. Please split the query into separate eastern and western boxes, or choose a region that does not cross 180°."
         )
 
     if not (-90.0 <= bbox.lat_min <= 90.0):
@@ -119,11 +160,21 @@ def validate_spec(
     cost = area * days * depth_factor
 
     if cost > max_request_size:
-        suggestion = (
-            f"Request volume ({cost:,.1f} cost units) exceeds the maximum limit ({max_request_size:,.1f}). "
-            f"Current area is {area:,.1f}°² across {days} days with depth range {depth.min_depth:.0f}–{depth.max_depth:.0f} dbar. "
-            "Please narrow your query by shrinking the bounding box (e.g. fewer degrees of latitude/longitude), "
-            "narrowing the date range (e.g. fewer months or days), or choosing a shallower depth range."
+        from .gazetteer import KNOWN_REGIONS
+
+        region_name = next(
+            (name for name, b in KNOWN_REGIONS.items() if b == bbox),
+            None,
+        )
+        suggestion = format_oversized_suggestion(
+            area=area,
+            days=days,
+            depth_span=depth_span,
+            cost=cost,
+            max_request_size=max_request_size,
+            region_name=region_name,
+            min_depth=depth.min_depth,
+            max_depth=depth.max_depth,
         )
         raise OversizedRequestError(
             message=suggestion,

@@ -92,6 +92,8 @@ tests/
     - Exact canonical name and alias lookup (e.g. `Arabian Sea`).
     - Directional/generic word guards prevent matching pure direction words.
     - Three clarification cases: (1) no region specified (lists supported regions or coordinates); (2) unsupported region (e.g. `Pacific`, `South Atlantic`, lists supported regions); (3) ambiguous region (lists close candidates, e.g. `Did you mean 'Arabian Sea' or 'Mediterranean Sea'`).
+    - Dedicated Pacific guard: "Pacific Ocean" alone returns a dedicated message explaining the basin is too large for one query and crosses 180°, directing the user to supported Pacific regions (`Eastern equatorial Pacific`, `Nino 3.4`, `Nino 3`, `Nino 1+2`) or coordinates.
+    - Supported Pacific sub-regions: `Nino 1+2` (0°–10°S, 90°W–80°W), `Nino 3` (5°N–5°S, 150°W–90°W), and `Nino 3.4` (5°N–5°S, 170°W–120°W) using NOAA Climate Prediction Center (CPC) definitions. `Nino 4` is omitted because it crosses the antimeridian.
     - The bounding box is **never guessed**. If unknown or ambiguous, `bbox=None` is returned.
   - Mode/QC: default `research`; change only on explicit user words ("real-time", "all data").
   - Intent: keyword rules, LLM as tie-breaker.
@@ -119,9 +121,8 @@ Physics intents (on-demand TEOS-10 analysis via `gsw`):
 
 Physics runs *only* on those three intents; standard queries (`profile`, `map`, `ts`, `trend`) skip all physics calculations and plots.
 Water-mass classification was permanently removed because it was Indian-Ocean-only and gave wrong, misleading labels elsewhere.
-Known limitation: Bounding boxes crossing the antimeridian (180° meridian, where `lon_min > lon_max`) are rejected by the validator.
-The validator enforces: valid bbox, date order, allowed variables, and a maximum request size. Oversized requests get a
-suggestion to narrow region or window, not a silent truncation.
+Known limitation: Bounding boxes crossing the antimeridian (180° meridian, where `lon_min > lon_max`) are rejected by the validator with an explicit plain-words explanation.
+The validator enforces: valid bbox, date order, allowed variables, and a maximum request size. Oversized requests trigger an actionable, numerically computed message detailing region, area, days, depth span, maximum days fitting at requested depth, and three concrete suggestions (shorter period, shallower depth, smaller region/coords).
 
 ## 8. Fetching, caching, reproducibility
 
