@@ -5,7 +5,7 @@ Resume instruction for future sessions:
 
 | Task | Description | Status / Notes |
 | :--- | :--- | :--- |
-| [x] **Q1** | Finish the Task C branch (investigate 146 profiles vs 100 cap, pytest, push task-c-parser-history, PR info, docs drift check) | DONE |
+| [x] **Q1** | Finish the Task C branch (investigate 146 profiles vs 100 cap, pytest, push task-c-parser-history, PR info, docs drift check) | DONE (146-profile investigation complete, docs synced with Tasks 1-4, 198 passed, pushed) |
 | [ ] **Q2** | Crash and safety fixes (SQLite closing, Ollama fast failure, HTML escaping, gsw guard in plots) | Pending (verify prior commits in PR #4) |
 | [ ] **Q3** | Pacific cost messages and regions (investigate gazetteer, actionable oversized message, named Pacific sub-regions, Pacific warning) | Pending |
 | [ ] **Q4** | Cleanup and test safety net (dead code in fetcher, tz-aware UTC, requirements.txt, all-module import test, AppTest smoke test, docs sync) | Pending |
