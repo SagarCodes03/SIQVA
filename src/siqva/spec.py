@@ -12,11 +12,12 @@ from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 class Variable(str, Enum):
-    """Allowed Argo physical variables for MVP."""
+    """Allowed Argo physical and biogeochemical variables for MVP."""
 
     TEMP = "TEMP"
     PSAL = "PSAL"
     PRES = "PRES"
+    DOXY = "DOXY"
 
 
 class DataMode(str, Enum):
@@ -37,6 +38,12 @@ class Intent(str, Enum):
     THERMOCLINE = "thermocline"
     TCHP = "tchp"
     ACOUSTIC = "acoustic"
+    HOVMOLLER = "hovmoller"
+    BUOYANCY = "buoyancy"
+    TS_ISOPYCNAL = "ts_isopycnal"
+    CLIMATOLOGY = "climatology"
+    OMZ = "omz"
+    DRIFT = "drift"
 
 
 class BoundingBox(BaseModel):
@@ -131,10 +138,12 @@ class QuerySpec(BaseModel):
                 Intent.THERMOCLINE.value,
                 Intent.TCHP.value,
                 Intent.ACOUSTIC.value,
+                "buoyancy",
+                "ts_isopycnal",
                 "thermocline",
                 "tchp",
                 "acoustic",
-            ):
+            ) or intent_val in (getattr(Intent, "BUOYANCY", None), getattr(Intent, "TS_ISOPYCNAL", None)):
                 vars_list = data.get("variables") or []
                 if isinstance(vars_list, (str, Variable)):
                     vars_list = [vars_list]

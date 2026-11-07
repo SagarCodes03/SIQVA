@@ -241,14 +241,14 @@ st.markdown(
     }
 
     /* History List Items: Compact Single-Line */
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+4) > button {
+    [data-testid="stSidebar"] div.stButton:nth-of-type(n+5) > button {
         min-height: 32px !important;
         height: 32px !important;
         padding: 4px 10px !important;
         border-radius: 5px !important;
         margin-bottom: 3px !important;
     }
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+4) > button div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] div.stButton:nth-of-type(n+5) > button div[data-testid="stMarkdownContainer"] p {
         font-size: 0.78rem !important;
         font-weight: 500 !important;
         color: #8FA9B8 !important;
@@ -257,7 +257,7 @@ st.markdown(
         text-overflow: ellipsis !important;
         line-height: 1.2 !important;
     }
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+4) > button:hover div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] div.stButton:nth-of-type(n+5) > button:hover div[data-testid="stMarkdownContainer"] p {
         color: var(--accent-cyan) !important;
     }
 
@@ -522,6 +522,60 @@ GRAPH_TYPES = [
         "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
         "nl_hint": "e.g. acoustic sound speed profile Arabian Sea January 2022",
     },
+    {
+        "key": "hovmoller",
+        "tag": "[TIME // HOV]",
+        "title": "Hovmöller Diagram",
+        "desc": "Depth vs time 2D contour evolution",
+        "intent": Intent.HOVMOLLER,
+        "variables": [Variable.TEMP, Variable.PRES],
+        "nl_hint": "e.g. hovmoller depth vs time temperature in Arabian Sea 2022",
+    },
+    {
+        "key": "buoyancy",
+        "tag": "[TEOS-10 // N2]",
+        "title": "Buoyancy & Stability",
+        "desc": "Brunt-Väisälä N² & pycnocline core",
+        "intent": Intent.BUOYANCY,
+        "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
+        "nl_hint": "e.g. buoyancy frequency N2 and stability in Bay of Bengal April 2022",
+    },
+    {
+        "key": "ts_isopycnal",
+        "tag": "[TEOS-10 // TS-SIGMA]",
+        "title": "T-S with Isopycnals",
+        "desc": "Conservative T-S with σ₀ contours",
+        "intent": Intent.TS_ISOPYCNAL,
+        "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
+        "nl_hint": "e.g. temperature vs salinity with isopycnals in North Atlantic 2021",
+    },
+    {
+        "key": "climatology",
+        "tag": "[STAT // ENVELOPE]",
+        "title": "Climatology Envelope",
+        "desc": "Regional mean & ±1σ spread",
+        "intent": Intent.CLIMATOLOGY,
+        "variables": [Variable.TEMP, Variable.PRES],
+        "nl_hint": "e.g. regional temperature climatology envelope in Arabian Sea May 2022",
+    },
+    {
+        "key": "omz",
+        "tag": "[BGC // OMZ]",
+        "title": "Oxygen Minimum Zone",
+        "desc": "Dissolved oxygen & hypoxic ceiling",
+        "intent": Intent.OMZ,
+        "variables": [Variable.DOXY, Variable.PRES],
+        "nl_hint": "e.g. oxygen minimum zone dissolved oxygen in Arabian Sea 2022",
+    },
+    {
+        "key": "drift",
+        "tag": "[DYN // DRIFT]",
+        "title": "Float Drift Velocity",
+        "desc": "Lagrangian speed & eddy detection",
+        "intent": Intent.DRIFT,
+        "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
+        "nl_hint": "e.g. float drift velocity in Arabian Sea 2022",
+    },
 ]
 
 _ALL_REGION_NAMES = sorted(KNOWN_REGIONS.keys())
@@ -685,6 +739,28 @@ def _style_fig(fig: go.Figure, is_map: bool = False) -> go.Figure:
     return fig
 
 
+@st.dialog("TERMINAL PREFERENCES & DIAGNOSTICS")
+def open_terminal_settings_modal() -> None:
+    st.markdown("**[EXECUTION & CACHE CONTROLS]**")
+    st.session_state["force_refresh_global"] = st.toggle(
+        "GLOBAL FORCE REFRESH (Bypass Local Cache)",
+        value=st.session_state.get("force_refresh_global", False),
+    )
+    st.markdown("**[ GAZETTEER REGIONS LOADED ]**")
+    st.code(", ".join(_ALL_REGION_NAMES), language="text")
+
+    st.markdown("**[ SESSION & HISTORY MANAGEMENT ]**")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("[CLEAR ACTIVE WORKSPACE]", use_container_width=True):
+            _reset_to_new_query()
+            st.rerun()
+    with c2:
+        if st.button("[PURGE STREAMLIT CACHE]", use_container_width=True):
+            st.cache_data.clear()
+            st.success("[OK] Memory cache purged.")
+
+
 def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> None:
     """Render top-left aligned terminal header next to sidebar with far-right menu button."""
     top_left, top_right = st.columns([14, 1], vertical_alignment="top")
@@ -697,7 +773,8 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
             unsafe_allow_html=True,
         )
     with top_right:
-        st.button("⋮", key=settings_key, help="Terminal Preferences")
+        if st.button("⋮", key=settings_key, help="Terminal Preferences & Diagnostics"):
+            open_terminal_settings_modal()
 
 
 def _render_pipeline_result(res: PipelineResult) -> None:
@@ -721,9 +798,14 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         if clarification.ambiguous_fields:
             st.warning(f"[AMBIGUOUS FIELDS] {', '.join(clarification.ambiguous_fields)}")
         if clarification.suggestions:
-            st.markdown("**[SUGGESTIONS]**")
-            for sug in clarification.suggestions:
-                st.markdown(f"- {sug}")
+            st.markdown("**[SUGGESTED RESOLUTIONS — CLICK TO EXECUTE]**")
+            sug_cols = st.columns(min(len(clarification.suggestions), 3))
+            for idx, sug in enumerate(clarification.suggestions):
+                with sug_cols[idx % len(sug_cols)]:
+                    if st.button(f"> {sug}", key=f"clarify_sug_{idx}", use_container_width=True):
+                        with st.spinner("EXECUTING SUGGESTED SPEC..."):
+                            st.session_state["pipeline_res"] = run(question=sug, force_refresh=False)
+                            st.rerun()
         return
 
     if res.status in (PipelineStatus.EMPTY, PipelineStatus.OVERSIZED, PipelineStatus.TIMEOUT, PipelineStatus.ERROR):
@@ -739,6 +821,51 @@ def _render_pipeline_result(res: PipelineResult) -> None:
 
     if res.warning:
         st.warning(f"[WARN] {res.warning}")
+
+    # Spec Inspection and Override Drawer
+    if res.spec is not None:
+        with st.expander("[SPEC // INSPECT & OVERRIDE PARAMETERS]", expanded=False):
+            with st.form(key=f"override_spec_form_{res.card.card_id if res.card else 'live'}"):
+                oc1, oc2, oc3, oc4 = st.columns(4)
+                with oc1:
+                    intent_opts = [i.value for i in Intent]
+                    intent_idx = intent_opts.index(res.spec.intent.value) if res.spec.intent.value in intent_opts else 0
+                    new_intent = st.selectbox(
+                        "INTENT",
+                        options=intent_opts,
+                        index=intent_idx,
+                    )
+                with oc2:
+                    mode_opts = [m.value for m in DataMode]
+                    mode_idx = mode_opts.index(res.spec.mode.value) if res.spec.mode.value in mode_opts else 0
+                    new_mode = st.selectbox(
+                        "DATA MODE",
+                        options=mode_opts,
+                        index=mode_idx,
+                    )
+                with oc3:
+                    cur_min_z = float(res.spec.depth_range.min_depth) if res.spec.depth_range else 0.0
+                    new_min_z = st.number_input("MIN DEPTH (dbar)", value=cur_min_z, min_value=0.0, max_value=2000.0, step=10.0)
+                with oc4:
+                    cur_max_z = float(res.spec.depth_range.max_depth) if res.spec.depth_range else 1000.0
+                    new_max_z = st.number_input("MAX DEPTH (dbar)", value=cur_max_z, min_value=10.0, max_value=6000.0, step=50.0)
+
+                force_ref = st.checkbox("BYPASS CACHE (FORCE LIVE FETCH)", value=False)
+                if st.form_submit_button("[RE-EXECUTE WITH UPDATED SPEC]", type="primary"):
+                    updated_spec = res.spec.model_copy(
+                        update={
+                            "intent": Intent(new_intent),
+                            "mode": DataMode(new_mode),
+                            "depth_range": DepthRange(min_depth=new_min_z, max_depth=new_max_z),
+                        }
+                    )
+                    with st.spinner("RE-COMPUTING PIPELINE WITH OVERRIDDEN SPEC..."):
+                        new_res = run_spec(updated_spec, force_refresh=force_ref)
+                        if st.session_state["active_page"] == "query":
+                            st.session_state["pipeline_res"] = new_res
+                        else:
+                            st.session_state["active_plot_res"] = new_res
+                        st.rerun()
 
     # Summary Metrics Bar
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -756,13 +883,18 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         st.metric("DEPTH", depth_str)
 
     # Tabbed visualizers
-    tab_plots, tab_stats, tab_card, tab_script = st.tabs(
-        ["[VISUALIZATIONS]", "[SUMMARY & STATISTICS]", "[QUERY CARD]", "[PYTHON SCRIPT]"]
+    tab_plots, tab_stats, tab_card, tab_script, tab_export = st.tabs(
+        ["[VISUALIZATIONS]", "[SUMMARY & STATISTICS]", "[QUERY CARD]", "[PYTHON SCRIPT]", "[EXPORT ARTIFACTS]"]
     )
 
     with tab_plots:
         has_map = "map" in res.figures
-        analytical_keys = [k for k in ["profile", "thermocline", "tchp", "acoustic", "ts"] if k in res.figures]
+        analytical_keys = [
+            k for k in [
+                "profile", "thermocline", "tchp", "acoustic", "ts",
+                "hovmoller", "buoyancy", "ts_isopycnal", "climatology", "omz", "drift"
+            ] if k in res.figures
+        ]
         other_keys = [k for k in res.figures if k not in analytical_keys and k != "map"]
         all_analytical = analytical_keys + other_keys
 
@@ -770,8 +902,29 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             primary_key = all_analytical[0]
             c_map, c_plot = st.columns(2)
             with c_map:
-                st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
+                map_chart_key = f"map_chart_{res.card.card_id if res.card else 'live'}"
+                map_event = st.plotly_chart(
+                    _style_fig(res.figures["map"], is_map=True),
+                    use_container_width=True,
+                    theme=None,
+                    on_select="rerun",
+                    selection_mode="points",
+                    key=map_chart_key,
+                )
+
+            selected_wmo = None
+            if map_event and isinstance(map_event, dict) and "selection" in map_event:
+                sel_pts = map_event["selection"].get("points", [])
+                if sel_pts:
+                    curve_idx = sel_pts[0].get("curve_number", 0)
+                    if curve_idx < len(res.figures["map"].data):
+                        tr_name = res.figures["map"].data[curve_idx].name or ""
+                        if "WMO" in tr_name:
+                            selected_wmo = tr_name.replace("WMO", "").strip().split()[0]
+
             with c_plot:
+                if selected_wmo:
+                    st.caption(f"[CROSS-FILTER ACTIVE: ISOLATED FLOAT WMO {selected_wmo}]")
                 st.plotly_chart(_style_fig(res.figures[primary_key], is_map=False), use_container_width=True, theme=None)
 
             for extra_key in all_analytical[1:]:
@@ -877,6 +1030,44 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             mime="text/x-python",
         )
 
+    with tab_export:
+        st.markdown("**[DOWNLOAD REPRODUCIBLE RESEARCH ARTIFACTS]**")
+        ex1, ex2, ex3 = st.columns(3)
+        with ex1:
+            card_json = json.dumps(res.card.model_dump(mode="json"), indent=2)
+            st.download_button(
+                label="[DOWNLOAD QUERY CARD (.JSON)]",
+                data=card_json,
+                file_name=f"siqva_card_{res.card.card_id}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        with ex2:
+            if res.analysis and res.analysis.physics_summaries:
+                phys_df = pd.DataFrame([s.__dict__ for s in res.analysis.physics_summaries])
+                st.download_button(
+                    label="[DOWNLOAD PHYSICS METRICS (.CSV)]",
+                    data=phys_df.to_csv(index=False),
+                    file_name=f"siqva_physics_{res.card.card_id}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.caption("[NO TEOS-10 PHYSICS SUMMARY TO EXPORT]")
+        with ex3:
+            if res.figures:
+                first_fig_key = next(iter(res.figures))
+                html_bytes = res.figures[first_fig_key].to_html(include_plotlyjs="cdn").encode("utf-8")
+                st.download_button(
+                    label=f"[DOWNLOAD INTERACTIVE PLOT (.HTML)]",
+                    data=html_bytes,
+                    file_name=f"siqva_{first_fig_key}_{res.card.card_id}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+            else:
+                st.caption("[NO ACTIVE FIGURE TO EXPORT]")
+
 
 # ---------------------------------------------------------------------------
 # SIDEBAR: Brand Reset, Left-Aligned Navigation, & History
@@ -889,39 +1080,28 @@ with st.sidebar:
     st.divider()
 
     is_query = st.session_state["active_page"] == "query"
-    q_label = "●  Query" if is_query else "○  Query"
-    p_label = "●  Plot Graph" if not is_query else "○  Plot Graph"
+    is_plots = st.session_state["active_page"] == "plots"
+    is_compare = st.session_state["active_page"] == "compare"
 
-    if is_query:
-        st.markdown(
-            """
-            <style>
-            [data-testid="stSidebar"] div.stButton:nth-of-type(2) > button {
-                background-color: #0C2030 !important;
-                border: 1px solid #00E5CC !important;
-                color: #00E5CC !important;
-                box-shadow: 0 0 12px rgba(0, 229, 204, 0.2) !important;
-                font-weight: 700 !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            """
-            <style>
-            [data-testid="stSidebar"] div.stButton:nth-of-type(3) > button {
-                background-color: #0C2030 !important;
-                border: 1px solid #00E5CC !important;
-                color: #00E5CC !important;
-                box-shadow: 0 0 12px rgba(0, 229, 204, 0.2) !important;
-                font-weight: 700 !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+    q_label = "●  Query" if is_query else "○  Query"
+    p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
+    c_label = "●  Compare Runs" if is_compare else "○  Compare Runs"
+
+    active_btn_idx = 2 if is_query else (3 if is_plots else 4)
+    st.markdown(
+        f"""
+        <style>
+        [data-testid="stSidebar"] div.stButton:nth-of-type({active_btn_idx}) > button {{
+            background-color: #0C2030 !important;
+            border: 1px solid #00E5CC !important;
+            color: #00E5CC !important;
+            box-shadow: 0 0 12px rgba(0, 229, 204, 0.2) !important;
+            font-weight: 700 !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if st.button(q_label, use_container_width=True, key="nav_query_btn"):
         if st.session_state["active_page"] == "query":
@@ -935,6 +1115,10 @@ with st.sidebar:
             _switch_or_reset_plot_page()
         else:
             st.session_state["active_page"] = "plots"
+        st.rerun()
+
+    if st.button(c_label, use_container_width=True, key="nav_compare_btn"):
+        st.session_state["active_page"] = "compare"
         st.rerun()
 
     st.divider()
@@ -1043,13 +1227,17 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
 if st.session_state["active_page"] == "query":
     if st.session_state.get("loaded_card_id"):
         card = load_card(st.session_state["loaded_card_id"])
-        if card:
-            st.session_state["pipeline_res"] = PipelineResult(
-                status=PipelineStatus.SUCCESS,
-                spec=card.spec,
-                card=card,
-                script=generate_script(card),
-            )
+        if card and card.spec:
+            with st.spinner(f"RESTORING CARD {card.card_id} FROM CACHE..."):
+                try:
+                    st.session_state["pipeline_res"] = run_spec(card.spec, force_refresh=False)
+                except Exception:
+                    st.session_state["pipeline_res"] = PipelineResult(
+                        status=PipelineStatus.SUCCESS,
+                        spec=card.spec,
+                        card=card,
+                        script=generate_script(card),
+                    )
         st.session_state["loaded_card_id"] = None
 
     # Top-Left Aligned Header Bar (flush near sidebar)
@@ -1084,7 +1272,16 @@ if st.session_state["active_page"] == "query":
             # Bottom toolbar inside prompt box: [+] on left, [mode] and [↑] on right
             b_attach, b_spacer, b_mode, b_send = st.columns([0.7, 4.9, 2.4, 0.9])
             with b_attach:
-                st.button("+", key="attach_placeholder_btn", help="Attach context (placeholder)")
+                with st.popover("+", help="Attach spatial/depth constraints to query"):
+                    st.markdown("**[ATTACH QUERY CONSTRAINTS]**")
+                    pin_region = st.selectbox("PIN REGION", options=["(None)"] + _ALL_REGION_NAMES, index=0)
+                    pin_wmo = st.text_input("PIN WMO ID (OPTIONAL)", placeholder="e.g. 2902269")
+                    c_z1, c_z2 = st.columns(2)
+                    with c_z1:
+                        pin_min_d = st.number_input("MIN dbar", value=0, min_value=0, max_value=2000, step=50)
+                    with c_z2:
+                        pin_max_d = st.number_input("MAX dbar", value=500, min_value=10, max_value=6000, step=50)
+                    pin_force = st.checkbox("FORCE LIVE ERDDAP/ARGOVIS FETCH", value=False)
             with b_mode:
                 st.session_state["delivery_mode"] = st.selectbox(
                     "Mode",
@@ -1096,13 +1293,21 @@ if st.session_state["active_page"] == "query":
                 send_clicked = st.button("↑", key="send_query_btn", type="primary", use_container_width=True)
 
         if send_clicked and user_question.strip():
+            augmented_q = user_question.strip()
+            if pin_region != "(None)" and pin_region.lower() not in augmented_q.lower():
+                augmented_q += f" in {pin_region}"
+            if pin_wmo.strip():
+                augmented_q += f" for float {pin_wmo.strip()}"
             with st.spinner("PARSING SPEC & FETCHING QC-VERIFIED PROFILES..."):
-                pipeline_res = run(question=user_question.strip(), force_refresh=False)
-                if pipeline_res.spec and pipeline_res.spec.mode == DataMode.RESEARCH and st.session_state["delivery_mode"] != "research":
+                pipeline_res = run(question=augmented_q, force_refresh=pin_force)
+                if pipeline_res.spec:
+                    updates = {"mode": DataMode(st.session_state["delivery_mode"])}
+                    if pin_min_d > 0 or pin_max_d != 500:
+                        updates["depth_range"] = DepthRange(min_depth=float(pin_min_d), max_depth=float(pin_max_d))
                     pipeline_res = run_spec(
-                        pipeline_res.spec.model_copy(update={"mode": DataMode(st.session_state["delivery_mode"])}),
-                        force_refresh=False,
-                        question=user_question.strip(),
+                        pipeline_res.spec.model_copy(update=updates),
+                        force_refresh=pin_force,
+                        question=augmented_q,
                     )
                 st.session_state["pipeline_res"] = pipeline_res
                 st.rerun()
@@ -1154,3 +1359,82 @@ elif st.session_state["active_page"] == "plots":
         st.divider()
         st.markdown(f"### OUTPUT // {st.session_state.get('active_plot_title', 'GRAPH RESULT').upper()}")
         _render_pipeline_result(st.session_state["active_plot_res"])
+
+
+# ---------------------------------------------------------------------------
+# PAGE 3: COMPARE RUNS (Side-by-Side Dual-Card A/B Comparator)
+# ---------------------------------------------------------------------------
+elif st.session_state["active_page"] == "compare":
+    _render_top_bar(
+        "SIQVA // RUN COMPARATOR",
+        "Side-by-side A/B comparative analysis of historical query cards",
+        "settings_compare_btn",
+    )
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    try:
+        all_cards = list_cards(limit=25)
+    except Exception:
+        all_cards = []
+
+    if len(all_cards) < 2:
+        st.info("[INSUFFICIENT HISTORY FOR COMPARISON] Need at least 2 saved query runs. Execute queries from the Query Terminal to generate cards.")
+    else:
+        card_labels = [f"{format_history_label(c)} [{c.card_id[:6]}]" for c in all_cards]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**CARD A (BASELINE)**")
+            idx_a = st.selectbox("SELECT CARD A", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=0)
+        with col_b:
+            st.markdown("**CARD B (COMPARISON)**")
+            idx_b = st.selectbox("SELECT CARD B", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=min(1, len(all_cards) - 1))
+
+        card_a = all_cards[idx_a]
+        card_b = all_cards[idx_b]
+
+        st.divider()
+
+        # Delta Metrics Table
+        st.markdown("### [COMPARATIVE METRICS DELTA]")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        with m1:
+            d_rows = card_b.row_count - card_a.row_count
+            st.metric("ROWS", f"{card_b.row_count:,}", delta=f"{d_rows:,} vs A")
+        with m2:
+            d_prof = card_b.profile_count - card_a.profile_count
+            st.metric("PROFILES", f"{card_b.profile_count:,}", delta=f"{d_prof:,} vs A")
+        with m3:
+            st.metric("MODE", f"{card_a.mode.value.upper()} / {card_b.mode.value.upper()}")
+        with m4:
+            st.metric("INTENT", f"{card_a.spec.intent.value.upper()} / {card_b.spec.intent.value.upper()}")
+        with m5:
+            st.metric("DEPTH B", f"{card_b.effective_depth_range.min_depth:.0f}–{card_b.effective_depth_range.max_depth:.0f} dbar")
+
+        # Load results for both cards to render visualizations
+        with st.spinner("LOADING AND COMPUTING DUAL RUN VISUALIZATIONS..."):
+            try:
+                res_a = run_spec(card_a.spec, force_refresh=False)
+            except Exception:
+                res_a = None
+            try:
+                res_b = run_spec(card_b.spec, force_refresh=False)
+            except Exception:
+                res_b = None
+
+        st.markdown("### [SIDE-BY-SIDE VISUALIZATIONS]")
+        v_col_a, v_col_b = st.columns(2)
+        with v_col_a:
+            st.markdown(f"**CARD A: {html.escape(card_a.question or card_a.card_id[:8])}**")
+            if res_a and res_a.figures:
+                fig_key_a = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_a.figures), next(iter(res_a.figures)))
+                st.plotly_chart(_style_fig(res_a.figures[fig_key_a]), use_container_width=True, theme=None)
+            else:
+                st.info("[NO FIGURE AVAILABLE FOR CARD A]")
+
+        with v_col_b:
+            st.markdown(f"**CARD B: {html.escape(card_b.question or card_b.card_id[:8])}**")
+            if res_b and res_b.figures:
+                fig_key_b = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_b.figures), next(iter(res_b.figures)))
+                st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None)
+            else:
+                st.info("[NO FIGURE AVAILABLE FOR CARD B]")

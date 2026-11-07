@@ -8,11 +8,17 @@ from siqva.plots import (
     COLOR_AMBER,
     THEME_BG,
     plot_acoustic_profile,
+    plot_bgc_omz_profile,
     plot_cyclone_tchp,
     plot_depth_profile,
+    plot_float_drift_velocity,
+    plot_hovmoller_section,
     plot_position_map,
+    plot_regional_climatology_envelope,
+    plot_stability_buoyancy,
     plot_thermocline_and_barrier,
     plot_ts_diagram,
+    plot_ts_with_isopycnals,
 )
 from siqva.spec import Variable
 
@@ -122,3 +128,77 @@ def test_physics_plots_with_missing_gsw_return_placeholder(sample_df, monkeypatc
         annot_texts = [a.text for a in fig.layout.annotations if a.text]
         assert any("requires 'gsw' library" in text for text in annot_texts)
 
+
+
+def test_hovmoller_section(sample_df):
+    """Proves Hovmöller diagram renders contour or profile from observation times."""
+    fig = plot_hovmoller_section(sample_df, param="TEMP")
+    assert len(fig.data) >= 1
+
+    empty_fig = plot_hovmoller_section(pd.DataFrame())
+    assert len(empty_fig.data) == 0
+    assert any("No observation data" in a.text for a in empty_fig.layout.annotations)
+
+
+def test_stability_buoyancy(sample_df):
+    """Proves Brunt-Väisälä buoyancy profile computes N^2 stability from dataset."""
+    fig = plot_stability_buoyancy(sample_df, lat=15.0, lon=80.0)
+    assert len(fig.data) >= 1
+    assert "N²" in (fig.layout.xaxis.title.text or "")
+
+    empty_fig = plot_stability_buoyancy(pd.DataFrame())
+    assert len(empty_fig.data) == 0
+    assert any("No observation data" in a.text for a in empty_fig.layout.annotations)
+
+
+def test_ts_with_isopycnals(sample_df):
+    """Proves Conservative T-S diagram with background isopycnals generates correctly."""
+    fig = plot_ts_with_isopycnals(sample_df, lon=80.0, lat=15.0)
+    assert len(fig.data) >= 1
+
+    empty_fig = plot_ts_with_isopycnals(pd.DataFrame())
+    assert len(empty_fig.data) == 0
+    assert any("No observation data" in a.text for a in empty_fig.layout.annotations)
+
+
+def test_regional_climatology_envelope(sample_df):
+    """Proves regional climatology computes mean and +/-1 sigma envelope."""
+    plat = sample_df["PLATFORM_NUMBER"].iloc[0] if "PLATFORM_NUMBER" in sample_df.columns else None
+    fig = plot_regional_climatology_envelope(sample_df, target_wmo=plat, param="TEMP")
+    assert len(fig.data) >= 2
+
+    empty_fig = plot_regional_climatology_envelope(pd.DataFrame())
+    assert len(empty_fig.data) == 0
+    assert any("No observation data" in a.text for a in empty_fig.layout.annotations)
+
+
+def test_bgc_omz_profile(sample_df):
+    """Proves BGC dissolved oxygen profile identifies hypoxic zone and handles missing DOXY cleanly."""
+    # When DOXY is absent in standard hydrographic file
+    no_doxy_fig = plot_bgc_omz_profile(sample_df)
+    assert any("DOXY" in a.text for a in no_doxy_fig.layout.annotations)
+
+    # When DOXY is present
+    df_with_doxy = sample_df.copy()
+    df_with_doxy["DOXY"] = 50.0  # Hypoxic
+    fig = plot_bgc_omz_profile(df_with_doxy)
+    assert len(fig.data) >= 1
+    assert "DOXY" in (fig.layout.xaxis.title.text or "")
+
+
+def test_float_drift_velocity():
+    """Proves float drift velocity calculates speed from surfacing coordinates."""
+    mock_df = pd.DataFrame({
+        "TIME": pd.date_range("2022-01-01", periods=5, freq="10D"),
+        "LATITUDE": [15.0, 15.2, 15.5, 15.8, 16.0],
+        "LONGITUDE": [65.0, 65.5, 66.0, 66.4, 67.0],
+        "CYCLE_NUMBER": [1, 2, 3, 4, 5],
+        "PLATFORM_NUMBER": ["6904128"] * 5,
+    })
+    fig = plot_float_drift_velocity(mock_df)
+    assert len(fig.data) >= 1
+    assert "Drift Speed" in (fig.layout.yaxis.title.text or "")
+
+    empty_fig = plot_float_drift_velocity(pd.DataFrame())
+    assert len(empty_fig.data) == 0
+    assert any("No trajectory observations" in a.text for a in empty_fig.layout.annotations)

@@ -17,11 +17,17 @@ from .fetcher import FetchResult, FetchStatus, fetch
 from .parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from .plots import (
     plot_acoustic_profile,
+    plot_bgc_omz_profile,
     plot_cyclone_tchp,
     plot_depth_profile,
+    plot_float_drift_velocity,
+    plot_hovmoller_section,
     plot_position_map,
+    plot_regional_climatology_envelope,
+    plot_stability_buoyancy,
     plot_thermocline_and_barrier,
     plot_ts_diagram,
+    plot_ts_with_isopycnals,
 )
 from .spec import Intent, QuerySpec, Variable
 
@@ -157,6 +163,48 @@ def run_spec(
                 figures["acoustic"] = plot_acoustic_profile(fetch_res.data, rep_profile)
             except Exception:
                 pass
+
+    # Additional specialized and oceanographic figures
+    if spec.intent == Intent.HOVMOLLER:
+        try:
+            param = "TEMP" if Variable.TEMP in spec.variables else ("PSAL" if Variable.PSAL in spec.variables else "TEMP")
+            figures["hovmoller"] = plot_hovmoller_section(fetch_res.data, param=param)
+        except Exception:
+            pass
+    elif spec.intent == Intent.BUOYANCY:
+        try:
+            figures["buoyancy"] = plot_stability_buoyancy(
+                fetch_res.data,
+                lat=(spec.region.lat_min + spec.region.lat_max) / 2.0,
+                lon=(spec.region.lon_min + spec.region.lon_max) / 2.0,
+            )
+        except Exception:
+            pass
+    elif spec.intent == Intent.TS_ISOPYCNAL:
+        try:
+            figures["ts_isopycnal"] = plot_ts_with_isopycnals(
+                fetch_res.data,
+                lon=(spec.region.lon_min + spec.region.lon_max) / 2.0,
+                lat=(spec.region.lat_min + spec.region.lat_max) / 2.0,
+            )
+        except Exception:
+            pass
+    elif spec.intent == Intent.CLIMATOLOGY:
+        try:
+            param = "TEMP" if Variable.TEMP in spec.variables else ("PSAL" if Variable.PSAL in spec.variables else "TEMP")
+            figures["climatology"] = plot_regional_climatology_envelope(fetch_res.data, param=param)
+        except Exception:
+            pass
+    elif spec.intent == Intent.OMZ:
+        try:
+            figures["omz"] = plot_bgc_omz_profile(fetch_res.data)
+        except Exception:
+            pass
+    elif spec.intent == Intent.DRIFT:
+        try:
+            figures["drift"] = plot_float_drift_velocity(fetch_res.data)
+        except Exception:
+            pass
 
     # 3. Query card and script persistence
     card = build_card(spec, fetch_res, analysis, question=question)
