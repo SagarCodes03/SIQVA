@@ -24,6 +24,8 @@ MODULES = [
     "siqva.physics",
     "siqva.plots",
     "siqva.card",
+    "siqva.chunking",
+    "siqva.operations",
     "siqva.pipeline",
     "app",
     "app.ui",

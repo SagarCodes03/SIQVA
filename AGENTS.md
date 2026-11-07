@@ -66,8 +66,10 @@ src/siqva/
   parser.py        # parse(question) -> QuerySpec | ClarificationNeeded
   interpretation.py# deterministic "Understood as" formatting
   fetcher.py       # argopy access, caching by spec hash
+  chunking.py      # large-query calendar-month splitting and assembly
   qc.py            # mode / QC filtering
   analyzer.py      # stats + coverage metadata
+  operations.py    # deterministic operations (mean, min, max, anomaly)
   plots.py         # profile, map, T-S templates
   card.py          # query card + generated script + re-run/diff
 app/ui.py          # Streamlit
