@@ -678,16 +678,18 @@ Under unexpected exceptions, `PipelineResult` catches errors, generates a safe u
 
 ## 14. Benchmark Evaluation Harness
 
-- **Dataset**: `benchmark/questions.jsonl` contains 20 curated seed questions covering all 6 intent targets (`data_fetch`, `operation`, `comparison`, `glossary`, `meta`, `clarification`).
-- **Runner**: `benchmark/run_eval.py` evaluates question routing, parameter extraction accuracy, and latency.
+- **Scope & Disclaimer**: Regression smoke test on 20 development questions written by the developers; not an independent evaluation.
+- **Dataset**: `benchmark/questions.jsonl` contains 20 curated seed questions covering all 6 intent targets (`data_fetch`, `operation`, `comparison`, `glossary`, `meta`, `clarification`), marked with `"split": "dev"`.
+- **Runner**: `benchmark/run_eval.py` evaluates question routing, parameter extraction accuracy, and parser-only latency per split (with warning if split $N < 30$).
 - **CLI Usage**:
   ```bash
   python benchmark/run_eval.py
   ```
 - **Metrics**:
-  - Target routing accuracy (%)
+  - Target routing accuracy (%) per split and overall
   - Field extraction accuracy (region, dates, variables, intent) (%)
-  - Mean execution latency per question (ms)
+  - Parser-only latency (rules path, no network, no data fetch) (ms)
   - Per-category breakdown table
+  - Sample size warnings when $N < 30$
 
 
