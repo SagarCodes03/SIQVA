@@ -139,6 +139,23 @@ def check_llm_availability(client: Optional[Any] = None, timeout: float = 1.5) -
     return available
 
 
+import threading
+
+
+def warmup_ollama_async(client: Optional[Any] = None) -> threading.Thread:
+    """Non-blocking background probe to initialize Ollama without freezing the UI thread."""
+
+    def _probe() -> None:
+        try:
+            check_llm_availability(client=client, timeout=1.5)
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_probe, name="ollama-warmup", daemon=True)
+    t.start()
+    return t
+
+
 def _extract_content(response: Any) -> str:
     """Helper to extract text content from an Ollama ChatResponse or dict."""
     if hasattr(response, "message") and hasattr(response.message, "content"):

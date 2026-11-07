@@ -550,6 +550,11 @@ if "conversation_state" not in st.session_state:
     from siqva.followup import ConversationState
 
     st.session_state["conversation_state"] = ConversationState()
+if "ollama_warmed" not in st.session_state:
+    from siqva.llm_parser import warmup_ollama_async
+
+    warmup_ollama_async()
+    st.session_state["ollama_warmed"] = True
 
 
 def _reset_to_new_query() -> None:
@@ -1207,24 +1212,41 @@ if st.session_state["active_page"] == "query":
                         )
                     st.rerun()
 
-        # Default / Trial Quick Query Templates anchored at the very bottom beneath the input box
+        # Dynamic Quick Query Templates loaded from data/examples.json
         st.markdown(
             "<div style='margin-top: 14px; margin-bottom: 8px; color: #7597A8; font-size: 0.72em; letter-spacing: 0.1em; font-weight: 700;'>QUICK QUERY TEMPLATES:</div>",
             unsafe_allow_html=True,
         )
-        q_cols = st.columns(3)
-        sample_queries = [
-            ("thermocline and barrier layer in Bay of Bengal April 2022", "[MLD // BAY OF BENGAL]"),
-            ("cyclone heat potential tchp in Arabian Sea May 2022", "[TCHP // ARABIAN SEA]"),
-            ("acoustic sound speed profile in Arabian Sea January 2022", "[SOFAR // ARABIAN SEA]"),
-        ]
-        for col, (sq_text, sq_label) in zip(q_cols, sample_queries):
-            with col:
+        ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"
+        sample_queries = []
+        if ex_file.exists():
+            try:
+                with open(ex_file, "r", encoding="utf-8") as f:
+                    ex_data = json.load(f)
+                sample_queries = [(e["question"], e["label"]) for e in ex_data.get("examples", [])]
+            except Exception:
+                pass
+        if not sample_queries:
+            sample_queries = [
+                ("thermocline and barrier layer in Bay of Bengal April 2022", "[MLD // BAY OF BENGAL]"),
+                ("cyclone heat potential tchp in Arabian Sea May 2022", "[TCHP // ARABIAN SEA]"),
+                ("acoustic sound speed profile in Arabian Sea January 2022", "[SOFAR // ARABIAN SEA]"),
+            ]
+
+        # Render 3 columns per row for examples
+        num_cols = min(3, len(sample_queries))
+        q_cols = st.columns(num_cols)
+        for idx, (sq_text, sq_label) in enumerate(sample_queries[:num_cols]):
+            with q_cols[idx]:
                 if st.button(sq_label, key=f"quick_{sq_label}", use_container_width=True):
-                    with st.spinner("PARSING SPEC & FETCHING QC-VERIFIED PROFILES..."):
+                    with st.status("[PROCESSING OCEANOGRAPHIC QUERY]", expanded=False) as status_box:
+                        st.write("1. Parsing natural language and resolving bounding box...")
+                        st.write("2. Checking Parquet cache and fetching Argo observations...")
                         pipeline_res = run(question=sq_text, force_refresh=False)
-                        st.session_state["pipeline_res"] = pipeline_res
-                        st.rerun()
+                        st.write("3. Auditing Quality Control and constructing visualization cards...")
+                        status_box.update(label="[QUERY COMPLETED]", state="complete")
+                    st.session_state["pipeline_res"] = pipeline_res
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------

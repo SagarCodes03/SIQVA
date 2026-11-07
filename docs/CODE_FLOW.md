@@ -227,10 +227,15 @@ When a query is processed through `siqva.pipeline.run(question)`:
    - **Action**: Constructs immutable `QueryCard`, writes record to SQLite database (`data/cards.sqlite`), and generates a standalone, runnable Python script (`generate_script`).
    - **Output**: `QueryCard` and Python script string.
 
-10. **UI Presentation**
+10. **UI Presentation & Cold Start**
     - **File**: `app/ui.py` -> `_render_pipeline_result(res)`
     - **Input**: `PipelineResult`.
     - **Display**: Metric tiles (Rows, Profiles, Source, Mode, Depth), interactive Plotly figures, summary markdown, SQLite Query Card metadata, and a script download button.
+    - **Cold Start**:
+      - Seed gallery loaded dynamically from `data/examples.json` with pre-validated bounds.
+      - Offline/standup cache pre-warming utility: `scripts/warm_examples.py`.
+      - Non-blocking background daemon thread (`warmup_ollama_async()`) checks model availability without freezing the Streamlit interface.
+      - Progressive feedback via `st.status` stages.
 
 ---
 

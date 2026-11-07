@@ -11,6 +11,8 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | Q6 | Router uses rules-first classification without LLM fallback for GLOSSARY and META intents; DATA_FETCH, OPERATION, COMPARISON always go through run() pipeline | LLM never sees routed glossary text or meta card data; determinism preserved.
 - 2026-11-07 | Q7 | Follow-up edits resolve deterministically against immutable ConversationState (last_spec) for variable swaps, year swaps, and region swaps without calling LLM | Enables conversational interaction while keeping spec creation completely deterministic and data-blind.
 - 2026-11-07 | Q9 | Dual OperationSpec execution in comparison.py with neutral mathematical difference reporting; strictly forbid subjective words ('anomalous', 'abnormal', 'unusual') | Adheres to AGENTS.md rule that all answer numbers come from code and system avoids unscientific subjective framing.
+- 2026-11-07 | Q10 | Seed example gallery stored in data/examples.json with verified cost bounds; asynchronous non-blocking thread for Ollama probe | Prevents UI freezing during cold start and guarantees instant response for sample queries.
+
 
 
 
