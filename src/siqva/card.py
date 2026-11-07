@@ -65,6 +65,7 @@ class QueryCard(BaseModel):
     created_at: str
     question: Optional[str] = None
     chunks: Optional[list[str]] = None
+    session_id: Optional[str] = None
 
 
 class DiffSummary(BaseModel):
@@ -95,6 +96,7 @@ def build_card(
     analysis: Optional[AnalysisResult] = None,
     card_id: Optional[str] = None,
     question: Optional[str] = None,
+    session_id: Optional[str] = None,
 ) -> QueryCard:
     """Build an immutable QueryCard from a spec, fetch result, and optional analysis."""
     meta = fetch_result.metadata
@@ -153,6 +155,7 @@ def build_card(
         created_at=created_at,
         question=question,
         chunks=chunks,
+        session_id=session_id,
     )
 
 
@@ -327,7 +330,20 @@ def save_card(card: QueryCard, db_path: Path | str = DEFAULT_DB_PATH) -> str:
     return card.card_id
 
 
-def load_card(card_id: str, db_path: Path | str = DEFAULT_DB_PATH) -> Optional[QueryCard]:
+import os
+
+
+def is_history_shared() -> bool:
+    """Return whether query card history is shared across sessions or isolated."""
+    val = os.getenv("SIQVA_SHARED_HISTORY", "1").lower().strip()
+    return val not in ("0", "false", "no")
+
+
+def load_card(
+    card_id: str,
+    session_id: Optional[str] = None,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> Optional[QueryCard]:
     """Load a QueryCard from SQLite by card_id (or spec_hash fallback)."""
     path = _resolve_db_path(db_path)
     if not path.exists():
@@ -342,15 +358,24 @@ def load_card(card_id: str, db_path: Path | str = DEFAULT_DB_PATH) -> Optional[Q
         row = cursor.fetchone()
         if row is None:
             return None
-        return QueryCard.model_validate_json(row[0])
+        card = QueryCard.model_validate_json(row[0])
+        if not is_history_shared() and session_id is not None:
+            if card.session_id and card.session_id != session_id:
+                return None
+        return card
 
 
-def list_cards(limit: int = 50, db_path: Path | str = DEFAULT_DB_PATH) -> list[QueryCard]:
+def list_cards(
+    limit: int = 50,
+    session_id: Optional[str] = None,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> list[QueryCard]:
     """List newest cards, with one entry for each spec-hash and mode pair."""
     path = _resolve_db_path(db_path)
     if not path.exists():
         return []
 
+    shared = is_history_shared()
     with closing(sqlite3.connect(path)) as conn:
         _init_db(conn)
         cursor = conn.execute("SELECT card_json FROM query_cards ORDER BY created_at DESC")
@@ -359,6 +384,9 @@ def list_cards(limit: int = 50, db_path: Path | str = DEFAULT_DB_PATH) -> list[Q
         seen: set[tuple[str, DataMode]] = set()
         for row in rows:
             card = QueryCard.model_validate_json(row[0])
+            if not shared and session_id is not None:
+                if card.session_id and card.session_id != session_id:
+                    continue
             dedupe_key = (card.spec_hash, card.mode)
             if dedupe_key in seen:
                 continue
@@ -367,6 +395,114 @@ def list_cards(limit: int = 50, db_path: Path | str = DEFAULT_DB_PATH) -> list[Q
             if len(cards) == limit:
                 break
         return cards
+
+
+def restore_card_result(
+    card: QueryCard,
+    cache_dir: Optional[Path | str] = None,
+) -> Any:
+    """Reconstruct a full PipelineResult from cached Parquet on disk without network fetch."""
+    from .analyzer import analyze
+    from .fetcher import DEFAULT_CACHE_DIR, FetchMetadata, FetchResult, FetchStatus
+    from .pipeline import PipelineResult, PipelineStatus
+    from .plots import (
+        plot_acoustic_profile,
+        plot_cyclone_tchp,
+        plot_depth_profile,
+        plot_position_map,
+        plot_thermocline_and_barrier,
+        plot_ts_diagram,
+    )
+    from .spec import Intent, Variable
+
+    if cache_dir is None:
+        cache_dir = DEFAULT_CACHE_DIR
+    cache_path = Path(cache_dir)
+    parquet_path = cache_path / f"{card.fetch_key}.parquet"
+
+    script = generate_script(card)
+
+    if not parquet_path.exists():
+        return PipelineResult(
+            status=PipelineStatus.SUCCESS,
+            spec=card.spec,
+            card=card,
+            script=script,
+            warning="Cached data not on disk; click [RE-RUN FETCH & DIFF] to recompute.",
+            warnings=["Cached data not on disk; click [RE-RUN FETCH & DIFF] to recompute."],
+        )
+
+    try:
+        df = pd.read_parquet(parquet_path)
+    except Exception as err:
+        return PipelineResult(
+            status=PipelineStatus.SUCCESS,
+            spec=card.spec,
+            card=card,
+            script=script,
+            warning=f"Could not read cached data: {err}. Click [RE-RUN FETCH & DIFF] to recompute.",
+            warnings=[f"Could not read cached data: {err}."],
+        )
+
+    fetch_res = FetchResult(
+        status=FetchStatus.SUCCESS,
+        data=df,
+        is_cached=True,
+        cache_key=card.fetch_key,
+        effective_depth_range=card.effective_depth_range,
+        profile_count=card.profile_count,
+        profile_count_verified=card.profile_count_verified,
+    )
+
+    analysis = analyze(df, card.spec, fetch_res)
+
+    figures: dict[str, Any] = {}
+    try:
+        figures["map"] = plot_position_map(df)
+    except Exception:
+        pass
+
+    if card.spec.intent in (Intent.PROFILE, Intent.TREND):
+        primary_var = card.spec.variables[0] if card.spec.variables else Variable.TEMP
+        try:
+            figures["profile"] = plot_depth_profile(df, variable=primary_var)
+        except Exception:
+            pass
+
+    if card.spec.intent in (Intent.TS, Intent.PROFILE):
+        if Variable.TEMP in card.spec.variables and Variable.PSAL in card.spec.variables:
+            try:
+                figures["ts"] = plot_ts_diagram(df)
+            except Exception:
+                pass
+
+    if analysis.physics_summaries:
+        rep_profile = max(analysis.physics_summaries, key=lambda s: s.max_depth_m)
+        if card.spec.intent == Intent.THERMOCLINE:
+            try:
+                figures["thermocline"] = plot_thermocline_and_barrier(df, rep_profile)
+            except Exception:
+                pass
+        elif card.spec.intent == Intent.TCHP:
+            try:
+                figures["tchp"] = plot_cyclone_tchp(df, rep_profile)
+            except Exception:
+                pass
+        elif card.spec.intent == Intent.ACOUSTIC:
+            try:
+                figures["acoustic"] = plot_acoustic_profile(df, rep_profile)
+            except Exception:
+                pass
+
+    return PipelineResult(
+        status=PipelineStatus.SUCCESS,
+        spec=card.spec,
+        fetch_result=fetch_res,
+        analysis=analysis,
+        figures=figures,
+        card=card,
+        script=script,
+    )
 
 
 # ==============================================================================

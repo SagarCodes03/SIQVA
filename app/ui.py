@@ -542,6 +542,10 @@ if "active_plot_res" not in st.session_state:
     st.session_state["active_plot_res"] = None
 if "active_plot_title" not in st.session_state:
     st.session_state["active_plot_title"] = None
+if "session_id" not in st.session_state:
+    import uuid
+
+    st.session_state["session_id"] = uuid.uuid4().hex[:12]
 if "loaded_card_id" not in st.session_state:
     st.session_state["loaded_card_id"] = None
 if "chat_message" not in st.session_state:
@@ -959,7 +963,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     try:
-        recent_cards = list_cards(limit=10)
+        recent_cards = list_cards(limit=10, session_id=st.session_state.get("session_id"))
     except Exception:
         recent_cards = []
 
@@ -1058,14 +1062,14 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
 # ---------------------------------------------------------------------------
 if st.session_state["active_page"] == "query":
     if st.session_state.get("loaded_card_id"):
-        card = load_card(st.session_state["loaded_card_id"])
+        from siqva.card import restore_card_result
+
+        card = load_card(
+            st.session_state["loaded_card_id"],
+            session_id=st.session_state.get("session_id"),
+        )
         if card:
-            st.session_state["pipeline_res"] = PipelineResult(
-                status=PipelineStatus.SUCCESS,
-                spec=card.spec,
-                card=card,
-                script=generate_script(card),
-            )
+            st.session_state["pipeline_res"] = restore_card_result(card)
         st.session_state["loaded_card_id"] = None
 
     # Top-Left Aligned Header Bar (flush near sidebar)

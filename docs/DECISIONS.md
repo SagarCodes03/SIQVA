@@ -12,6 +12,8 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | Q7 | Follow-up edits resolve deterministically against immutable ConversationState (last_spec) for variable swaps, year swaps, and region swaps without calling LLM | Enables conversational interaction while keeping spec creation completely deterministic and data-blind.
 - 2026-11-07 | Q9 | Dual OperationSpec execution in comparison.py with neutral mathematical difference reporting; strictly forbid subjective words ('anomalous', 'abnormal', 'unusual') | Adheres to AGENTS.md rule that all answer numbers come from code and system avoids unscientific subjective framing.
 - 2026-11-07 | Q10 | Seed example gallery stored in data/examples.json with verified cost bounds; asynchronous non-blocking thread for Ollama probe | Prevents UI freezing during cold start and guarantees instant response for sample queries.
+- 2026-11-07 | Q11 | Full visual state restored from local Parquet cache on history card click via restore_card_result; optional session_id filtering enabled when SIQVA_SHARED_HISTORY=0 | Provides instant history inspection with plots while enabling multi-session privacy isolation when required.
+
 
 
 

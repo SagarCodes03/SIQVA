@@ -138,7 +138,7 @@ The validator enforces: valid bbox, date order, allowed variables, and a maximum
 - `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases. Cards for chunked queries record `chunks`, and `generate_script` generates a reproducible loop over monthly chunks.
 - `list_cards()` deduplicates entries by `(spec_hash, mode)` returning newest cards.
 - Sidebar history label format: `"{question} · {created_at[:10]} · {region_name}"` (question truncated to 40 characters, falling back to `"{Intent} query"`).
-- Clicking a history entry restores the card metadata, spec, and generated script in the UI, but does **not** restore plots or raw data.
+- Clicking a history entry restores card metadata, spec, generated script, and re-renders plots and analysis from local Parquet cache (if parquet is missing, displays metadata and a re-run prompt). Optional `session_id` isolates history when `SIQVA_SHARED_HISTORY=0`.
 - Re-run recomputes the fetch and compares hashes. If data differs, report a
   diff summary (e.g. new delayed-mode corrections). A change is not an error.
 - Cached results must be labelled as cached in the UI.

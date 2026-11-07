@@ -69,6 +69,7 @@ def run_spec(
     db_path: Optional[Path] = None,
     fetcher_fn: Any = fetch,
     question: Optional[str] = None,
+    session_id: Optional[str] = None,
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
@@ -170,7 +171,7 @@ def run_spec(
                 pass
 
     # 3. Query card and script persistence
-    card = build_card(spec, fetch_res, analysis, question=question)
+    card = build_card(spec, fetch_res, analysis, question=question, session_id=session_id)
     warning_msg: Optional[str] = None
     try:
         if db_path is not None:

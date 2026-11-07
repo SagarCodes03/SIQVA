@@ -16,6 +16,6 @@ Resume instruction for future sessions:
 | [x] **Q7** | Follow-ups and meta questions (ConversationState, conversational edits, meta queries from card/state, tests) | DONE (tag `done-Q7`, 294 passed) |
 | [x] **Q9** | Comparison questions (dual OperationSpecs execution, difference reporting without anomaly claims, router detection, tests) | DONE (tag `done-Q9`, 301 passed) |
 | [x] **Q10** | Cold start (example gallery from JSON, non-blocking Ollama background warm-up, st.status progress stages, tests) | DONE (tag `done-Q10`, 305 passed) |
-| [ ] **Q11** | History reload and privacy (cache-based plot reload, session ID isolation, privacy docs/tests) | Pending |
+| [x] **Q11** | History reload and privacy (cache-based plot reload, session ID isolation, privacy docs/tests) | DONE (tag `done-Q11`, 308 passed) |
 | [ ] **Q13** | Benchmark infrastructure (benchmark/questions.jsonl, run_eval.py runner, accuracy/latency scoring, tests) | Pending |
 | [ ] **Q14** | Documentation (comprehensive README.md, AGENTS.md, CODE_FLOW.md, limitations, reproducible query cards) | Pending |

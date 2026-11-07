@@ -221,10 +221,11 @@ When a query is processed through `siqva.pipeline.run(question)`:
    - **Behavior**: Standard figures (`profile`, `map`, and `ts` when temperature and salinity are present) are generated for standard queries. Physics plots (`plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`) are strictly generated on-demand only when the matching physics intent is requested (`Intent.THERMOCLINE`, `Intent.TCHP`, or `Intent.ACOUSTIC`).
    - **Output**: Dictionary of Plotly Figure objects (`dict[str, go.Figure]`).
 
-9. **Query Card Creation & Persistence**
-   - **File**: `src/siqva/card.py` -> `build_card(spec, fetch_res, analysis)` and `save_card(card)`
-   - **Input**: Spec, fetch result, analysis result.
-   - **Action**: Constructs immutable `QueryCard`, writes record to SQLite database (`data/cards.sqlite`), and generates a standalone, runnable Python script (`generate_script`).
+9. **Query Card Creation, Persistence & History Reload**
+   - **File**: `src/siqva/card.py` -> `build_card(spec, fetch_res, analysis)`, `save_card(card)`, and `restore_card_result(card)`
+   - **Input**: Spec, fetch result, analysis result, optional `session_id`.
+   - **Action**: Constructs immutable `QueryCard`, writes record to SQLite database (`data/cards.sqlite`), and generates a standalone, runnable Python script (`generate_script`). Supports multi-session isolation via `session_id` when `SIQVA_SHARED_HISTORY=0`.
+   - **Reload**: When history card is clicked, `restore_card_result` reloads cached Parquet data from disk and reconstructs plots and analysis without hitting remote servers.
    - **Output**: `QueryCard` and Python script string.
 
 10. **UI Presentation & Cold Start**
