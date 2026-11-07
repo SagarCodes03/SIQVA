@@ -70,6 +70,7 @@ src/siqva/
   qc.py            # mode / QC filtering
   analyzer.py      # stats + coverage metadata
   operations.py    # deterministic operations (mean, min, max, anomaly)
+  comparison.py    # dual-dataset comparison without anomaly claims
   glossary.py      # scientific term lookup with literature citations
   router.py        # query intent router (data, op, compare, glossary, meta)
   followup.py      # conversational state and query edits (salinity, year, region)

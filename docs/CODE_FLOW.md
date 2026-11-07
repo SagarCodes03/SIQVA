@@ -92,6 +92,7 @@ User Question (Natural Language)
 | `src/siqva/qc.py` | Documents mode filtering behaviors (research, standard, expert) and performs non-destructive quality control auditing per variable and profile. |
 | `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, on-demand physics orchestration, skipped-profile tracking, and deterministic template summaries. |
 | `src/siqva/operations.py` | Executes deterministic statistical operations (`mean`, `median`, `min`, `max`, `std`, `count`, `anomaly`), temporal binning, depth filtering, and formats deterministic answer text without LLM imports. |
+| `src/siqva/comparison.py` | Executes dual-dataset comparisons across regions or periods with deterministic difference reporting, strictly avoiding unscientific subjective framing ('anomalous', 'abnormal', 'unusual'). |
 | `src/siqva/glossary.py` | Provides exact, alias, and fuzzy lookup of oceanographic terms loaded exclusively from `data/glossary.json` with mandatory scientific literature citations. |
 | `src/siqva/router.py` | Deterministic rules-first classifier routing user questions to the correct subsystem: `DATA_FETCH`, `OPERATION`, `COMPARISON`, `GLOSSARY`, `META`, or `CLARIFICATION`. |
 | `src/siqva/followup.py` | Tracks `ConversationState` and resolves conversational follow-up edits ("same for salinity", "now 2023", region changes) deterministically against the last query spec. |

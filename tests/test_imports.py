@@ -26,6 +26,7 @@ MODULES = [
     "siqva.plots",
     "siqva.card",
     "siqva.chunking",
+    "siqva.comparison",
     "siqva.glossary",
     "siqva.operations",
     "siqva.pipeline",
