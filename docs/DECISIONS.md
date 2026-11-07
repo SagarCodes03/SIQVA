@@ -14,6 +14,8 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | Q10 | Seed example gallery stored in data/examples.json with verified cost bounds; asynchronous non-blocking thread for Ollama probe | Prevents UI freezing during cold start and guarantees instant response for sample queries.
 - 2026-11-07 | Q11 | Full visual state restored from local Parquet cache on history card click via restore_card_result; optional session_id filtering enabled when SIQVA_SHARED_HISTORY=0 | Provides instant history inspection with plots while enabling multi-session privacy isolation when required.
 - 2026-11-07 | Q13 | 20 verified seed questions across all 6 targets in benchmark/questions.jsonl evaluated by benchmark/run_eval.py scoring routing, field accuracy, and latency | Provides reproducible, quantitative regression evaluation without altering reference specs.
+- 2026-11-07 | Q14 | Published comprehensive README.md with architecture diagram, installation, benchmark runner, capabilities, and known limitations; verified AGENTS.md and CODE_FLOW.md | Delivers complete technical documentation matching all implemented code features and scope constraints.
+
 
 
 
