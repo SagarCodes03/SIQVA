@@ -50,7 +50,7 @@ GLOSSARY_PATTERNS = [
 ]
 
 META_PATTERNS = [
-    re.compile(r"\b(?:what\s+(?:did\s+i\s+just\s+run|was\s+the\s+last\s+query|query\s+did\s+i\s+run))\b", re.IGNORECASE),
+    re.compile(r"\b(?:what\s+(?:query\s+)?did\s+i\s+(?:just\s+)?run|what\s+was\s+the\s+last\s+query)\b", re.IGNORECASE),
     re.compile(r"\b(?:show\s+(?:me\s+)?(?:the\s+)?(?:script|card|versions?|spec))\b", re.IGNORECASE),
     re.compile(r"\b(?:which|what)\s+version\b", re.IGNORECASE),
     re.compile(r"\b(?:what\s+mode\s+was\s+used|how\s+many\s+profiles\s+in\s+last\s+query)\b", re.IGNORECASE),
@@ -64,7 +64,7 @@ COMPARISON_PATTERNS = [
 OPERATION_PATTERNS = [
     re.compile(r"\b(?:what\s+is\s+the\s+(?:average|mean|max|maximum|min|minimum|median|std|count))\b", re.IGNORECASE),
     re.compile(r"\b(?:calculate|compute)\s+(?:the\s+)?(?:mean|average|max|maximum|min|minimum|median|std|count)\b", re.IGNORECASE),
-    re.compile(r"\b(?:how\s+(?:warm|cold|salty|deep))\b", re.IGNORECASE),
+    re.compile(r"\b(?:how\s+(?:warm|cold|salty|deep|many))\b", re.IGNORECASE),
     re.compile(r"\b(?:average|mean)\s+(?:temperature|salinity|pressure)\b", re.IGNORECASE),
     re.compile(r"\b(?:max|maximum|min|minimum)\s+(?:temperature|salinity|pressure)\b", re.IGNORECASE),
 ]

@@ -674,3 +674,20 @@ Under unexpected exceptions, `PipelineResult` catches errors, generates a safe u
 | **Cost Cap Scaling** | Section 7 specifies bounding box and date range validation. | The cost cap was enhanced to include vertical depth scaling: $\text{Area} \times \text{Days} \times (\text{Depth} / 500\text{ dbar})$. |
 | **Float Index Cache** | Section 11 permits local Parquet snapshot for discovery. | Implemented via `data/float_index.parquet` and sidecar `data/float_index.json`, used strictly for profile count guards. Missing index makes no network calls. |
 
+---
+
+## 14. Benchmark Evaluation Harness
+
+- **Dataset**: `benchmark/questions.jsonl` contains 20 curated seed questions covering all 6 intent targets (`data_fetch`, `operation`, `comparison`, `glossary`, `meta`, `clarification`).
+- **Runner**: `benchmark/run_eval.py` evaluates question routing, parameter extraction accuracy, and latency.
+- **CLI Usage**:
+  ```bash
+  python benchmark/run_eval.py
+  ```
+- **Metrics**:
+  - Target routing accuracy (%)
+  - Field extraction accuracy (region, dates, variables, intent) (%)
+  - Mean execution latency per question (ms)
+  - Per-category breakdown table
+
+
