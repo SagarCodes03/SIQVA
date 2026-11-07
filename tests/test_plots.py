@@ -16,7 +16,7 @@ from siqva.plots import (
 )
 from siqva.spec import Variable
 
-FIXTURE_PATH = Path("tests/fixtures/sample_argo_standard.parquet")
+FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "sample_argo_standard.parquet"
 
 
 @pytest.fixture

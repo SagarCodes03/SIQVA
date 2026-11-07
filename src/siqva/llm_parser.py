@@ -109,6 +109,10 @@ def check_llm_availability(client: Optional[Any] = None, timeout: float = 1.5) -
     """
     global _LAST_UNAVAILABLE_TIMESTAMP
 
+    # Mock clients that provide chat() but no is_available() are always available
+    if client is not None and not hasattr(client, "is_available"):
+        return True
+
     now = time.monotonic()
     if _LAST_UNAVAILABLE_TIMESTAMP is not None:
         if now - _LAST_UNAVAILABLE_TIMESTAMP < UNAVAILABLE_CACHE_TTL_SECONDS:
@@ -117,16 +121,13 @@ def check_llm_availability(client: Optional[Any] = None, timeout: float = 1.5) -
         _LAST_UNAVAILABLE_TIMESTAMP = None
 
     if client is not None:
-        if hasattr(client, "is_available"):
-            try:
-                available = bool(client.is_available(timeout=timeout))
-            except TypeError:
-                available = bool(client.is_available())
-            except Exception as e:
-                logger.info("Custom LLM client availability check failed: %s", e)
-                available = False
-        else:
-            available = True
+        try:
+            available = bool(client.is_available(timeout=timeout))
+        except TypeError:
+            available = bool(client.is_available())
+        except Exception as e:
+            logger.info("Custom LLM client availability check failed: %s", e)
+            available = False
     else:
         ollama_client = OllamaClient()
         available = ollama_client.is_available(timeout=timeout)

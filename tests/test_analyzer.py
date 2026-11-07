@@ -10,7 +10,7 @@ from siqva.fetcher import FetchResult, FetchStatus
 from siqva.qc import get_mode_description, get_qc_filter_description
 from siqva.spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
 
-FIXTURE_PATH = Path("tests/fixtures/sample_argo_standard.parquet")
+FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "sample_argo_standard.parquet"
 
 
 @pytest.fixture
