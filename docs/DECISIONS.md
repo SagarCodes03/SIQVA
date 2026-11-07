@@ -18,6 +18,7 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | FIX 1 | Resolve AppTest path absolutely via Path(__file__).resolve().parents[1] / "app" / "ui.py" with 30s timeout and use absolute fixture paths in all test modules | Prevents FileNotFoundError in AppTest and ensures deterministic mock execution without network or Ollama dependencies.
 - 2026-11-07 | FIX 2 | Explicit utf-8 loading confirmed across repo; structured GlossarySource with mandatory citation fields; verified=false flag returns unverified warning without factual definition | Guarantees clean UTF-8 rendering without mojibake and prevents presenting unverified physical oceanography definitions as facts.
 - 2026-11-07 | FIX 3 | Explicitly label benchmark as regression smoke test on developer questions with split: dev (heldout reserved); report per-split metrics, sample size warning (< 30), and explicit parser-only latency label | Prevents presenting internal regression tests as independent accuracy claims and acknowledges statistical confidence intervals.
+- 2026-11-07 | FIX 4 | Verified safety guards for unquantified dates, fast Ollama-unavailable fallback (< 3s), and actionable oversized basin suggestions; synchronized README.md, AGENTS.md, and docs/CODE_FLOW.md | Ensures system refuses or clarifies ambiguous/oversized inputs cleanly without stack traces or guesses.
 
 
 
