@@ -19,6 +19,7 @@ MODULES = [
     "siqva.parser",
     "siqva.interpretation",
     "siqva.fetcher",
+    "siqva.followup",
     "siqva.qc",
     "siqva.analyzer",
     "siqva.physics",

@@ -546,6 +546,10 @@ if "loaded_card_id" not in st.session_state:
     st.session_state["loaded_card_id"] = None
 if "chat_message" not in st.session_state:
     st.session_state["chat_message"] = None
+if "conversation_state" not in st.session_state:
+    from siqva.followup import ConversationState
+
+    st.session_state["conversation_state"] = ConversationState()
 
 
 def _reset_to_new_query() -> None:
@@ -1120,6 +1124,26 @@ if st.session_state["active_page"] == "query":
 
         if send_clicked and user_question.strip():
             question_text = user_question.strip()
+            from siqva.followup import ConversationState, try_resolve_followup
+
+            c_state: ConversationState = st.session_state.get("conversation_state") or ConversationState()
+            followup = try_resolve_followup(question_text, c_state)
+
+            if followup.resolved and followup.spec is not None:
+                st.session_state["chat_message"] = None
+                with st.spinner("APPLYING FOLLOW-UP EDITS & FETCHING..."):
+                    pipeline_res = run_spec(
+                        followup.spec,
+                        force_refresh=False,
+                        question=question_text,
+                    )
+                    st.session_state["pipeline_res"] = pipeline_res
+                    if pipeline_res.spec is not None:
+                        st.session_state["conversation_state"] = c_state.with_new_query(
+                            pipeline_res.spec, question=question_text
+                        )
+                    st.rerun()
+
             route_res = route(question_text)
 
             if route_res.target == RouteTarget.GLOSSARY:
@@ -1177,6 +1201,10 @@ if st.session_state["active_page"] == "query":
                             question=question_text,
                         )
                     st.session_state["pipeline_res"] = pipeline_res
+                    if pipeline_res.spec is not None:
+                        st.session_state["conversation_state"] = c_state.with_new_query(
+                            pipeline_res.spec, question=question_text
+                        )
                     st.rerun()
 
         # Default / Trial Quick Query Templates anchored at the very bottom beneath the input box

@@ -71,7 +71,8 @@ src/siqva/
   analyzer.py      # stats + coverage metadata
   operations.py    # deterministic operations (mean, min, max, anomaly)
   glossary.py      # scientific term lookup with literature citations
-  glossary.py      # scientific term lookup with literature citations
+  router.py        # query intent router (data, op, compare, glossary, meta)
+  followup.py      # conversational state and query edits (salinity, year, region)
   plots.py         # profile, map, T-S templates
   card.py          # query card + generated script + re-run/diff
 app/ui.py          # Streamlit
