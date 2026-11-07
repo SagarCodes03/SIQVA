@@ -19,3 +19,7 @@ Resume instruction for future sessions:
 | [x] **Q11** | History reload and privacy (cache-based plot reload, session ID isolation, privacy docs/tests) | DONE (tag `done-Q11`, 308 passed) |
 | [x] **Q13** | Benchmark infrastructure (benchmark/questions.jsonl, run_eval.py runner, accuracy/latency scoring, tests) | DONE (tag `done-Q13`, 310 passed) |
 | [x] **Q14** | Documentation (comprehensive README.md, AGENTS.md, CODE_FLOW.md, limitations, reproducible query cards) | DONE (tag `done-Q14`, 310 passed) |
+| [x] **FIX 1** | UI smoke test absolute paths (AppTest path resolution, fixture paths, realistic mocked run pipeline) | DONE (commit `53e5445`, 310 passed) |
+| [x] **FIX 2** | Glossary utf-8 encoding and verification (`verified: false` default, structured `GlossarySource`, warning on unverified terms, guide checklist) | DONE (commit `6e8794d`, 311 passed) |
+| [x] **FIX 3** | Honest benchmark labelling and split field (`split: dev` schema, sample size warning < 30, parser-only latency label, docs disclaimer) | DONE (commit `015f86c`, 312 passed) |
+| [x] **FIX 4** | Safety verification (unquantified date clarifications, Ollama-unavailable < 3s, actionable oversized basin message, docs sync) | DONE (commit `938d3f5`, 315 passed) |
