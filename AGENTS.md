@@ -39,19 +39,19 @@ offline mode. Do not claim accuracy figures (e.g. "100%") in code, docs, or UI.
 
 ## 4. Stack
 
-Python 3.11+, FastAPI, Streamlit, Pydantic (spec schema), argopy, xarray,
+Python 3.11+, Streamlit, Pydantic (spec schema), argopy, xarray,
 pandas, Parquet (cache), SQLite (stored cards), Plotly, pytest, rapidfuzz,
-dateparser. LLM: local Llama 3.2 3B via Ollama, behind one interface (below).
+dateparser, gsw. LLM: local Llama 3.2 3B via Ollama, behind one interface (below).
 
 ## 5. Architecture
 
 ```
-Streamlit UI -> FastAPI -> Parser -> Validator -> Fetcher (argopy)
-                                         |             |
-                                  Gazetteer/schema   ERDDAP / GDAC
-                           QC+mode filter -> Analyzer -> Plot templates
-                                         |
-                        Query card builder -> SQLite + Parquet cache
+Streamlit UI -> Parser -> Validator -> Fetcher (argopy)
+                              |             |
+                       Gazetteer/schema   ERDDAP / GDAC
+                QC+mode filter -> Analyzer -> Plot templates
+                              |
+             Query card builder -> SQLite + Parquet cache
 ```
 
 Suggested layout:
@@ -70,7 +70,6 @@ src/siqva/
   analyzer.py      # stats + coverage metadata
   plots.py         # profile, map, T-S templates
   card.py          # query card + generated script + re-run/diff
-  api.py           # FastAPI
 app/ui.py          # Streamlit
 benchmark/         # questions + reference specs + scorer
 tests/
