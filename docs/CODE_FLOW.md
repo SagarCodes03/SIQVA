@@ -82,6 +82,7 @@ User Question (Natural Language)
 | :--- | :--- |
 | `src/siqva/spec.py` | Defines `QuerySpec`, `BoundingBox`, `DateRange`, `DepthRange`, enums (`Variable`, `DataMode`, `Intent`), canonical serialization, and SHA-256 hashing. |
 | `src/siqva/validator.py` | Enforces geographic bounds, chronological date ordering, allowed variables, depth ranges, and depth-scaled query cost caps. |
+| `src/siqva/chunking.py` | Decomposes multi-month queries exceeding single-request cost cap into calendar months (up to `SIQVA_MAX_CHUNKS=24`), executes monthly fetches via standard Parquet cache, deduplicates combined records, and enforces `SIQVA_MAX_TOTAL_ROWS=3,000,000`. |
 | `src/siqva/gazetteer.py` | Resolves geographic ocean names to bounding boxes via dictionary lookup, fuzzy matching (`rapidfuzz`), and coordinate regex extraction. |
 | `src/siqva/rules_parser.py` | Extracts variables, dates, regions, delivery modes, depth limits, and user intent using deterministic regular expressions and dictionary rules. |
 | `src/siqva/llm_parser.py` | Provides JSON-schema-constrained Ollama fallback extraction for individual fields that rule-based parsing leaves unfilled. |
@@ -164,11 +165,19 @@ When a query is processed through `siqva.pipeline.run(question)`:
          3. *Smaller region*: narrow bounding box or specify custom coordinates.
    - **Output**: Returns `None` if valid; raises `SpecValidationError` or `OversizedRequestError`.
 
-4. **Data Retrieval & Pre-Fetch Guards**
-   - **File**: `src/siqva/fetcher.py` -> `fetch(spec)`
+4. **Data Retrieval, Chunking & Pre-Fetch Guards**
+   - **Files**: `src/siqva/fetcher.py` -> `fetch(spec)` and `src/siqva/chunking.py` -> `fetch_chunked(spec)`
    - **Input**: Validated `QuerySpec`, cache parameters.
    - **Internal Steps**:
-     1. Evaluates local float index snapshot (`data/float_index.parquet`). If coverage is `FULL`, enforces the 100-profile maximum guard (`DEFAULT_MAX_PROFILE_COUNT = 100`). If coverage is `PARTIAL` or `NOT_COVERED`, skips profile count ceiling, applies only the cost cap, and marks `profile_count_verified = False`.
+     1. **Chunking for Large Multi-Month Queries**:
+        - If query cost exceeds 15,000 units and spans multiple calendar months, `fetch_chunked()` splits the date range into calendar-month chunks via `split_date_range_into_months()`.
+        - Enforces `SIQVA_MAX_CHUNKS` (default 24). If more chunks are required, refuses with an actionable error.
+        - Validates that each individual monthly chunk fits within the 15,000 cost cap; if any month exceeds the cap, refuses with the standard oversized suggestions.
+        - Fetches each month via `fetch(chunk_spec)`, caching each monthly slice in Parquet under its own `fetch_key` (enabling cache reuse across overlapping queries).
+        - If any chunk fails (timeout/error), the entire fetch aborts, naming the failed chunk and reporting that completed chunks remain cached.
+        - Combines chunk DataFrames, deduplicating on `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)`, recomputes profile count, and caps cumulative rows at `SIQVA_MAX_TOTAL_ROWS` (default 3,000,000).
+        - UI displays `st.info("Result assembled from N monthly chunks.")`.
+     2. Evaluates local float index snapshot (`data/float_index.parquet`). If coverage is `FULL`, enforces the 100-profile maximum guard (`DEFAULT_MAX_PROFILE_COUNT = 100`). If coverage is `PARTIAL` or `NOT_COVERED`, skips profile count ceiling, applies only the cost cap, and marks `profile_count_verified = False`.
      2. Computes `fetch_key = spec.fetch_key()`. Checks local Parquet cache (`cache/<fetch_key>.parquet` and sidecar JSON). If present and valid within expiration window (7 days for standard/expert, 90 days for research), loads cached data immediately (`is_cached = True`).
      3. If cache miss, constructs the 8-element bounding box:
         `[lon_min, lon_max, lat_min, lat_max, dpt_min, dpt_max, start_iso, end_iso]`

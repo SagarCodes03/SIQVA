@@ -72,12 +72,23 @@ def run_spec(
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
-    fetch_res: FetchResult = fetcher_fn(
-        spec,
-        cache_dir=cache_dir,
-        force_refresh=force_refresh,
-        **fetch_kwargs,
-    )
+    from .chunking import fetch_chunked, is_chunked_spec
+
+    if is_chunked_spec(spec):
+        fetch_res: FetchResult = fetch_chunked(
+            spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            fetcher_fn=fetcher_fn,
+            **fetch_kwargs,
+        )
+    else:
+        fetch_res: FetchResult = fetcher_fn(
+            spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            **fetch_kwargs,
+        )
 
     if fetch_res.status == FetchStatus.EMPTY:
         return PipelineResult(

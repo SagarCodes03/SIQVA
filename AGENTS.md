@@ -126,9 +126,10 @@ The validator enforces: valid bbox, date order, allowed variables, and a maximum
 ## 8. Fetching, caching, reproducibility
 
 - Normalise the spec, hash it, and use the hash as the cache key (Parquet).
+- Large multi-month queries exceeding the single-request cost cap (15,000) are decomposed into calendar-month chunks up to `SIQVA_MAX_CHUNKS` (default 24). Each month is fetched and cached independently via standard Parquet cache, enabling shared reuse across overlapping queries. Combined data is deduplicated by `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)` and capped by `SIQVA_MAX_TOTAL_ROWS` (default 3,000,000). If any single month exceeds 15,000 cost cap, chunking cannot save it and the standard oversized suggestion applies.
 - Record source (ERDDAP/GDAC), argopy and xarray versions, fetch timestamp, and
   a data hash in every card.
-- `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases.
+- `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases. Cards for chunked queries record `chunks`, and `generate_script` generates a reproducible loop over monthly chunks.
 - `list_cards()` deduplicates entries by `(spec_hash, mode)` returning newest cards.
 - Sidebar history label format: `"{question} · {created_at[:10]} · {region_name}"` (question truncated to 40 characters, falling back to `"{Intent} query"`).
 - Clicking a history entry restores the card metadata, spec, and generated script in the UI, but does **not** restore plots or raw data.

@@ -740,6 +740,9 @@ def _render_pipeline_result(res: PipelineResult) -> None:
     if res.warning:
         st.warning(f"[WARN] {res.warning}")
 
+    if res.card and res.card.chunks and len(res.card.chunks) > 1:
+        st.info(f"Result assembled from {len(res.card.chunks)} monthly chunks.")
+
     # Summary Metrics Bar
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
