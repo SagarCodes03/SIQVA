@@ -16,6 +16,7 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | Q13 | 20 verified seed questions across all 6 targets in benchmark/questions.jsonl evaluated by benchmark/run_eval.py scoring routing, field accuracy, and latency | Provides reproducible, quantitative regression evaluation without altering reference specs.
 - 2026-11-07 | Q14 | Published comprehensive README.md with architecture diagram, installation, benchmark runner, capabilities, and known limitations; verified AGENTS.md and CODE_FLOW.md | Delivers complete technical documentation matching all implemented code features and scope constraints.
 - 2026-11-07 | FIX 1 | Resolve AppTest path absolutely via Path(__file__).resolve().parents[1] / "app" / "ui.py" with 30s timeout and use absolute fixture paths in all test modules | Prevents FileNotFoundError in AppTest and ensures deterministic mock execution without network or Ollama dependencies.
+- 2026-11-07 | FIX 2 | Explicit utf-8 loading confirmed across repo; structured GlossarySource with mandatory citation fields; verified=false flag returns unverified warning without factual definition | Guarantees clean UTF-8 rendering without mojibake and prevents presenting unverified physical oceanography definitions as facts.
 
 
 
