@@ -8,6 +8,8 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | Q3b | Decompose multi-month queries exceeding 15,000 cost cap into calendar months up to SIQVA_MAX_CHUNKS (default 24); refuse if any single month exceeds cap or total rows exceed SIQVA_MAX_TOTAL_ROWS (3,000,000) | Ensures bounded ERDDAP load, shared monthly Parquet caching across queries, and memory safety.
 - 2026-11-07 | Q5 | Implement OperationSpec and deterministic calculation templates in operations.py with zero LLM imports | Guarantees all numbers in answers come strictly from code without LLM hallucination.
 - 2026-11-07 | Q8 | Glossary entries loaded strictly from data/glossary.json with mandatory peer-reviewed scientific citations; no agent-authored definitions | Prevents unverified or hallucinated physical oceanography definitions.
+- 2026-11-07 | Q6 | Router uses rules-first classification without LLM fallback for GLOSSARY and META intents; DATA_FETCH, OPERATION, COMPARISON always go through run() pipeline | LLM never sees routed glossary text or meta card data; determinism preserved.
+
 
 
 

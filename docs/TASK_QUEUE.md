@@ -12,7 +12,7 @@ Resume instruction for future sessions:
 | [x] **Q3b** | Large-query chunking (calendar-month chunking under 15,000 cap, row/chunk limits, shared caching, assembly, tests) | DONE (tag `done-Q3b`, 252 passed) |
 | [x] **Q5** | Operations core for data questions (OperationSpec, execute statistics, deterministic answer template, no LLM, hand-computed tests) | DONE (tag `done-Q5`, 260 passed) |
 | [x] **Q8** | Glossary mechanism (glossary.py, data/glossary.json, exact/fuzzy lookup, source attribution, no definitions written, guide) | DONE (tag `done-Q8`, 268 passed) |
-| [ ] **Q6** | Router and chat interface (route() classifier, constrained fallback, monthly fetch/cache, st.chat_message UI, tests) | Pending |
+| [x] **Q6** | Router and chat interface (route() classifier, constrained fallback, monthly fetch/cache, st.chat_message UI, tests) | DONE (tag `done-Q6`, 283 passed) |
 | [ ] **Q7** | Follow-ups and meta questions (ConversationState, conversational edits, meta queries from card/state, tests) | Pending |
 | [ ] **Q9** | Comparison questions (dual OperationSpecs execution, difference reporting without anomaly claims, router detection, tests) | Pending |
 | [ ] **Q10** | Cold start (example gallery from JSON, non-blocking Ollama background warm-up, st.status progress stages, tests) | Pending |

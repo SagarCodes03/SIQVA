@@ -28,6 +28,7 @@ MODULES = [
     "siqva.glossary",
     "siqva.operations",
     "siqva.pipeline",
+    "siqva.router",
     "app",
     "app.ui",
 ]
