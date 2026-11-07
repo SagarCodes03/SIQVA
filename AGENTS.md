@@ -70,6 +70,7 @@ src/siqva/
   qc.py            # mode / QC filtering
   analyzer.py      # stats + coverage metadata
   operations.py    # deterministic operations (mean, min, max, anomaly)
+  glossary.py      # scientific term lookup with literature citations
   plots.py         # profile, map, T-S templates
   card.py          # query card + generated script + re-run/diff
 app/ui.py          # Streamlit
