@@ -2,25 +2,23 @@
 # Python 3.11+
 
 # Web & UI
-fastapi>=0.115.0
-uvicorn>=0.30.0
-streamlit>=1.39.0
+streamlit==1.57.0
 
 # Argo Ocean Data Access & Analysis
-argopy>=1.4.0
-xarray>=2024.1.0
-pandas>=2.2.0
-pyarrow>=17.0.0
-plotly>=5.24.0
-gsw>=3.6.18
+argopy==1.5.0
+xarray==2026.9.0
+pandas==2.3.3
+pyarrow==23.0.1
+plotly==7.1.0
+gsw==3.6.23
 
 # Parsing, Validation & Models
-pydantic>=2.9.0
-dateparser>=1.2.0
-rapidfuzz>=3.9.0
+pydantic==2.12.5
+dateparser==1.4.3
+rapidfuzz==3.14.6
 
 # Local LLM Integration
-ollama>=0.3.0
+ollama==0.6.3
 
 # Testing
-pytest>=8.0.0
+pytest==9.1.1

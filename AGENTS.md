@@ -39,19 +39,19 @@ offline mode. Do not claim accuracy figures (e.g. "100%") in code, docs, or UI.
 
 ## 4. Stack
 
-Python 3.11+, FastAPI, Streamlit, Pydantic (spec schema), argopy, xarray,
+Python 3.11+, Streamlit, Pydantic (spec schema), argopy, xarray,
 pandas, Parquet (cache), SQLite (stored cards), Plotly, pytest, rapidfuzz,
-dateparser. LLM: local Llama 3.2 3B via Ollama, behind one interface (below).
+dateparser, gsw. LLM: local Llama 3.2 3B via Ollama, behind one interface (below).
 
 ## 5. Architecture
 
 ```
-Streamlit UI -> FastAPI -> Parser -> Validator -> Fetcher (argopy)
-                                         |             |
-                                  Gazetteer/schema   ERDDAP / GDAC
-                           QC+mode filter -> Analyzer -> Plot templates
-                                         |
-                        Query card builder -> SQLite + Parquet cache
+Streamlit UI -> Parser -> Validator -> Fetcher (argopy)
+                              |             |
+                       Gazetteer/schema   ERDDAP / GDAC
+                QC+mode filter -> Analyzer -> Plot templates
+                              |
+             Query card builder -> SQLite + Parquet cache
 ```
 
 Suggested layout:
@@ -66,11 +66,16 @@ src/siqva/
   parser.py        # parse(question) -> QuerySpec | ClarificationNeeded
   interpretation.py# deterministic "Understood as" formatting
   fetcher.py       # argopy access, caching by spec hash
+  chunking.py      # large-query calendar-month splitting and assembly
   qc.py            # mode / QC filtering
   analyzer.py      # stats + coverage metadata
+  operations.py    # deterministic operations (mean, min, max, anomaly)
+  comparison.py    # dual-dataset comparison without anomaly claims
+  glossary.py      # scientific term lookup with literature citations
+  router.py        # query intent router (data, op, compare, glossary, meta)
+  followup.py      # conversational state and query edits (salinity, year, region)
   plots.py         # profile, map, T-S templates
   card.py          # query card + generated script + re-run/diff
-  api.py           # FastAPI
 app/ui.py          # Streamlit
 benchmark/         # questions + reference specs + scorer
 tests/
@@ -127,12 +132,13 @@ The validator enforces: valid bbox, date order, allowed variables, and a maximum
 ## 8. Fetching, caching, reproducibility
 
 - Normalise the spec, hash it, and use the hash as the cache key (Parquet).
+- Large multi-month queries exceeding the single-request cost cap (15,000) are decomposed into calendar-month chunks up to `SIQVA_MAX_CHUNKS` (default 24). Each month is fetched and cached independently via standard Parquet cache, enabling shared reuse across overlapping queries. Combined data is deduplicated by `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)` and capped by `SIQVA_MAX_TOTAL_ROWS` (default 3,000,000). If any single month exceeds 15,000 cost cap, chunking cannot save it and the standard oversized suggestion applies.
 - Record source (ERDDAP/GDAC), argopy and xarray versions, fetch timestamp, and
   a data hash in every card.
-- `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases.
+- `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases. Cards for chunked queries record `chunks`, and `generate_script` generates a reproducible loop over monthly chunks.
 - `list_cards()` deduplicates entries by `(spec_hash, mode)` returning newest cards.
 - Sidebar history label format: `"{question} · {created_at[:10]} · {region_name}"` (question truncated to 40 characters, falling back to `"{Intent} query"`).
-- Clicking a history entry restores the card metadata, spec, and generated script in the UI, but does **not** restore plots or raw data.
+- Clicking a history entry restores card metadata, spec, generated script, and re-renders plots and analysis from local Parquet cache (if parquet is missing, displays metadata and a re-run prompt). Optional `session_id` isolates history when `SIQVA_SHARED_HISTORY=0`.
 - Re-run recomputes the fetch and compares hashes. If data differs, report a
   diff summary (e.g. new delayed-mode corrections). A change is not an error.
 - Cached results must be labelled as cached in the UI.

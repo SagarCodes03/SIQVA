@@ -69,15 +69,27 @@ def run_spec(
     db_path: Optional[Path] = None,
     fetcher_fn: Any = fetch,
     question: Optional[str] = None,
+    session_id: Optional[str] = None,
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
-    fetch_res: FetchResult = fetcher_fn(
-        spec,
-        cache_dir=cache_dir,
-        force_refresh=force_refresh,
-        **fetch_kwargs,
-    )
+    from .chunking import fetch_chunked, is_chunked_spec
+
+    if is_chunked_spec(spec):
+        fetch_res: FetchResult = fetch_chunked(
+            spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            fetcher_fn=fetcher_fn,
+            **fetch_kwargs,
+        )
+    else:
+        fetch_res: FetchResult = fetcher_fn(
+            spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            **fetch_kwargs,
+        )
 
     if fetch_res.status == FetchStatus.EMPTY:
         return PipelineResult(
@@ -159,7 +171,7 @@ def run_spec(
                 pass
 
     # 3. Query card and script persistence
-    card = build_card(spec, fetch_res, analysis, question=question)
+    card = build_card(spec, fetch_res, analysis, question=question, session_id=session_id)
     warning_msg: Optional[str] = None
     try:
         if db_path is not None:

@@ -35,6 +35,7 @@ from siqva.gazetteer import KNOWN_REGIONS
 from siqva.interpretation import format_understood_as
 from siqva.parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
+from siqva.router import RouteTarget, route
 from siqva.spec import (
     BoundingBox,
     DataMode,
@@ -541,14 +542,30 @@ if "active_plot_res" not in st.session_state:
     st.session_state["active_plot_res"] = None
 if "active_plot_title" not in st.session_state:
     st.session_state["active_plot_title"] = None
+if "session_id" not in st.session_state:
+    import uuid
+
+    st.session_state["session_id"] = uuid.uuid4().hex[:12]
 if "loaded_card_id" not in st.session_state:
     st.session_state["loaded_card_id"] = None
+if "chat_message" not in st.session_state:
+    st.session_state["chat_message"] = None
+if "conversation_state" not in st.session_state:
+    from siqva.followup import ConversationState
+
+    st.session_state["conversation_state"] = ConversationState()
+if "ollama_warmed" not in st.session_state:
+    from siqva.llm_parser import warmup_ollama_async
+
+    warmup_ollama_async()
+    st.session_state["ollama_warmed"] = True
 
 
 def _reset_to_new_query() -> None:
     """Reset to a fresh Query page and clear active pipeline results."""
     st.session_state["active_page"] = "query"
     st.session_state["pipeline_res"] = None
+    st.session_state["chat_message"] = None
     st.session_state["loaded_card_id"] = None
     st.session_state["query_input_key"] += 1
 
@@ -739,6 +756,9 @@ def _render_pipeline_result(res: PipelineResult) -> None:
 
     if res.warning:
         st.warning(f"[WARN] {res.warning}")
+
+    if res.card and res.card.chunks and len(res.card.chunks) > 1:
+        st.info(f"Result assembled from {len(res.card.chunks)} monthly chunks.")
 
     # Summary Metrics Bar
     c1, c2, c3, c4, c5 = st.columns(5)
@@ -943,7 +963,7 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     try:
-        recent_cards = list_cards(limit=10)
+        recent_cards = list_cards(limit=10, session_id=st.session_state.get("session_id"))
     except Exception:
         recent_cards = []
 
@@ -1042,14 +1062,14 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
 # ---------------------------------------------------------------------------
 if st.session_state["active_page"] == "query":
     if st.session_state.get("loaded_card_id"):
-        card = load_card(st.session_state["loaded_card_id"])
+        from siqva.card import restore_card_result
+
+        card = load_card(
+            st.session_state["loaded_card_id"],
+            session_id=st.session_state.get("session_id"),
+        )
         if card:
-            st.session_state["pipeline_res"] = PipelineResult(
-                status=PipelineStatus.SUCCESS,
-                spec=card.spec,
-                card=card,
-                script=generate_script(card),
-            )
+            st.session_state["pipeline_res"] = restore_card_result(card)
         st.session_state["loaded_card_id"] = None
 
     # Top-Left Aligned Header Bar (flush near sidebar)
@@ -1060,11 +1080,27 @@ if st.session_state["active_page"] == "query":
     )
 
     has_active_res = st.session_state.get("pipeline_res") is not None
+    has_chat_message = st.session_state.get("chat_message") is not None
 
     # If results exist, render them in the upper workspace first, or keep input compact
     if has_active_res:
         st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
         _render_pipeline_result(st.session_state["pipeline_res"])
+        st.divider()
+    elif has_chat_message:
+        cm = st.session_state["chat_message"]
+        st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+        with st.chat_message("assistant"):
+            if cm["type"] == "glossary":
+                st.markdown(f"**{cm['canonical_name']}** (`{cm['term']}`)")
+                st.markdown(cm["definition"])
+                if cm.get("formula"):
+                    st.markdown(f"*Formula*: {cm['formula']}")
+                st.caption(f"Source: {cm['source']}")
+            elif cm["type"] == "glossary_not_found":
+                st.info(cm["message"])
+            elif cm["type"] == "meta":
+                st.markdown(cm["message"])
         st.divider()
     else:
         # Push the input box and trial templates near the bottom of the screen while keeping everything visible
@@ -1096,35 +1132,125 @@ if st.session_state["active_page"] == "query":
                 send_clicked = st.button("↑", key="send_query_btn", type="primary", use_container_width=True)
 
         if send_clicked and user_question.strip():
-            with st.spinner("PARSING SPEC & FETCHING QC-VERIFIED PROFILES..."):
-                pipeline_res = run(question=user_question.strip(), force_refresh=False)
-                if pipeline_res.spec and pipeline_res.spec.mode == DataMode.RESEARCH and st.session_state["delivery_mode"] != "research":
+            question_text = user_question.strip()
+            from siqva.followup import ConversationState, try_resolve_followup
+
+            c_state: ConversationState = st.session_state.get("conversation_state") or ConversationState()
+            followup = try_resolve_followup(question_text, c_state)
+
+            if followup.resolved and followup.spec is not None:
+                st.session_state["chat_message"] = None
+                with st.spinner("APPLYING FOLLOW-UP EDITS & FETCHING..."):
                     pipeline_res = run_spec(
-                        pipeline_res.spec.model_copy(update={"mode": DataMode(st.session_state["delivery_mode"])}),
+                        followup.spec,
                         force_refresh=False,
-                        question=user_question.strip(),
+                        question=question_text,
                     )
-                st.session_state["pipeline_res"] = pipeline_res
+                    st.session_state["pipeline_res"] = pipeline_res
+                    if pipeline_res.spec is not None:
+                        st.session_state["conversation_state"] = c_state.with_new_query(
+                            pipeline_res.spec, question=question_text
+                        )
+                    st.rerun()
+
+            route_res = route(question_text)
+
+            if route_res.target == RouteTarget.GLOSSARY:
+                from siqva.glossary import lookup_glossary
+
+                entity = route_res.extracted_entity or question_text
+                gloss_res = lookup_glossary(entity)
+                if gloss_res.found and gloss_res.entry is not None:
+                    e = gloss_res.entry
+                    st.session_state["chat_message"] = {
+                        "type": "glossary",
+                        "term": html.escape(e.term),
+                        "canonical_name": html.escape(e.canonical_name),
+                        "definition": html.escape(e.definition),
+                        "source": html.escape(e.source),
+                        "formula": html.escape(e.formula or ""),
+                    }
+                else:
+                    st.session_state["chat_message"] = {
+                        "type": "glossary_not_found",
+                        "message": html.escape(gloss_res.message),
+                    }
+                st.session_state["pipeline_res"] = None
                 st.rerun()
 
-        # Default / Trial Quick Query Templates anchored at the very bottom beneath the input box
+            elif route_res.target == RouteTarget.META:
+                meta_card = None
+                if st.session_state.get("pipeline_res") and st.session_state["pipeline_res"].card:
+                    meta_card = st.session_state["pipeline_res"].card
+                meta_msg = "No query has been run in this session yet."
+                if meta_card is not None:
+                    meta_msg = (
+                        f"Last query: **{html.escape(meta_card.spec.intent.value.title())}** "
+                        f"| Mode: **{html.escape(meta_card.mode.value)}** "
+                        f"| Profiles: **{meta_card.profile_count:,}** "
+                        f"| Rows: **{meta_card.row_count:,}** "
+                        f"| argopy: `{html.escape(meta_card.argopy_version)}` "
+                        f"| xarray: `{html.escape(meta_card.xarray_version)}`"
+                    )
+                st.session_state["chat_message"] = {
+                    "type": "meta",
+                    "message": meta_msg,
+                }
+                st.rerun()
+
+            else:
+                # DATA_FETCH, OPERATION, COMPARISON, CLARIFICATION — all go through run()
+                st.session_state["chat_message"] = None
+                with st.spinner("PARSING SPEC & FETCHING QC-VERIFIED PROFILES..."):
+                    pipeline_res = run(question=question_text, force_refresh=False)
+                    if pipeline_res.spec and pipeline_res.spec.mode == DataMode.RESEARCH and st.session_state["delivery_mode"] != "research":
+                        pipeline_res = run_spec(
+                            pipeline_res.spec.model_copy(update={"mode": DataMode(st.session_state["delivery_mode"])}),
+                            force_refresh=False,
+                            question=question_text,
+                        )
+                    st.session_state["pipeline_res"] = pipeline_res
+                    if pipeline_res.spec is not None:
+                        st.session_state["conversation_state"] = c_state.with_new_query(
+                            pipeline_res.spec, question=question_text
+                        )
+                    st.rerun()
+
+        # Dynamic Quick Query Templates loaded from data/examples.json
         st.markdown(
             "<div style='margin-top: 14px; margin-bottom: 8px; color: #7597A8; font-size: 0.72em; letter-spacing: 0.1em; font-weight: 700;'>QUICK QUERY TEMPLATES:</div>",
             unsafe_allow_html=True,
         )
-        q_cols = st.columns(3)
-        sample_queries = [
-            ("thermocline and barrier layer in Bay of Bengal April 2022", "[MLD // BAY OF BENGAL]"),
-            ("cyclone heat potential tchp in Arabian Sea May 2022", "[TCHP // ARABIAN SEA]"),
-            ("acoustic sound speed profile in Arabian Sea January 2022", "[SOFAR // ARABIAN SEA]"),
-        ]
-        for col, (sq_text, sq_label) in zip(q_cols, sample_queries):
-            with col:
+        ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"
+        sample_queries = []
+        if ex_file.exists():
+            try:
+                with open(ex_file, "r", encoding="utf-8") as f:
+                    ex_data = json.load(f)
+                sample_queries = [(e["question"], e["label"]) for e in ex_data.get("examples", [])]
+            except Exception:
+                pass
+        if not sample_queries:
+            sample_queries = [
+                ("thermocline and barrier layer in Bay of Bengal April 2022", "[MLD // BAY OF BENGAL]"),
+                ("cyclone heat potential tchp in Arabian Sea May 2022", "[TCHP // ARABIAN SEA]"),
+                ("acoustic sound speed profile in Arabian Sea January 2022", "[SOFAR // ARABIAN SEA]"),
+            ]
+
+        # Render 3 columns per row for examples
+        num_cols = min(3, len(sample_queries))
+        q_cols = st.columns(num_cols)
+        for idx, (sq_text, sq_label) in enumerate(sample_queries[:num_cols]):
+            with q_cols[idx]:
                 if st.button(sq_label, key=f"quick_{sq_label}", use_container_width=True):
-                    with st.spinner("PARSING SPEC & FETCHING QC-VERIFIED PROFILES..."):
+                    with st.status("[PROCESSING OCEANOGRAPHIC QUERY]", expanded=False) as status_box:
+                        st.write("1. Parsing natural language and resolving bounding box...")
+                        st.write("2. Checking Parquet cache and fetching Argo observations...")
                         pipeline_res = run(question=sq_text, force_refresh=False)
-                        st.session_state["pipeline_res"] = pipeline_res
-                        st.rerun()
+                        st.write("3. Auditing Quality Control and constructing visualization cards...")
+                        status_box.update(label="[QUERY COMPLETED]", state="complete")
+                    st.session_state["pipeline_res"] = pipeline_res
+                    st.rerun()
 
 
 # ---------------------------------------------------------------------------

@@ -428,10 +428,6 @@ def create_float_index_snapshot(
         json.dump(sidecar, f, indent=2)
 
     return parquet_path, json_path
-    with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(sidecar, f, indent=2)
-
-    return parquet_path, json_path
 
 
 def count_matching_profiles_via_index(
@@ -517,7 +513,7 @@ def is_cache_entry_valid(
         current_argopy_version = str(argopy.__version__)
 
     if reference_time is None:
-        reference_time = datetime.utcnow()
+        reference_time = datetime.now(timezone.utc)
 
     try:
         ts_str = metadata.fetch_timestamp.replace("Z", "+00:00")
@@ -619,7 +615,7 @@ def fetch(
         cache_expiry_days: Cache expiration period in days for standard/expert entries (default: 7).
         research_cache_expiry_days: Cache expiration period in days for research entries (default: 90).
         today: Reference date for relative date analysis (default: date.today()).
-        reference_time: Reference timestamp for cache expiry evaluation (default: datetime.utcnow()).
+        reference_time: Reference timestamp for cache expiry evaluation (default: datetime.now(timezone.utc)).
         src: Data source (default: 'erddap').
         fetcher_engine: Optional dependency-injected data fetcher class (defaults to argopy.DataFetcher).
         index_fetcher_cls: Optional dependency-injected index fetcher class for network checks if requested.
@@ -873,7 +869,7 @@ def fetch(
             source=src,
             argopy_version=str(argopy.__version__),
             xarray_version=str(xr.__version__),
-            fetch_timestamp=datetime.utcnow().isoformat() + "Z",
+            fetch_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             row_count=len(df),
             profile_count=profile_count,
             data_hash=data_hash,
@@ -891,7 +887,7 @@ def fetch(
             source=src,
             argopy_version=str(argopy.__version__),
             xarray_version=str(xr.__version__),
-            fetch_timestamp=datetime.utcnow().isoformat() + "Z",
+            fetch_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             row_count=len(df),
             profile_count=profile_count,
             data_hash=data_hash,

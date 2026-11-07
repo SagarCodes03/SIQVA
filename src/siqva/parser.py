@@ -307,7 +307,7 @@ def parse_detailed(
     )
 
     try:
-        validate_spec(candidate_spec)
+        validate_spec(candidate_spec, allow_chunking=True)
         return ParseOutcome(
             spec=candidate_spec,
             clarification=None,
@@ -335,7 +335,7 @@ def parse_detailed(
                     end=candidate_spec.date_range.start,
                 )
                 fixed_spec = candidate_spec.model_copy(update={"date_range": fixed_dates})
-                validate_spec(fixed_spec)
+                validate_spec(fixed_spec, allow_chunking=True)
                 provenance["date_range"] = f"{provenance.get('date_range', 'rules')}_swapped"
                 return ParseOutcome(
                     spec=fixed_spec,

@@ -82,6 +82,7 @@ User Question (Natural Language)
 | :--- | :--- |
 | `src/siqva/spec.py` | Defines `QuerySpec`, `BoundingBox`, `DateRange`, `DepthRange`, enums (`Variable`, `DataMode`, `Intent`), canonical serialization, and SHA-256 hashing. |
 | `src/siqva/validator.py` | Enforces geographic bounds, chronological date ordering, allowed variables, depth ranges, and depth-scaled query cost caps. |
+| `src/siqva/chunking.py` | Decomposes multi-month queries exceeding single-request cost cap into calendar months (up to `SIQVA_MAX_CHUNKS=24`), executes monthly fetches via standard Parquet cache, deduplicates combined records, and enforces `SIQVA_MAX_TOTAL_ROWS=3,000,000`. |
 | `src/siqva/gazetteer.py` | Resolves geographic ocean names to bounding boxes via dictionary lookup, fuzzy matching (`rapidfuzz`), and coordinate regex extraction. |
 | `src/siqva/rules_parser.py` | Extracts variables, dates, regions, delivery modes, depth limits, and user intent using deterministic regular expressions and dictionary rules. |
 | `src/siqva/llm_parser.py` | Provides JSON-schema-constrained Ollama fallback extraction for individual fields that rule-based parsing leaves unfilled. |
@@ -90,6 +91,11 @@ User Question (Natural Language)
 | `src/siqva/fetcher.py` | Interfaces with `argopy.DataFetcher` using explicit modes, evaluates local float-index profile guards, manages Parquet caching with sidecar JSON, and handles network timeouts. |
 | `src/siqva/qc.py` | Documents mode filtering behaviors (research, standard, expert) and performs non-destructive quality control auditing per variable and profile. |
 | `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, on-demand physics orchestration, skipped-profile tracking, and deterministic template summaries. |
+| `src/siqva/operations.py` | Executes deterministic statistical operations (`mean`, `median`, `min`, `max`, `std`, `count`, `anomaly`), temporal binning, depth filtering, and formats deterministic answer text without LLM imports. |
+| `src/siqva/comparison.py` | Executes dual-dataset comparisons across regions or periods with deterministic difference reporting, strictly avoiding unscientific subjective framing ('anomalous', 'abnormal', 'unusual'). |
+| `src/siqva/glossary.py` | Provides exact, alias, and fuzzy lookup of oceanographic terms loaded exclusively from `data/glossary.json` with mandatory scientific literature citations. |
+| `src/siqva/router.py` | Deterministic rules-first classifier routing user questions to the correct subsystem: `DATA_FETCH`, `OPERATION`, `COMPARISON`, `GLOSSARY`, `META`, or `CLARIFICATION`. |
+| `src/siqva/followup.py` | Tracks `ConversationState` and resolves conversational follow-up edits ("same for salinity", "now 2023", region changes) deterministically against the last query spec. |
 | `src/siqva/physics.py` | Implements deterministic TEOS-10 thermodynamic and acoustic physical properties (MLD, ILD, BLT, Z20, Z26, TCHP, sound speed, SLD, SOFAR axis) using `gsw`. Executed strictly on-demand for physics intents; water-mass classification permanently removed; tracks skipped profiles via `SkippedProfileInfo`. |
 | `src/siqva/plots.py` | Generates interactive Plotly visualizations (depth profiles, spatial trajectories, T-S diagrams, thermocline/barrier layers, cyclone TCHP, sound speed) under the Deep Ocean dark theme. |
 | `src/siqva/card.py` | Constructs immutable `QueryCard` provenance records, persists them to SQLite, generates reproducible Python scripts, and computes data diff summaries upon re-run. |
@@ -164,11 +170,19 @@ When a query is processed through `siqva.pipeline.run(question)`:
          3. *Smaller region*: narrow bounding box or specify custom coordinates.
    - **Output**: Returns `None` if valid; raises `SpecValidationError` or `OversizedRequestError`.
 
-4. **Data Retrieval & Pre-Fetch Guards**
-   - **File**: `src/siqva/fetcher.py` -> `fetch(spec)`
+4. **Data Retrieval, Chunking & Pre-Fetch Guards**
+   - **Files**: `src/siqva/fetcher.py` -> `fetch(spec)` and `src/siqva/chunking.py` -> `fetch_chunked(spec)`
    - **Input**: Validated `QuerySpec`, cache parameters.
    - **Internal Steps**:
-     1. Evaluates local float index snapshot (`data/float_index.parquet`). If coverage is `FULL`, enforces the 100-profile maximum guard (`DEFAULT_MAX_PROFILE_COUNT = 100`). If coverage is `PARTIAL` or `NOT_COVERED`, skips profile count ceiling, applies only the cost cap, and marks `profile_count_verified = False`.
+     1. **Chunking for Large Multi-Month Queries**:
+        - If query cost exceeds 15,000 units and spans multiple calendar months, `fetch_chunked()` splits the date range into calendar-month chunks via `split_date_range_into_months()`.
+        - Enforces `SIQVA_MAX_CHUNKS` (default 24). If more chunks are required, refuses with an actionable error.
+        - Validates that each individual monthly chunk fits within the 15,000 cost cap; if any month exceeds the cap, refuses with the standard oversized suggestions.
+        - Fetches each month via `fetch(chunk_spec)`, caching each monthly slice in Parquet under its own `fetch_key` (enabling cache reuse across overlapping queries).
+        - If any chunk fails (timeout/error), the entire fetch aborts, naming the failed chunk and reporting that completed chunks remain cached.
+        - Combines chunk DataFrames, deduplicating on `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)`, recomputes profile count, and caps cumulative rows at `SIQVA_MAX_TOTAL_ROWS` (default 3,000,000).
+        - UI displays `st.info("Result assembled from N monthly chunks.")`.
+     2. Evaluates local float index snapshot (`data/float_index.parquet`). If coverage is `FULL`, enforces the 100-profile maximum guard (`DEFAULT_MAX_PROFILE_COUNT = 100`). If coverage is `PARTIAL` or `NOT_COVERED`, skips profile count ceiling, applies only the cost cap, and marks `profile_count_verified = False`.
      2. Computes `fetch_key = spec.fetch_key()`. Checks local Parquet cache (`cache/<fetch_key>.parquet` and sidecar JSON). If present and valid within expiration window (7 days for standard/expert, 90 days for research), loads cached data immediately (`is_cached = True`).
      3. If cache miss, constructs the 8-element bounding box:
         `[lon_min, lon_max, lat_min, lat_max, dpt_min, dpt_max, start_iso, end_iso]`
@@ -207,16 +221,22 @@ When a query is processed through `siqva.pipeline.run(question)`:
    - **Behavior**: Standard figures (`profile`, `map`, and `ts` when temperature and salinity are present) are generated for standard queries. Physics plots (`plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`) are strictly generated on-demand only when the matching physics intent is requested (`Intent.THERMOCLINE`, `Intent.TCHP`, or `Intent.ACOUSTIC`).
    - **Output**: Dictionary of Plotly Figure objects (`dict[str, go.Figure]`).
 
-9. **Query Card Creation & Persistence**
-   - **File**: `src/siqva/card.py` -> `build_card(spec, fetch_res, analysis)` and `save_card(card)`
-   - **Input**: Spec, fetch result, analysis result.
-   - **Action**: Constructs immutable `QueryCard`, writes record to SQLite database (`data/cards.sqlite`), and generates a standalone, runnable Python script (`generate_script`).
+9. **Query Card Creation, Persistence & History Reload**
+   - **File**: `src/siqva/card.py` -> `build_card(spec, fetch_res, analysis)`, `save_card(card)`, and `restore_card_result(card)`
+   - **Input**: Spec, fetch result, analysis result, optional `session_id`.
+   - **Action**: Constructs immutable `QueryCard`, writes record to SQLite database (`data/cards.sqlite`), and generates a standalone, runnable Python script (`generate_script`). Supports multi-session isolation via `session_id` when `SIQVA_SHARED_HISTORY=0`.
+   - **Reload**: When history card is clicked, `restore_card_result` reloads cached Parquet data from disk and reconstructs plots and analysis without hitting remote servers.
    - **Output**: `QueryCard` and Python script string.
 
-10. **UI Presentation**
+10. **UI Presentation & Cold Start**
     - **File**: `app/ui.py` -> `_render_pipeline_result(res)`
     - **Input**: `PipelineResult`.
     - **Display**: Metric tiles (Rows, Profiles, Source, Mode, Depth), interactive Plotly figures, summary markdown, SQLite Query Card metadata, and a script download button.
+    - **Cold Start**:
+      - Seed gallery loaded dynamically from `data/examples.json` with pre-validated bounds.
+      - Offline/standup cache pre-warming utility: `scripts/warm_examples.py`.
+      - Non-blocking background daemon thread (`warmup_ollama_async()`) checks model availability without freezing the Streamlit interface.
+      - Progressive feedback via `st.status` stages.
 
 ---
 
@@ -653,4 +673,21 @@ Under unexpected exceptions, `PipelineResult` catches errors, generates a safe u
 | **Water-Mass Classification** | Permanent removal noted in Section 7. | Hard-coded Indian Ocean water-mass heuristics were permanently removed to eliminate inaccurate classification in other basins. |
 | **Cost Cap Scaling** | Section 7 specifies bounding box and date range validation. | The cost cap was enhanced to include vertical depth scaling: $\text{Area} \times \text{Days} \times (\text{Depth} / 500\text{ dbar})$. |
 | **Float Index Cache** | Section 11 permits local Parquet snapshot for discovery. | Implemented via `data/float_index.parquet` and sidecar `data/float_index.json`, used strictly for profile count guards. Missing index makes no network calls. |
+
+---
+
+## 14. Benchmark Evaluation Harness
+
+- **Dataset**: `benchmark/questions.jsonl` contains 20 curated seed questions covering all 6 intent targets (`data_fetch`, `operation`, `comparison`, `glossary`, `meta`, `clarification`).
+- **Runner**: `benchmark/run_eval.py` evaluates question routing, parameter extraction accuracy, and latency.
+- **CLI Usage**:
+  ```bash
+  python benchmark/run_eval.py
+  ```
+- **Metrics**:
+  - Target routing accuracy (%)
+  - Field extraction accuracy (region, dates, variables, intent) (%)
+  - Mean execution latency per question (ms)
+  - Per-category breakdown table
+
 

@@ -1,0 +1,44 @@
+{
+  "examples": [
+    {
+      "id": "mld_bob_2022",
+      "label": "[MLD // BAY OF BENGAL]",
+      "question": "thermocline and barrier layer in Bay of Bengal April 2022",
+      "intent": "thermocline",
+      "region": "Bay of Bengal",
+      "date": "April 2022"
+    },
+    {
+      "id": "tchp_arabian_2022",
+      "label": "[TCHP // ARABIAN SEA]",
+      "question": "cyclone heat potential tchp in Arabian Sea May 2022",
+      "intent": "tchp",
+      "region": "Arabian Sea",
+      "date": "May 2022"
+    },
+    {
+      "id": "sofar_arabian_2022",
+      "label": "[SOFAR // ARABIAN SEA]",
+      "question": "acoustic sound speed profile in Arabian Sea January 2022",
+      "intent": "acoustic",
+      "region": "Arabian Sea",
+      "date": "January 2022"
+    },
+    {
+      "id": "ts_bob_2022",
+      "label": "[T-S // BAY OF BENGAL]",
+      "question": "temperature and salinity profiles in Bay of Bengal January 2022",
+      "intent": "ts",
+      "region": "Bay of Bengal",
+      "date": "January 2022"
+    },
+    {
+      "id": "temp_arabian_2022",
+      "label": "[TEMP // ARABIAN SEA 2022]",
+      "question": "temperature profiles in Arabian Sea January 2022",
+      "intent": "profile",
+      "region": "Arabian Sea",
+      "date": "January 2022"
+    }
+  ]
+}

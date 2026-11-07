@@ -1,0 +1,28 @@
+# Architecture & Implementation Decisions
+
+Format: `Date | Task | Decision | Reason`
+
+- 2026-11-07 | Q2 | Retain conservative rejection for unquantified relative date phrases ("last month", "recent") requiring clarification; allow only explicit numeric counts ("past N days/months") with `today` anchor | Matches AGENTS.md principle that date ranges are never guessed when ambiguous.
+- 2026-11-07 | Q2 | Research-mode 146 profiles returned with DEFAULT_MAX_PROFILE_COUNT=100 because snapshot coverage was NOT_COVERED/PARTIAL, so profile ceiling guard was skipped and profile_count_verified was set to False | Pre-fetch count ceiling applies strictly when snapshot coverage is FULL.
+- 2026-11-07 | Q4 | Removed unused FastAPI/uvicorn dependencies and pinned all installed packages in requirements.txt (including gsw); updated AGENTS.md | No api.py exists or is planned for Streamlit UI architecture.
+- 2026-11-07 | Q3b | Decompose multi-month queries exceeding 15,000 cost cap into calendar months up to SIQVA_MAX_CHUNKS (default 24); refuse if any single month exceeds cap or total rows exceed SIQVA_MAX_TOTAL_ROWS (3,000,000) | Ensures bounded ERDDAP load, shared monthly Parquet caching across queries, and memory safety.
+- 2026-11-07 | Q5 | Implement OperationSpec and deterministic calculation templates in operations.py with zero LLM imports | Guarantees all numbers in answers come strictly from code without LLM hallucination.
+- 2026-11-07 | Q8 | Glossary entries loaded strictly from data/glossary.json with mandatory peer-reviewed scientific citations; no agent-authored definitions | Prevents unverified or hallucinated physical oceanography definitions.
+- 2026-11-07 | Q6 | Router uses rules-first classification without LLM fallback for GLOSSARY and META intents; DATA_FETCH, OPERATION, COMPARISON always go through run() pipeline | LLM never sees routed glossary text or meta card data; determinism preserved.
+- 2026-11-07 | Q7 | Follow-up edits resolve deterministically against immutable ConversationState (last_spec) for variable swaps, year swaps, and region swaps without calling LLM | Enables conversational interaction while keeping spec creation completely deterministic and data-blind.
+- 2026-11-07 | Q9 | Dual OperationSpec execution in comparison.py with neutral mathematical difference reporting; strictly forbid subjective words ('anomalous', 'abnormal', 'unusual') | Adheres to AGENTS.md rule that all answer numbers come from code and system avoids unscientific subjective framing.
+- 2026-11-07 | Q10 | Seed example gallery stored in data/examples.json with verified cost bounds; asynchronous non-blocking thread for Ollama probe | Prevents UI freezing during cold start and guarantees instant response for sample queries.
+- 2026-11-07 | Q11 | Full visual state restored from local Parquet cache on history card click via restore_card_result; optional session_id filtering enabled when SIQVA_SHARED_HISTORY=0 | Provides instant history inspection with plots while enabling multi-session privacy isolation when required.
+- 2026-11-07 | Q13 | 20 verified seed questions across all 6 targets in benchmark/questions.jsonl evaluated by benchmark/run_eval.py scoring routing, field accuracy, and latency | Provides reproducible, quantitative regression evaluation without altering reference specs.
+- 2026-11-07 | Q14 | Published comprehensive README.md with architecture diagram, installation, benchmark runner, capabilities, and known limitations; verified AGENTS.md and CODE_FLOW.md | Delivers complete technical documentation matching all implemented code features and scope constraints.
+
+
+
+
+
+
+
+
+
+
+

@@ -82,6 +82,7 @@ def format_oversized_suggestion(
 def validate_spec(
     spec: QuerySpec,
     max_request_size: float = DEFAULT_MAX_REQUEST_SIZE,
+    allow_chunking: bool = False,
 ) -> None:
     """Validate bounds, temporal order, variables, depth range, and size caps of a QuerySpec.
 
@@ -160,6 +161,12 @@ def validate_spec(
     cost = area * days * depth_factor
 
     if cost > max_request_size:
+        if allow_chunking:
+            from .chunking import validate_chunkable_spec
+
+            if validate_chunkable_spec(spec, max_request_size=max_request_size):
+                return
+
         from .gazetteer import KNOWN_REGIONS
 
         region_name = next(
