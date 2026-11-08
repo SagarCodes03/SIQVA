@@ -410,3 +410,26 @@ def test_future_ending_range_is_rejected_without_clipping():
     assert "ends in the future" in outcome.message
 
 
+
+
+def test_new_extended_intents():
+    """Proves Hovmöller, Buoyancy, Isopycnals, Climatology, OMZ, and Drift intents parse accurately."""
+    today = date(2023, 1, 1)
+
+    r_hov = parse_rules("Hovmoller depth vs time temperature in Arabian Sea for 2022", today=today)
+    assert r_hov.intent == Intent.HOVMOLLER
+
+    r_buoy = parse_rules("Buoyancy frequency and N2 stability in Arabian Sea for 2022", today=today)
+    assert r_buoy.intent == Intent.BUOYANCY
+
+    r_iso = parse_rules("Temperature vs salinity with isopycnals in Arabian Sea for 2022", today=today)
+    assert r_iso.intent == Intent.TS_ISOPYCNAL
+
+    r_clim = parse_rules("Regional climatology envelope in Arabian Sea for 2022", today=today)
+    assert r_clim.intent == Intent.CLIMATOLOGY
+
+    r_omz = parse_rules("Oxygen minimum zone and hypoxia in Arabian Sea for 2022", today=today)
+    assert r_omz.intent == Intent.OMZ
+
+    r_drift = parse_rules("Float drift velocity in Arabian Sea for 2022", today=today)
+    assert r_drift.intent == Intent.DRIFT

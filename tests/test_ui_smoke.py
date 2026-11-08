@@ -38,9 +38,12 @@ def sample_fetch_result() -> FetchResult:
     )
 
 
+UI_PATH = str(Path(__file__).resolve().parent.parent / "app" / "ui.py")
+
+
 def test_ui_starts_without_exception():
     """Proves the Streamlit application starts and renders default layout without exceptions."""
-    at = AppTest.from_file("app/ui.py")
+    at = AppTest.from_file(UI_PATH)
     at.run(timeout=30)
     assert len(at.exception) == 0
 
@@ -48,7 +51,7 @@ def test_ui_starts_without_exception():
 def test_ui_runs_rules_only_query_against_mock_fetcher(sample_fetch_result):
     """Proves a natural language query runs end-to-end through UI against mock fetcher with 0 exceptions."""
     with patch("siqva.pipeline.fetch", return_value=sample_fetch_result):
-        at = AppTest.from_file("app/ui.py")
+        at = AppTest.from_file(UI_PATH)
         at.run(timeout=30)
         assert len(at.exception) == 0
 

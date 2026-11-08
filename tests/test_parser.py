@@ -241,26 +241,32 @@ def test_ollama_unreachable_at_most_one_check_and_clean_clarification():
 def test_ollama_unreachable_caches_unavailable_for_repeated_queries():
     """Proves repeated queries within 30s reuse cached unavailable status without waiting."""
     reset_availability_cache()
-    mock = UnreachableMockClient(check_delay=0.01)
+    try:
+        mock = UnreachableMockClient(check_delay=0.01)
 
-    # First query triggers check
-    parse_detailed("salinity", llm_client=mock, allow_llm=True)
-    assert mock.check_count == 1
+        # First query triggers check
+        parse_detailed("salinity", llm_client=mock, allow_llm=True)
+        assert mock.check_count == 1
 
-    # Second query reuses 30s cache without re-checking
-    parse_detailed("temperature", llm_client=mock, allow_llm=True)
-    assert mock.check_count == 1  # Still 1
+        # Second query reuses 30s cache without re-checking
+        parse_detailed("temperature", llm_client=mock, allow_llm=True)
+        assert mock.check_count == 1  # Still 1
+    finally:
+        reset_availability_cache()
 
 
 def test_ollama_reachable_behaves_as_before():
     """Proves reachable Ollama client extracts unfilled fields via fallback as expected."""
     reset_availability_cache()
-    client = ReachableMockClient()
+    try:
+        client = ReachableMockClient()
 
-    outcome = parse_detailed("temperature between 2022-01-01 and 2022-01-10", llm_client=client, allow_llm=True)
-    assert outcome.is_success is True
-    assert outcome.spec is not None
-    assert outcome.spec.region.lon_min == 50.0  # Arabian Sea resolved
-    assert outcome.provenance.get("region") == "llm"
-    assert outcome.provenance.get("variables") == "rules"
+        outcome = parse_detailed("temperature between 2022-01-01 and 2022-01-10", llm_client=client, allow_llm=True)
+        assert outcome.is_success is True
+        assert outcome.spec is not None
+        assert outcome.spec.region.lon_min == 50.0  # Arabian Sea resolved
+        assert outcome.provenance.get("region") == "llm"
+        assert outcome.provenance.get("variables") == "rules"
+    finally:
+        reset_availability_cache()
     assert outcome.provenance.get("date_range") == "rules"
