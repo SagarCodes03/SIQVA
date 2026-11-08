@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Optional
 
 from .spec import DepthRange, QuerySpec, Variable
@@ -9,6 +10,14 @@ from .spec import DepthRange, QuerySpec, Variable
 # Default threshold in cost units (normalized degree-day-depth units based on 500 dbar reference)
 # Provisional value based on limited measurements (single region and period); should be revisited.
 DEFAULT_MAX_REQUEST_SIZE: float = 15_000.0
+
+
+def is_size_guardrail_enabled() -> bool:
+    """Check whether size cap guardrail is active.
+
+    Can be bypassed via environment variable SIQVA_DISABLE_SIZE_GUARDRAIL=1.
+    """
+    return os.getenv("SIQVA_DISABLE_SIZE_GUARDRAIL", "").lower() not in ("1", "true", "yes")
 
 
 class SpecValidationError(ValueError):
@@ -81,7 +90,7 @@ def format_oversized_suggestion(
 
 def validate_spec(
     spec: QuerySpec,
-    max_request_size: float = DEFAULT_MAX_REQUEST_SIZE,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     allow_chunking: bool = False,
 ) -> None:
     """Validate bounds, temporal order, variables, depth range, and size caps of a QuerySpec.
@@ -160,7 +169,7 @@ def validate_spec(
     depth_factor = depth_span / 500.0
     cost = area * days * depth_factor
 
-    if cost > max_request_size:
+    if is_size_guardrail_enabled() and max_request_size is not None and cost > max_request_size:
         if allow_chunking:
             from .chunking import validate_chunkable_spec
 

@@ -19,6 +19,7 @@ from .validator import (
     DEFAULT_MAX_REQUEST_SIZE,
     OversizedRequestError,
     format_oversized_suggestion,
+    is_size_guardrail_enabled,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,18 +100,22 @@ def compute_spec_cost(spec: QuerySpec) -> tuple[float, float, int, float]:
     return area, days, depth_span, cost
 
 
-def is_chunked_spec(spec: QuerySpec, max_request_size: float = DEFAULT_MAX_REQUEST_SIZE) -> bool:
+def is_chunked_spec(spec: QuerySpec, max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE) -> bool:
     """Check whether a query spec exceeds the single-request cost cap and has multiple calendar months."""
+    chunks = split_date_range_into_months(spec.date_range)
+    if len(chunks) <= 1:
+        return False
+    if max_request_size is None or not is_size_guardrail_enabled():
+        return True
     _, _, _, cost = compute_spec_cost(spec)
     if cost <= max_request_size:
         return False
-    chunks = split_date_range_into_months(spec.date_range)
-    return len(chunks) > 1
+    return True
 
 
 def validate_chunkable_spec(
     spec: QuerySpec,
-    max_request_size: float = DEFAULT_MAX_REQUEST_SIZE,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     max_chunks: Optional[int] = None,
 ) -> bool:
     """Validate whether an oversized spec can be satisfied via monthly chunking.
@@ -121,64 +126,65 @@ def validate_chunkable_spec(
     Returns:
         True if the query can be split into valid chunks.
     """
-    if max_chunks is None:
-        max_chunks = get_max_chunks()
-
     chunks = split_date_range_into_months(spec.date_range)
     if not chunks:
         return False
 
-    if len(chunks) > max_chunks:
-        raise OversizedRequestError(
-            message=(
-                f"Requested date range requires {len(chunks)} monthly chunks, which exceeds the limit "
-                f"of {max_chunks}. Please narrow your date range to at most {max_chunks} months."
-            ),
-            area=0.0,
-            days=max(1, (spec.date_range.end - spec.date_range.start).days),
-            size=float(len(chunks)),
-            max_size=float(max_chunks),
-            suggestion=f"Please narrow your date range to at most {max_chunks} months.",
-            depth_span=0.0,
-        )
+    if is_size_guardrail_enabled() and max_request_size is not None:
+        if max_chunks is None:
+            max_chunks = get_max_chunks()
+        if len(chunks) > max_chunks:
+            raise OversizedRequestError(
+                message=(
+                    f"Requested date range requires {len(chunks)} monthly chunks, which exceeds the limit "
+                    f"of {max_chunks}. Please narrow your date range to at most {max_chunks} months."
+                ),
+                area=0.0,
+                days=max(1, (spec.date_range.end - spec.date_range.start).days),
+                size=float(len(chunks)),
+                max_size=float(max_chunks),
+                suggestion=f"Please narrow your date range to at most {max_chunks} months.",
+                depth_span=0.0,
+            )
 
     area, _, depth_span, _ = compute_spec_cost(spec)
     depth_factor = depth_span / 500.0
     depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
 
-    # Check whether any individual month exceeds the cap
-    for chunk_range, chunk_label in chunks:
-        chunk_days = max(1, (chunk_range.end - chunk_range.start).days)
-        chunk_cost = area * chunk_days * depth_factor
-        if chunk_cost > max_request_size:
-            from .gazetteer import KNOWN_REGIONS
+    # Check whether any individual month exceeds the cap (if size guardrail is active)
+    if is_size_guardrail_enabled() and max_request_size is not None:
+        for chunk_range, chunk_label in chunks:
+            chunk_days = max(1, (chunk_range.end - chunk_range.start).days)
+            chunk_cost = area * chunk_days * depth_factor
+            if chunk_cost > max_request_size:
+                from .gazetteer import KNOWN_REGIONS
 
-            region_name = next(
-                (name for name, b in KNOWN_REGIONS.items() if b == spec.region),
-                None,
-            )
-            suggestion = format_oversized_suggestion(
-                area=area,
-                days=chunk_days,
-                depth_span=depth_span,
-                cost=chunk_cost,
-                max_request_size=max_request_size,
-                region_name=region_name,
-                min_depth=depth.min_depth,
-                max_depth=depth.max_depth,
-            )
-            raise OversizedRequestError(
-                message=(
-                    f"Monthly chunk '{chunk_label}' exceeds the allowable request size "
-                    f"({chunk_cost:.0f} > {max_request_size:.0f} cost units). {suggestion}"
-                ),
-                area=area,
-                days=chunk_days,
-                size=chunk_cost,
-                max_size=max_request_size,
-                suggestion=suggestion,
-                depth_span=depth_span,
-            )
+                region_name = next(
+                    (name for name, b in KNOWN_REGIONS.items() if b == spec.region),
+                    None,
+                )
+                suggestion = format_oversized_suggestion(
+                    area=area,
+                    days=chunk_days,
+                    depth_span=depth_span,
+                    cost=chunk_cost,
+                    max_request_size=max_request_size,
+                    region_name=region_name,
+                    min_depth=depth.min_depth,
+                    max_depth=depth.max_depth,
+                )
+                raise OversizedRequestError(
+                    message=(
+                        f"Monthly chunk '{chunk_label}' exceeds the allowable request size "
+                        f"({chunk_cost:.0f} > {max_request_size:.0f} cost units). {suggestion}"
+                    ),
+                    area=area,
+                    days=chunk_days,
+                    size=chunk_cost,
+                    max_size=max_request_size,
+                    suggestion=suggestion,
+                    depth_span=depth_span,
+                )
 
     return True
 
@@ -191,6 +197,7 @@ def fetch_chunked(
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
     max_chunks: Optional[int] = None,
     max_total_rows: Optional[int] = None,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     **fetch_kwargs: Any,
 ) -> Any:
     """Fetch a large multi-month query by decomposing it into calendar-month requests.
@@ -210,28 +217,28 @@ def fetch_chunked(
     if fetcher_fn is None:
         fetcher_fn = fetch
 
-    if max_chunks is None:
-        max_chunks = get_max_chunks()
-
     if max_total_rows is None:
         max_total_rows = get_max_total_rows()
 
     depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
     chunks = split_date_range_into_months(spec.date_range)
 
-    if len(chunks) > max_chunks:
-        return FetchResult(
-            status=FetchStatus.OVERSIZED,
-            data=None,
-            is_cached=False,
-            cache_key=spec.fetch_key(),
-            error_message=(
-                f"Requested date range requires {len(chunks)} monthly chunks, which exceeds the limit "
-                f"of {max_chunks}. Please narrow your date range to at most {max_chunks} months."
-            ),
-            suggestion=f"Please narrow your date range to at most {max_chunks} months.",
-            effective_depth_range=depth,
-        )
+    if is_size_guardrail_enabled() and max_request_size is not None:
+        if max_chunks is None:
+            max_chunks = get_max_chunks()
+        if len(chunks) > max_chunks:
+            return FetchResult(
+                status=FetchStatus.OVERSIZED,
+                data=None,
+                is_cached=False,
+                cache_key=spec.fetch_key(),
+                error_message=(
+                    f"Requested date range requires {len(chunks)} monthly chunks, which exceeds the limit "
+                    f"of {max_chunks}. Please narrow your date range to at most {max_chunks} months."
+                ),
+                suggestion=f"Please narrow your date range to at most {max_chunks} months.",
+                effective_depth_range=depth,
+            )
 
     chunk_dfs: list[pd.DataFrame] = []
     cached_chunk_count: int = 0
@@ -249,6 +256,7 @@ def fetch_chunked(
             chunk_spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
+            max_request_size=max_request_size,
             **fetch_kwargs,
         )
 
@@ -284,9 +292,14 @@ def fetch_chunked(
         if res.data is not None and len(res.data) > 0:
             chunk_dfs.append(res.data)
 
-        # Enforce cumulative row limit
+        # Enforce cumulative row limit (only when size guardrails are enabled)
         current_rows = sum(len(df) for df in chunk_dfs)
-        if current_rows > max_total_rows:
+        if (
+            is_size_guardrail_enabled()
+            and max_request_size is not None
+            and max_total_rows is not None
+            and current_rows > max_total_rows
+        ):
             return FetchResult(
                 status=FetchStatus.OVERSIZED,
                 data=None,

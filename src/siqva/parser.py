@@ -31,7 +31,7 @@ from .llm_parser import (
 )
 from .rules_parser import RulesParseResult, parse_rules
 from .spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
-from .validator import OversizedRequestError, SpecValidationError, validate_spec
+from .validator import DEFAULT_MAX_REQUEST_SIZE, OversizedRequestError, SpecValidationError, validate_spec
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ def parse_detailed(
     llm_client: Any = None,
     allow_llm: bool = True,
     model: str = DEFAULT_MODEL,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
 ) -> ParseOutcome:
     """Parse natural language question into QuerySpec with provenance tracking and LLM fallback."""
     provenance: dict[str, str] = {}
@@ -311,7 +312,7 @@ def parse_detailed(
     )
 
     try:
-        validate_spec(candidate_spec, allow_chunking=True)
+        validate_spec(candidate_spec, max_request_size=max_request_size, allow_chunking=True)
         return ParseOutcome(
             spec=candidate_spec,
             clarification=None,
@@ -339,7 +340,7 @@ def parse_detailed(
                     end=candidate_spec.date_range.start,
                 )
                 fixed_spec = candidate_spec.model_copy(update={"date_range": fixed_dates})
-                validate_spec(fixed_spec, allow_chunking=True)
+                validate_spec(fixed_spec, max_request_size=max_request_size, allow_chunking=True)
                 provenance["date_range"] = f"{provenance.get('date_range', 'rules')}_swapped"
                 return ParseOutcome(
                     spec=fixed_spec,

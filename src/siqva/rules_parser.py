@@ -214,9 +214,9 @@ def _extract_date_range(text: str, today: date) -> tuple[Optional[DateRange], Op
         if dt_start:
             return accepted(DateRange(start=dt_start.date(), end=today))
 
-    # 3. YYYY-YYYY or YYYY to YYYY or between YYYY and YYYY
+    # 3. YYYY-YYYY or YYYY to YYYY or between YYYY and YYYY or from YYYY to YYYY
     m_yrange = re.search(
-        r"\b(?:between\s+)?(20\d{2}|19\d{2})\s*(?:-|to|\sand\s)\s*(20\d{2}|19\d{2})\b",
+        r"\b(?:between\s+|from\s+)?(20\d{2}|19\d{2})\s*(?:-|to|\sand\s)\s*(20\d{2}|19\d{2})\b",
         text,
         re.IGNORECASE,
     )
@@ -263,9 +263,9 @@ def _extract_date_range(text: str, today: date) -> tuple[Optional[DateRange], Op
             last_day = calendar.monthrange(y, m)[1]
             return accepted(DateRange(start=date(y, m, 1), end=date(y, m, last_day)))
 
-    # 7. Whole year: 'all of 2022', 'the whole of 2022', 'year 2022', etc.
+    # 7. Whole year: 'all of 2022', 'the whole of 2022', 'year 2022', 'from 2022', 'starting 2022', etc.
     m_year = re.search(
-        r"\b(?:all\s+of|the\s+whole\s+of|during|in|for|year|in\s+year)\s+"
+        r"\b(?:all\s+of|the\s+whole\s+of|during|in|for|year|in\s+year|from|starting|start\s+date|starting\s+from)\s+"
         r"(20\d{2}|19\d{2})\b",
         text,
         re.IGNORECASE,

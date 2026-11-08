@@ -71,6 +71,18 @@ def test_oversized_query_exceeding_max_chunks_is_rejected():
         validate_chunkable_spec(spec, max_chunks=24)
 
 
+def test_unlimited_query_exceeding_default_chunks_passes_when_guardrails_bypassed():
+    # 85 months (e.g. 7+ years) > default 24
+    spec = QuerySpec(
+        region=[60.0, 70.0, 10.0, 20.0],
+        date_range=["2018-01-01", "2025-01-31"],
+        variables=["TEMP"],
+        intent=Intent.PROFILE,
+    )
+    # When max_request_size is None (bypassed in UI/pipeline), it must pass validation
+    assert validate_chunkable_spec(spec, max_request_size=None) is True
+
+
 def test_single_month_exceeding_cost_cap_cannot_be_chunked():
     # Giant region: area = 50 * 50 = 2500 sq deg
     # For 1 month (30 days): 2500 * 30 = 75,000 > 15,000

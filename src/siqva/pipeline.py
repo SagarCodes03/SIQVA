@@ -30,6 +30,7 @@ from .plots import (
     plot_ts_with_isopycnals,
 )
 from .spec import Intent, QuerySpec, Variable
+from .validator import DEFAULT_MAX_REQUEST_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -76,17 +77,19 @@ def run_spec(
     fetcher_fn: Any = fetch,
     question: Optional[str] = None,
     session_id: Optional[str] = None,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
     from .chunking import fetch_chunked, is_chunked_spec
 
-    if is_chunked_spec(spec):
+    if is_chunked_spec(spec, max_request_size=max_request_size):
         fetch_res: FetchResult = fetch_chunked(
             spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
             fetcher_fn=fetcher_fn,
+            max_request_size=max_request_size,
             **fetch_kwargs,
         )
     else:
@@ -94,6 +97,7 @@ def run_spec(
             spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
+            max_request_size=max_request_size,
             **fetch_kwargs,
         )
 
@@ -253,6 +257,7 @@ def run(
     llm_client: Any = None,
     allow_llm: bool = True,
     db_path: Optional[Path] = None,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     **kwargs: Any,
 ) -> PipelineResult:
     """Execute end-to-end question processing: parse -> validate -> fetch -> analyze -> card."""
@@ -261,6 +266,7 @@ def run(
         today=today,
         llm_client=llm_client,
         allow_llm=allow_llm,
+        max_request_size=max_request_size,
     )
 
     if outcome.clarification is not None or outcome.spec is None:
@@ -278,6 +284,7 @@ def run(
         force_refresh=force_refresh,
         db_path=db_path,
         question=question,
+        max_request_size=max_request_size,
         **kwargs,
     )
     res.question = question
