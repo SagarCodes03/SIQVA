@@ -270,3 +270,21 @@ def test_ollama_reachable_behaves_as_before():
     finally:
         reset_availability_cache()
     assert outcome.provenance.get("date_range") == "rules"
+
+
+def test_map_intent_defaults_to_surface_depth():
+    """Proves map intent defaults to 0-20 dbar surface depth when unspecified."""
+    outcome = parse_detailed("temperature map in Arabian Sea in January 2022", allow_llm=False)
+    assert outcome.is_success is True
+    assert outcome.spec is not None
+    assert outcome.spec.intent == Intent.MAP
+    assert outcome.spec.depth_range == DepthRange(min_depth=0.0, max_depth=20.0)
+
+
+def test_map_intent_honors_explicit_depth():
+    """Proves map intent preserves explicit depth when requested."""
+    outcome = parse_detailed("temperature map in Arabian Sea in January 2022 down to 200m", allow_llm=False)
+    assert outcome.is_success is True
+    assert outcome.spec is not None
+    assert outcome.spec.intent == Intent.MAP
+    assert outcome.spec.depth_range == DepthRange(min_depth=0.0, max_depth=200.0)

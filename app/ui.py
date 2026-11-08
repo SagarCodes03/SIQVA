@@ -107,19 +107,46 @@ st.markdown(
         background-color: var(--bg-sidebar) !important;
         border-right: 1px solid var(--border-subtle) !important;
     }
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 1.1rem !important;
-    }
     [data-testid="stSidebar"] hr {
         border-color: var(--border-subtle) !important;
-        margin: 1rem 0 !important;
+        margin: 0.65rem 0 !important;
     }
 
-    /* Sidebar collapse button ('<<') & expand button ('>>') */
-    [data-testid="stSidebarCollapseButton"] button,
-    [data-testid="stExpandSidebarButton"],
-    [data-testid="stExpandSidebarButton"] button {
+    /* Sidebar Header & Collapse button ('<<') pinned to top right next to SIQVA */
+    [data-testid="stSidebarHeader"] {
+        position: absolute !important;
+        top: 0.65rem !important;
+        right: 0.75rem !important;
+        height: 38px !important;
+        min-height: unset !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: transparent !important;
+        z-index: 100 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    [data-testid="stSidebarCollapseButton"] {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button {
         position: relative !important;
+        height: 38px !important;
+        width: 38px !important;
+        min-height: 38px !important;
+        border-radius: 6px !important;
+        background-color: var(--bg-panel) !important;
+        border: 1px solid var(--border-subtle) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: all 0.16s ease !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button:hover {
+        background-color: var(--bg-panel-hover) !important;
+        border-color: var(--accent-cyan) !important;
     }
     [data-testid="stSidebarCollapseButton"] button span,
     [data-testid="stExpandSidebarButton"] span,
@@ -144,61 +171,80 @@ st.markdown(
         letter-spacing: -1px !important;
     }
 
-    /* Preserve internal Material icons where applicable */
-    [data-testid="stIconMaterial"], 
-    .material-symbols-rounded, 
-    [class*="material-symbols"], 
-    [class*="material-icons"] {
-        font-family: 'Material Symbols Rounded', 'Material Icons', sans-serif !important;
+    /* Sidebar Content container starts at top */
+    [data-testid="stSidebarContent"],
+    [data-testid="stSidebarUserContent"],
+    [data-testid="stSidebar"] > div:first-child,
+    [data-testid="stSidebar"] > div:nth-child(2) {
+        padding-top: 0.65rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
     }
 
-    /* Top-Left Terminal Header Bar */
-    .terminal-header-wrap {
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        align-items: flex-start;
-        border-left: 3px solid var(--accent-cyan);
-        padding-left: 12px;
-        margin-top: 0px;
-        margin-bottom: 8px;
+    /* Brand Home Button ("SIQVA"): Top row next to << button, centered text */
+    [data-testid="stSidebar"] .st-key-brand_home_btn {
+        width: calc(100% - 46px) !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
     }
-    .terminal-header-title {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        letter-spacing: 0.06em;
-        line-height: 1.2;
-        margin: 0;
+    [data-testid="stSidebar"] .st-key-brand_home_btn > button,
+    [data-testid="stSidebar"] .st-key-brand_home_btn button,
+    [data-testid="stSidebar"] button[kind="primary"] {
+        width: 100% !important;
+        min-height: 38px !important;
+        height: 38px !important;
+        border-radius: 6px !important;
+        justify-content: center !important;
+        text-align: center !important;
+        letter-spacing: 0.08em !important;
+        font-size: 0.92rem !important;
+        font-weight: 700 !important;
     }
-    .terminal-header-sub {
-        font-size: 0.76rem;
-        color: var(--text-secondary);
-        letter-spacing: 0.03em;
-        margin-top: 3px;
+    [data-testid="stSidebar"] .st-key-brand_home_btn button *,
+    [data-testid="stSidebar"] button[kind="primary"] * {
+        justify-content: center !important;
+        text-align: center !important;
+    }
+    [data-testid="stSidebar"] .st-key-brand_home_btn button div[data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] button[kind="primary"] div[data-testid="stMarkdownContainer"] p {
+        font-size: 0.92rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.08em !important;
+        text-align: center !important;
+        line-height: 1.2 !important;
+        width: 100% !important;
     }
 
-    /* Sidebar Navigation: Compact, Clean & Properly Proportioned (matching old UI) */
-    [data-testid="stSidebar"] .stButton,
-    [data-testid="stSidebar"] .stButton > button {
+    /* Sidebar Navigation Buttons (Query, Plot Graph, Compare Runs): Box stays same, words & dot strictly LEFT-ALIGNED */
+    [data-testid="stSidebar"] .st-key-nav_query_btn,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn {
+        width: 100% !important;
+    }
+    [data-testid="stSidebar"] .st-key-nav_query_btn button,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn button,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn button,
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
         display: flex !important;
         justify-content: flex-start !important;
         align-items: center !important;
         text-align: left !important;
-        padding: 6px 12px !important;
-        border-radius: 6px !important;
-        font-size: 0.84rem !important;
+        padding-left: 14px !important;
+        padding-right: 14px !important;
         min-height: 36px !important;
         height: 36px !important;
-        margin-bottom: 3px !important;
+        margin-bottom: 4px !important;
         width: 100% !important;
+        border-radius: 6px !important;
     }
-    [data-testid="stSidebar"] .stButton > button * {
-        text-align: left !important;
+    [data-testid="stSidebar"] .st-key-nav_query_btn button *,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn button *,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn button *,
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) * {
         justify-content: flex-start !important;
-        align-items: center !important;
+        text-align: left !important;
     }
-    [data-testid="stSidebar"] .stButton > button div[data-testid="stMarkdownContainer"] {
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) div[data-testid="stMarkdownContainer"] {
         display: flex !important;
         justify-content: flex-start !important;
         align-items: center !important;
@@ -206,50 +252,32 @@ st.markdown(
         width: 100% !important;
         margin: 0 !important;
     }
-    [data-testid="stSidebar"] .stButton > button div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) div[data-testid="stMarkdownContainer"] p {
+        display: flex !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
         text-align: left !important;
+        width: 100% !important;
+        margin: 0 !important;
         font-size: 0.84rem !important;
         font-weight: 600 !important;
         line-height: 1.2 !important;
-        width: 100% !important;
-        margin: 0 !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
     }
 
-    /* Brand Home Button: Clean, Compact & Centered */
-    [data-testid="stSidebar"] div.stButton:first-of-type > button {
-        justify-content: center !important;
-        text-align: center !important;
-        letter-spacing: 0.08em !important;
-        font-size: 0.92rem !important;
-        font-weight: 700 !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        border-radius: 6px !important;
-    }
-    [data-testid="stSidebar"] div.stButton:first-of-type > button * {
-        justify-content: center !important;
-        text-align: center !important;
-    }
-    [data-testid="stSidebar"] div.stButton:first-of-type > button div[data-testid="stMarkdownContainer"] p {
-        font-size: 0.92rem !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.08em !important;
-        text-align: center !important;
-        line-height: 1.2 !important;
-    }
-
-    /* History List Items: Compact Single-Line */
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+5) > button {
+    /* History List Items: Left-aligned and compact single-line */
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button {
         min-height: 32px !important;
         height: 32px !important;
         padding: 4px 10px !important;
         border-radius: 5px !important;
         margin-bottom: 3px !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
     }
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+5) > button div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button div[data-testid="stMarkdownContainer"] p {
         font-size: 0.78rem !important;
         font-weight: 500 !important;
         color: #8FA9B8 !important;
@@ -257,8 +285,9 @@ st.markdown(
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         line-height: 1.2 !important;
+        text-align: left !important;
     }
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+5) > button:hover div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button:hover div[data-testid="stMarkdownContainer"] p {
         color: var(--accent-cyan) !important;
     }
 
@@ -828,6 +857,38 @@ def _render_pipeline_result(res: PipelineResult) -> None:
     if res.status in (PipelineStatus.EMPTY, PipelineStatus.OVERSIZED, PipelineStatus.TIMEOUT, PipelineStatus.ERROR):
         tag = f"[{res.status.value.upper()}]"
         st.error(f"{tag} Execution halted: {res.error_message}")
+
+        # Auto-clamp button for OVERSIZED queries
+        if res.status == PipelineStatus.OVERSIZED and res.spec is not None:
+            if st.button("[AUTO-SHRINK QUERY TO FIT COST LIMIT & RE-RUN]", type="primary", key="auto_clamp_btn"):
+                # If it's a Map or Drift plot, clamp depth to 0-20 dbar; otherwise clamp date window to fit cost cap
+                if res.spec.intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
+                    clamped_spec = res.spec.model_copy(
+                        update={"depth_range": DepthRange(min_depth=0.0, max_depth=20.0)}
+                    )
+                else:
+                    from datetime import timedelta
+
+                    area = (res.spec.region.lon_max - res.spec.region.lon_min) * (res.spec.region.lat_max - res.spec.region.lat_min)
+                    cur_span = (res.spec.depth_range.max_depth - res.spec.depth_range.min_depth) if res.spec.depth_range else 500.0
+                    depth_factor = cur_span / 500.0
+                    cost_per_day = area * depth_factor
+                    max_fitting_days = max(1, int(15_000.0 / cost_per_day)) if cost_per_day > 0 else 14
+                    clamped_days = min(max_fitting_days, 14)
+                    new_end = res.spec.date_range.start + timedelta(days=clamped_days)
+                    if new_end > res.spec.date_range.end:
+                        new_end = res.spec.date_range.end
+                    clamped_spec = res.spec.model_copy(
+                        update={"date_range": DateRange(start=res.spec.date_range.start, end=new_end)}
+                    )
+                with st.spinner("RE-EXECUTING WITH CLAMPED PARAMETERS..."):
+                    new_res = run_spec(clamped_spec, force_refresh=False)
+                    if st.session_state["active_page"] == "query":
+                        st.session_state["pipeline_res"] = new_res
+                    else:
+                        st.session_state["active_plot_res"] = new_res
+                    st.rerun()
+
         if res.spec:
             with st.expander("[INSPECTED SPEC PARAMETERS]"):
                 st.json(res.spec.model_dump())
@@ -1107,11 +1168,11 @@ with st.sidebar:
     p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
     c_label = "●  Compare Runs" if is_compare else "○  Compare Runs"
 
-    active_btn_idx = 2 if is_query else (3 if is_plots else 4)
+    active_nav_key = "nav_query_btn" if is_query else ("nav_plot_btn" if is_plots else "nav_compare_btn")
     st.markdown(
         f"""
         <style>
-        [data-testid="stSidebar"] div.stButton:nth-of-type({active_btn_idx}) > button {{
+        [data-testid="stSidebar"] .st-key-{active_nav_key} button {{
             background-color: #0C2030 !important;
             border: 1px solid #00E5CC !important;
             color: #00E5CC !important;
@@ -1198,14 +1259,27 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
             with c1:
                 start_dt = st.date_input("START DATE", value=date(2022, 1, 1))
             with c2:
-                end_dt = st.date_input("END DATE", value=date(2022, 1, 31))
-            manual_mode = st.selectbox("MODE", options=["research", "standard", "expert"], index=0)
+                # Default to 14 days so regional basins stay safely under 15,000 cost units
+                end_dt = st.date_input("END DATE", value=date(2022, 1, 14))
+            c3, c4 = st.columns(2)
+            with c3:
+                default_max_z = 20.0 if gt_def["intent"] in (Intent.MAP, getattr(Intent, "DRIFT", None)) else 500.0
+                max_z = st.number_input(
+                    "MAX DEPTH (dbar)",
+                    value=float(default_max_z),
+                    min_value=10.0,
+                    max_value=2000.0,
+                    step=50.0 if default_max_z >= 50.0 else 5.0,
+                )
+            with c4:
+                manual_mode = st.selectbox("MODE", options=["research", "standard", "expert"], index=0)
             manual_submit = st.form_submit_button("[GENERATE GRAPH]", type="primary")
         if manual_submit:
             bbox = KNOWN_REGIONS[region_name]
             spec = QuerySpec(
                 region=bbox,
                 date_range=DateRange(start=start_dt, end=end_dt),
+                depth_range=DepthRange(min_depth=0.0, max_depth=float(max_z)),
                 variables=gt_def["variables"],
                 mode=DataMode(manual_mode),
                 intent=gt_def["intent"],

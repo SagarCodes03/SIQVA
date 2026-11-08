@@ -261,6 +261,10 @@ def parse_detailed(
             intent = Intent.PROFILE
             provenance["intent"] = "default"
 
+    # Surface maps and drift velocity only require surface layer coordinates; default to 0-20 dbar
+    if provenance.get("depth_range") == "default" and intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
+        depth_range = DepthRange(min_depth=0.0, max_depth=20.0)
+
     understood = UnderstoodQuery(
         region=region,
         region_name=region_name,
