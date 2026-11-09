@@ -6,6 +6,7 @@ Test 4: Live argopy Smoke Test & Plotly Chart Generation
 """
 
 from __future__ import annotations
+import os
 from siqva.analyzer import analyze
 import json
 import gsw
@@ -245,6 +246,10 @@ def test_3_acoustic_shallow_vs_deep_profile():
 
 
 @pytest.mark.network
+@pytest.mark.skipif(
+    not os.getenv("RUN_NETWORK_TESTS"),
+    reason="Live network test skipped by default. Set RUN_NETWORK_TESTS=1 to run.",
+)
 def test_4_live_argopy_smoke_test():
     """Test 4 — Live argopy Smoke Test:
 

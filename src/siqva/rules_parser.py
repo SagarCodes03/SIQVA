@@ -52,6 +52,8 @@ _VARIABLE_SYNONYMS: dict[str, Variable] = {
     "psu": Variable.PSAL,
     "pressure": Variable.PRES,
     "pressures": Variable.PRES,
+    "oxygen": Variable.DOXY,
+    "doxy": Variable.DOXY,
     # "depth" is never mapped to PRES; PRES is only requested if explicitly "pressure"
 }
 
@@ -212,9 +214,9 @@ def _extract_date_range(text: str, today: date) -> tuple[Optional[DateRange], Op
         if dt_start:
             return accepted(DateRange(start=dt_start.date(), end=today))
 
-    # 3. YYYY-YYYY or YYYY to YYYY or between YYYY and YYYY
+    # 3. YYYY-YYYY or YYYY to YYYY or between YYYY and YYYY or from YYYY to YYYY
     m_yrange = re.search(
-        r"\b(?:between\s+)?(20\d{2}|19\d{2})\s*(?:-|to|\sand\s)\s*(20\d{2}|19\d{2})\b",
+        r"\b(?:between\s+|from\s+)?(20\d{2}|19\d{2})\s*(?:-|to|\sand\s)\s*(20\d{2}|19\d{2})\b",
         text,
         re.IGNORECASE,
     )
@@ -261,9 +263,9 @@ def _extract_date_range(text: str, today: date) -> tuple[Optional[DateRange], Op
             last_day = calendar.monthrange(y, m)[1]
             return accepted(DateRange(start=date(y, m, 1), end=date(y, m, last_day)))
 
-    # 7. Whole year: 'all of 2022', 'the whole of 2022', 'year 2022', etc.
+    # 7. Whole year: 'all of 2022', 'the whole of 2022', 'year 2022', 'from 2022', 'starting 2022', etc.
     m_year = re.search(
-        r"\b(?:all\s+of|the\s+whole\s+of|during|in|for|year|in\s+year)\s+"
+        r"\b(?:all\s+of|the\s+whole\s+of|during|in|for|year|in\s+year|from|starting|start\s+date|starting\s+from)\s+"
         r"(20\d{2}|19\d{2})\b",
         text,
         re.IGNORECASE,
@@ -432,13 +434,108 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
     ):
         matched_intents.add(Intent.ACOUSTIC)
 
+    # 8. Hovmöller Diagram (Depth vs. Time)
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "hovmoller",
+            "hovmöller",
+            "depth vs time",
+            "time vs depth",
+            "temporal evolution",
+        )
+    ):
+        matched_intents.add(Intent.HOVMOLLER)
+
+    # 9. Buoyancy Frequency / Stability / Pycnocline
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "buoyancy",
+            "brunt-vaisala",
+            "brunt vaisala",
+            "n2",
+            "stratification",
+            "pycnocline",
+        )
+    ):
+        matched_intents.add(Intent.BUOYANCY)
+
+    # 10. T-S with Isopycnals (sigma0)
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "isopycnal",
+            "isopycnals",
+            "sigma0",
+            "sigma-0",
+            "sigma_0",
+            "density surface",
+        )
+    ):
+        matched_intents.add(Intent.TS_ISOPYCNAL)
+
+    # 11. Regional Climatology Envelope
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "climatology",
+            "envelope",
+            "regional envelope",
+            "regional mean",
+            "spread",
+        )
+    ):
+        matched_intents.add(Intent.CLIMATOLOGY)
+
+    # 12. Oxygen Minimum Zone (BGC OMZ)
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "omz",
+            "oxygen minimum",
+            "dissolved oxygen",
+            "hypoxic",
+            "hypoxia",
+        )
+    ):
+        matched_intents.add(Intent.OMZ)
+
+    # 13. Drift Velocity
+    if any(
+        re.search(rf"\b{re.escape(k)}\b", lower)
+        for k in (
+            "drift",
+            "drift velocity",
+            "drift speed",
+            "lagrangian",
+            "current speed",
+            "eddy speed",
+        )
+    ):
+        matched_intents.add(Intent.DRIFT)
+
     # Specific analysis/physics intents override generic vertical profile keywords (e.g. "acoustic sound speed profile")
     if len(matched_intents) > 1 and Intent.PROFILE in matched_intents:
         if any(
             i in matched_intents
-            for i in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC, Intent.TS)
+            for i in (
+                Intent.THERMOCLINE,
+                Intent.TCHP,
+                Intent.ACOUSTIC,
+                Intent.TS,
+                Intent.HOVMOLLER,
+                Intent.BUOYANCY,
+                Intent.TS_ISOPYCNAL,
+                Intent.CLIMATOLOGY,
+                Intent.OMZ,
+                Intent.DRIFT,
+            )
         ):
             matched_intents.discard(Intent.PROFILE)
+
+    if Intent.TS_ISOPYCNAL in matched_intents and Intent.TS in matched_intents:
+        matched_intents.discard(Intent.TS)
 
     if len(matched_intents) == 1:
         return list(matched_intents)[0], None
@@ -591,7 +688,13 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
         missing.append("intent")
 
     # If intent requires TEOS-10 physics calculations, auto-include PRES, PSAL, TEMP
-    if intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC):
+    if intent in (
+        Intent.THERMOCLINE,
+        Intent.TCHP,
+        Intent.ACOUSTIC,
+        Intent.BUOYANCY,
+        Intent.TS_ISOPYCNAL,
+    ):
         current_vars = set(variables or [])
         current_vars.update([Variable.PRES, Variable.PSAL, Variable.TEMP])
         variables = sorted(list(current_vars), key=lambda v: v.value)

@@ -31,7 +31,7 @@ from .llm_parser import (
 )
 from .rules_parser import RulesParseResult, parse_rules
 from .spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
-from .validator import OversizedRequestError, SpecValidationError, validate_spec
+from .validator import DEFAULT_MAX_REQUEST_SIZE, OversizedRequestError, SpecValidationError, validate_spec
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,7 @@ def parse_detailed(
     llm_client: Any = None,
     allow_llm: bool = True,
     model: str = DEFAULT_MODEL,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
 ) -> ParseOutcome:
     """Parse natural language question into QuerySpec with provenance tracking and LLM fallback."""
     provenance: dict[str, str] = {}
@@ -261,6 +262,10 @@ def parse_detailed(
             intent = Intent.PROFILE
             provenance["intent"] = "default"
 
+    # Surface maps and drift velocity only require surface layer coordinates; default to 0-20 dbar
+    if provenance.get("depth_range") == "default" and intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
+        depth_range = DepthRange(min_depth=0.0, max_depth=20.0)
+
     understood = UnderstoodQuery(
         region=region,
         region_name=region_name,
@@ -307,7 +312,7 @@ def parse_detailed(
     )
 
     try:
-        validate_spec(candidate_spec, allow_chunking=True)
+        validate_spec(candidate_spec, max_request_size=max_request_size, allow_chunking=True)
         return ParseOutcome(
             spec=candidate_spec,
             clarification=None,
@@ -335,7 +340,7 @@ def parse_detailed(
                     end=candidate_spec.date_range.start,
                 )
                 fixed_spec = candidate_spec.model_copy(update={"date_range": fixed_dates})
-                validate_spec(fixed_spec, allow_chunking=True)
+                validate_spec(fixed_spec, max_request_size=max_request_size, allow_chunking=True)
                 provenance["date_range"] = f"{provenance.get('date_range', 'rules')}_swapped"
                 return ParseOutcome(
                     spec=fixed_spec,

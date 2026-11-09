@@ -109,7 +109,7 @@ def check_llm_availability(client: Optional[Any] = None, timeout: float = 1.5) -
     """
     global _LAST_UNAVAILABLE_TIMESTAMP
 
-    # Mock clients that provide chat() but no is_available() are always available
+    # Custom mock clients without an is_available method are assumed available for testing
     if client is not None and not hasattr(client, "is_available"):
         return True
 

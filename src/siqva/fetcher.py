@@ -17,7 +17,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .qc import QCReport, audit_qc
 from .spec import DataMode, DepthRange, QuerySpec
-from .validator import DEFAULT_MAX_REQUEST_SIZE, OversizedRequestError, SpecValidationError, validate_spec
+from .validator import (
+    DEFAULT_MAX_REQUEST_SIZE,
+    OversizedRequestError,
+    SpecValidationError,
+    is_size_guardrail_enabled,
+    validate_spec,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -584,7 +590,7 @@ def fetch(
     cache_dir: Optional[Path] = None,
     force_refresh: bool = False,
     timeout: int = 60,
-    max_request_size: float = DEFAULT_MAX_REQUEST_SIZE,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     max_profile_count: Optional[int] = DEFAULT_MAX_PROFILE_COUNT,
     float_index_path: Optional[Path | str] = None,
     cache_expiry_days: int = DEFAULT_CACHE_EXPIRY_DAYS,
@@ -658,7 +664,7 @@ def fetch(
     estimated_profile_count: Optional[int] = None
     coverage_status: Optional[CoverageStatus] = None
 
-    if max_profile_count is not None:
+    if is_size_guardrail_enabled() and max_request_size is not None and max_profile_count is not None:
         # Check network index only if explicit mock/engine injected; otherwise use local snapshot
         if index_fetcher_cls is not None:
             n_profs = count_matching_profiles_via_index(

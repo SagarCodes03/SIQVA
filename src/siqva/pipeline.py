@@ -17,13 +17,20 @@ from .fetcher import FetchResult, FetchStatus, fetch
 from .parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from .plots import (
     plot_acoustic_profile,
+    plot_bgc_omz_profile,
     plot_cyclone_tchp,
     plot_depth_profile,
+    plot_float_drift_velocity,
+    plot_hovmoller_section,
     plot_position_map,
+    plot_regional_climatology_envelope,
+    plot_stability_buoyancy,
     plot_thermocline_and_barrier,
     plot_ts_diagram,
+    plot_ts_with_isopycnals,
 )
 from .spec import Intent, QuerySpec, Variable
+from .validator import DEFAULT_MAX_REQUEST_SIZE
 
 logger = logging.getLogger(__name__)
 
@@ -70,17 +77,19 @@ def run_spec(
     fetcher_fn: Any = fetch,
     question: Optional[str] = None,
     session_id: Optional[str] = None,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
     from .chunking import fetch_chunked, is_chunked_spec
 
-    if is_chunked_spec(spec):
+    if is_chunked_spec(spec, max_request_size=max_request_size):
         fetch_res: FetchResult = fetch_chunked(
             spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
             fetcher_fn=fetcher_fn,
+            max_request_size=max_request_size,
             **fetch_kwargs,
         )
     else:
@@ -88,6 +97,7 @@ def run_spec(
             spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
+            max_request_size=max_request_size,
             **fetch_kwargs,
         )
 
@@ -170,6 +180,48 @@ def run_spec(
             except Exception:
                 pass
 
+    # Additional specialized and oceanographic figures
+    if spec.intent == Intent.HOVMOLLER:
+        try:
+            param = "TEMP" if Variable.TEMP in spec.variables else ("PSAL" if Variable.PSAL in spec.variables else "TEMP")
+            figures["hovmoller"] = plot_hovmoller_section(fetch_res.data, param=param)
+        except Exception:
+            pass
+    elif spec.intent == Intent.BUOYANCY:
+        try:
+            figures["buoyancy"] = plot_stability_buoyancy(
+                fetch_res.data,
+                lat=(spec.region.lat_min + spec.region.lat_max) / 2.0,
+                lon=(spec.region.lon_min + spec.region.lon_max) / 2.0,
+            )
+        except Exception:
+            pass
+    elif spec.intent == Intent.TS_ISOPYCNAL:
+        try:
+            figures["ts_isopycnal"] = plot_ts_with_isopycnals(
+                fetch_res.data,
+                lon=(spec.region.lon_min + spec.region.lon_max) / 2.0,
+                lat=(spec.region.lat_min + spec.region.lat_max) / 2.0,
+            )
+        except Exception:
+            pass
+    elif spec.intent == Intent.CLIMATOLOGY:
+        try:
+            param = "TEMP" if Variable.TEMP in spec.variables else ("PSAL" if Variable.PSAL in spec.variables else "TEMP")
+            figures["climatology"] = plot_regional_climatology_envelope(fetch_res.data, param=param)
+        except Exception:
+            pass
+    elif spec.intent == Intent.OMZ:
+        try:
+            figures["omz"] = plot_bgc_omz_profile(fetch_res.data)
+        except Exception:
+            pass
+    elif spec.intent == Intent.DRIFT:
+        try:
+            figures["drift"] = plot_float_drift_velocity(fetch_res.data)
+        except Exception:
+            pass
+
     # 3. Query card and script persistence
     card = build_card(spec, fetch_res, analysis, question=question, session_id=session_id)
     warning_msg: Optional[str] = None
@@ -205,6 +257,7 @@ def run(
     llm_client: Any = None,
     allow_llm: bool = True,
     db_path: Optional[Path] = None,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     **kwargs: Any,
 ) -> PipelineResult:
     """Execute end-to-end question processing: parse -> validate -> fetch -> analyze -> card."""
@@ -213,6 +266,7 @@ def run(
         today=today,
         llm_client=llm_client,
         allow_llm=allow_llm,
+        max_request_size=max_request_size,
     )
 
     if outcome.clarification is not None or outcome.spec is None:
@@ -230,6 +284,7 @@ def run(
         force_refresh=force_refresh,
         db_path=db_path,
         question=question,
+        max_request_size=max_request_size,
         **kwargs,
     )
     res.question = question

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import sys
 from datetime import date, datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from siqva.analyzer import AnalysisResult
+from siqva.validator import DEFAULT_MAX_REQUEST_SIZE
 from siqva.card import (
     DiffSummary,
     QueryCard,
@@ -56,70 +58,106 @@ st.set_page_config(
 )
 
 # ---------------------------------------------------------------------------
-# Unified Abyssal-Bioluminescence Retro-Terminal Theme
+# Enterprise Minimalist Dark Theme (Linear / Vercel Aesthetic)
 # ---------------------------------------------------------------------------
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 
     :root {
-        --bg-abyss: #03090E;
-        --bg-sidebar: #02060A;
-        --bg-panel: #081520;
-        --bg-panel-hover: #0C2030;
-        --border-subtle: #143042;
-        --border-focus: #00E5CC;
-        --accent-cyan: #00E5CC;
-        --accent-cyan-bright: #4DFFF3;
-        --text-primary: #E4F3F7;
-        --text-secondary: #7597A8;
-        --text-muted: #4B6B7C;
+        --bg-canvas: #090C10;       /* Deep matte slate-black */
+        --bg-sidebar: #06080B;      /* Slightly darker sidebar */
+        --bg-surface: #0F141C;      /* Card surface */
+        --bg-surface-hover: #151C26;/* Subtle hover elevation */
+        --border-hairline: #1E2733; /* Crisp 1px structural border */
+        --border-hover: #334155;    /* Muted steel hover border */
+        --accent-primary: #E2E8F0;  /* Crisp high-contrast slate-white */
+        --accent-ocean: #38BDF8;    /* Muted oceanic sky-blue for tags only */
+        --text-primary: #F1F5F9;    /* Clean white-slate */
+        --text-secondary: #94A3B8;  /* Muted neutral grey */
+        --text-muted: #64748B;      /* Subtle caption grey */
+        --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        --font-mono: 'JetBrains Mono', monospace;
     }
 
-    /* Global Typography & Base Background */
+    /* 1. Typography: Inter for UI, JetBrains Mono only for code, metrics & tags */
     html, body, .stMarkdown, .stButton button, input, textarea, select, p, h1, h2, h3, h4, h5, h6 {
-        font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace !important;
+        font-family: var(--font-sans) !important;
+        -webkit-font-smoothing: antialiased;
     }
+    code, pre, [data-testid="stMetricValue"], .graph-card-tag {
+        font-family: var(--font-mono) !important;
+    }
+
+    /* 2. Flat Matte Background (Zero neon glows or radial gradients) */
     .main, .stApp {
-        background-color: var(--bg-abyss) !important;
-        background-image: radial-gradient(circle at 50% 80%, rgba(0, 229, 204, 0.04) 0%, transparent 60%) !important;
+        background-color: var(--bg-canvas) !important;
+        background-image: none !important;
         color: var(--text-primary) !important;
     }
 
-    /* Remove excess top/left padding so header aligns near top-left next to sidebar */
     .block-container {
-        padding-top: 1.35rem !important;
-        padding-bottom: 1.5rem !important;
-        padding-left: 1.5rem !important;
-        padding-right: 2.0rem !important;
-        max-width: 100% !important;
+        padding-top: 1.4rem !important;
+        padding-bottom: 2rem !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+        max-width: 1440px !important;
     }
 
-    /* Top Streamlit Chrome Header */
-    [data-testid="stHeader"] {
+    [data-testid="stHeader"], .stDeployButton, [data-testid="stDeployButton"] {
         background-color: transparent !important;
-        height: 2.2rem !important;
+        height: 2.0rem !important;
     }
 
-    /* Sidebar Styling */
+    /* 3. Clean Sidebar with 1px Hairline Border */
     [data-testid="stSidebar"] {
         background-color: var(--bg-sidebar) !important;
-        border-right: 1px solid var(--border-subtle) !important;
-    }
-    [data-testid="stSidebar"] > div:first-child {
-        padding-top: 1.1rem !important;
+        border-right: 1px solid var(--border-hairline) !important;
     }
     [data-testid="stSidebar"] hr {
-        border-color: var(--border-subtle) !important;
-        margin: 1rem 0 !important;
+        border-color: var(--border-hairline) !important;
+        margin: 0.75rem 0 !important;
     }
 
-    /* Sidebar collapse button ('<<') & expand button ('>>') */
-    [data-testid="stSidebarCollapseButton"] button,
-    [data-testid="stExpandSidebarButton"],
-    [data-testid="stExpandSidebarButton"] button {
+    /* Top row: SIQVA brand box and << collapse button aligned side-by-side */
+    [data-testid="stSidebarHeader"] {
+        position: absolute !important;
+        top: 0.65rem !important;
+        right: 0.75rem !important;
+        height: 36px !important;
+        min-height: unset !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        background: transparent !important;
+        z-index: 100 !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    [data-testid="stSidebarCollapseButton"] {
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button {
         position: relative !important;
+        height: 36px !important;
+        width: 36px !important;
+        min-height: 36px !important;
+        border-radius: 6px !important;
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-hairline) !important;
+        color: var(--text-secondary) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        transition: background-color 0.12s ease, border-color 0.12s ease !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stSidebarCollapseButton"] button:hover {
+        background-color: var(--bg-surface-hover) !important;
+        border-color: var(--border-hover) !important;
+        color: var(--text-primary) !important;
     }
     [data-testid="stSidebarCollapseButton"] button span,
     [data-testid="stExpandSidebarButton"] span,
@@ -128,77 +166,96 @@ st.markdown(
     }
     [data-testid="stSidebarCollapseButton"] button::after {
         content: "<<" !important;
-        font-family: 'JetBrains Mono', monospace !important;
+        font-family: var(--font-mono) !important;
         font-size: 13px !important;
-        font-weight: 700 !important;
-        color: var(--accent-cyan) !important;
+        font-weight: 600 !important;
+        color: var(--accent-ocean) !important;
         letter-spacing: -1px !important;
     }
     [data-testid="stExpandSidebarButton"]::after,
     [data-testid="stExpandSidebarButton"] button::after {
         content: ">>" !important;
-        font-family: 'JetBrains Mono', monospace !important;
+        font-family: var(--font-mono) !important;
         font-size: 13px !important;
-        font-weight: 700 !important;
-        color: var(--accent-cyan) !important;
+        font-weight: 600 !important;
+        color: var(--accent-ocean) !important;
         letter-spacing: -1px !important;
     }
 
-    /* Preserve internal Material icons where applicable */
-    [data-testid="stIconMaterial"], 
-    .material-symbols-rounded, 
-    [class*="material-symbols"], 
-    [class*="material-icons"] {
-        font-family: 'Material Symbols Rounded', 'Material Icons', sans-serif !important;
+    /* Content container starts at top without gap */
+    [data-testid="stSidebarContent"],
+    [data-testid="stSidebarUserContent"],
+    [data-testid="stSidebar"] > div:first-child,
+    [data-testid="stSidebar"] > div:nth-child(2) {
+        padding-top: 0.65rem !important;
+        padding-left: 0.75rem !important;
+        padding-right: 0.75rem !important;
     }
 
-    /* Top-Left Terminal Header Bar */
-    .terminal-header-wrap {
-        display: flex;
-        flex-direction: column;
-        justify-content: flex-start;
-        align-items: flex-start;
-        border-left: 3px solid var(--accent-cyan);
-        padding-left: 12px;
-        margin-top: 0px;
-        margin-bottom: 8px;
+    /* Brand Home Button ("SIQVA"): Top row next to << button, centered text */
+    [data-testid="stSidebar"] .st-key-brand_home_btn {
+        width: calc(100% - 44px) !important;
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
     }
-    .terminal-header-title {
-        font-size: 1.25rem;
-        font-weight: 700;
-        color: var(--text-primary);
-        letter-spacing: 0.06em;
-        line-height: 1.2;
-        margin: 0;
-    }
-    .terminal-header-sub {
-        font-size: 0.76rem;
-        color: var(--text-secondary);
-        letter-spacing: 0.03em;
-        margin-top: 3px;
-    }
-
-    /* Sidebar Navigation: Compact, Clean & Properly Proportioned (matching old UI) */
-    [data-testid="stSidebar"] .stButton,
-    [data-testid="stSidebar"] .stButton > button {
-        display: flex !important;
-        justify-content: flex-start !important;
-        align-items: center !important;
-        text-align: left !important;
-        padding: 6px 12px !important;
-        border-radius: 6px !important;
-        font-size: 0.84rem !important;
+    [data-testid="stSidebar"] .st-key-brand_home_btn > button,
+    [data-testid="stSidebar"] .st-key-brand_home_btn button {
+        background-color: #11161D !important;
+        border: 1px solid #1E2733 !important;
+        color: #F1F5F9 !important;
+        width: 100% !important;
         min-height: 36px !important;
         height: 36px !important;
-        margin-bottom: 3px !important;
+        border-radius: 6px !important;
+        justify-content: center !important;
+        text-align: center !important;
+        letter-spacing: 0.08em !important;
+        font-size: 0.88rem !important;
+        font-weight: 700 !important;
+        box-shadow: none !important;
+        transition: background-color 0.12s ease, border-color 0.12s ease !important;
+    }
+    [data-testid="stSidebar"] .st-key-brand_home_btn button:hover {
+        background-color: #161F2C !important;
+        border-color: #334155 !important;
+        color: #FFFFFF !important;
+        box-shadow: none !important;
+    }
+    [data-testid="stSidebar"] .st-key-brand_home_btn button * {
+        justify-content: center !important;
+        text-align: center !important;
+    }
+
+    /* Sidebar Navigation Buttons (Query, Plot Graph, Compare Runs): Box stays same, words & dot strictly LEFT-ALIGNED */
+    [data-testid="stSidebar"] .st-key-nav_query_btn,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn {
         width: 100% !important;
     }
-    [data-testid="stSidebar"] .stButton > button * {
-        text-align: left !important;
+    [data-testid="stSidebar"] .st-key-nav_query_btn button,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn button,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn button,
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) {
+        display: flex !important;
         justify-content: flex-start !important;
         align-items: center !important;
+        text-align: left !important;
+        padding-left: 14px !important;
+        padding-right: 14px !important;
+        min-height: 36px !important;
+        height: 36px !important;
+        margin-bottom: 4px !important;
+        width: 100% !important;
+        border-radius: 6px !important;
     }
-    [data-testid="stSidebar"] .stButton > button div[data-testid="stMarkdownContainer"] {
+    [data-testid="stSidebar"] .st-key-nav_query_btn button *,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn button *,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn button *,
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) * {
+        justify-content: flex-start !important;
+        text-align: left !important;
+    }
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) div[data-testid="stMarkdownContainer"] {
         display: flex !important;
         justify-content: flex-start !important;
         align-items: center !important;
@@ -206,120 +263,136 @@ st.markdown(
         width: 100% !important;
         margin: 0 !important;
     }
-    [data-testid="stSidebar"] .stButton > button div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]) div[data-testid="stMarkdownContainer"] p {
+        display: flex !important;
+        justify-content: flex-start !important;
+        align-items: center !important;
         text-align: left !important;
-        font-size: 0.84rem !important;
-        font-weight: 600 !important;
-        line-height: 1.2 !important;
         width: 100% !important;
         margin: 0 !important;
+        font-size: 0.84rem !important;
+        font-weight: 500 !important;
+        line-height: 1.2 !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
     }
 
-    /* Brand Home Button: Clean, Compact & Centered */
-    [data-testid="stSidebar"] div.stButton:first-of-type > button {
-        justify-content: center !important;
-        text-align: center !important;
-        letter-spacing: 0.08em !important;
-        font-size: 0.92rem !important;
-        font-weight: 700 !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        border-radius: 6px !important;
-    }
-    [data-testid="stSidebar"] div.stButton:first-of-type > button * {
-        justify-content: center !important;
-        text-align: center !important;
-    }
-    [data-testid="stSidebar"] div.stButton:first-of-type > button div[data-testid="stMarkdownContainer"] p {
-        font-size: 0.92rem !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.08em !important;
-        text-align: center !important;
-        line-height: 1.2 !important;
-    }
-
-    /* History List Items: Compact Single-Line */
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+4) > button {
+    /* History List Items: Left-aligned and compact single-line */
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button {
         min-height: 32px !important;
         height: 32px !important;
         padding: 4px 10px !important;
-        border-radius: 5px !important;
+        border-radius: 6px !important;
         margin-bottom: 3px !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        background-color: transparent !important;
+        border: 1px solid transparent !important;
     }
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+4) > button div[data-testid="stMarkdownContainer"] p {
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button:hover {
+        background-color: var(--bg-surface-hover) !important;
+        border-color: var(--border-hairline) !important;
+    }
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button div[data-testid="stMarkdownContainer"] p {
         font-size: 0.78rem !important;
-        font-weight: 500 !important;
-        color: #8FA9B8 !important;
+        font-weight: 400 !important;
+        color: var(--text-secondary) !important;
         white-space: nowrap !important;
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         line-height: 1.2 !important;
+        text-align: left !important;
     }
-    [data-testid="stSidebar"] div.stButton:nth-of-type(n+4) > button:hover div[data-testid="stMarkdownContainer"] p {
-        color: var(--accent-cyan) !important;
+    [data-testid="stSidebar"] div[class*="st-key-hist_"] button:hover div[data-testid="stMarkdownContainer"] p {
+        color: var(--text-primary) !important;
     }
 
-    /* Universal Button Styling */
+    /* 4. Minimalist Header (Clean bottom hairline border, no thick left bar) */
+    .terminal-header-wrap {
+        display: flex;
+        flex-direction: column;
+        padding-bottom: 12px;
+        margin-bottom: 16px;
+        border-bottom: 1px solid var(--border-hairline);
+    }
+    .terminal-header-title {
+        font-family: var(--font-sans) !important;
+        font-size: 1.15rem;
+        font-weight: 600;
+        color: var(--text-primary);
+        letter-spacing: -0.01em;
+        margin: 0;
+    }
+    .terminal-header-sub {
+        font-size: 0.82rem;
+        color: var(--text-secondary);
+        margin-top: 3px;
+    }
+
+    /* 5. Restrained Enterprise Buttons (Zero Neon Box-Shadows) */
     .stButton button {
-        border-radius: 7px !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.04em !important;
-        transition: all 0.16s ease !important;
+        border-radius: 6px !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.01em !important;
+        height: 36px !important;
+        transition: background-color 0.12s ease, border-color 0.12s ease !important;
+        box-shadow: none !important;
     }
     .stButton button:not([kind="primary"]) {
-        background-color: var(--bg-panel) !important;
-        border: 1px solid var(--border-subtle) !important;
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-hairline) !important;
         color: var(--text-secondary) !important;
     }
     .stButton button:not([kind="primary"]):hover {
-        background-color: var(--bg-panel-hover) !important;
-        border-color: var(--accent-cyan) !important;
-        color: var(--accent-cyan) !important;
-        box-shadow: 0 0 12px rgba(0, 229, 204, 0.18) !important;
+        background-color: var(--bg-surface-hover) !important;
+        border-color: var(--border-hover) !important;
+        color: var(--text-primary) !important;
+        box-shadow: none !important;
     }
+    /* High-contrast neutral primary button (Linear / Vercel style) */
     .stButton button[kind="primary"] {
-        background-color: var(--accent-cyan) !important;
-        border: 1px solid var(--accent-cyan) !important;
-        color: #020A0E !important;
-        font-weight: 700 !important;
-        border-radius: 7px !important;
-        box-shadow: 0 0 14px rgba(0, 229, 204, 0.28) !important;
+        background-color: var(--text-primary) !important;
+        border: 1px solid var(--text-primary) !important;
+        color: #090C10 !important;
+        font-weight: 600 !important;
+        box-shadow: none !important;
     }
     .stButton button[kind="primary"]:hover {
-        background-color: var(--accent-cyan-bright) !important;
-        border-color: var(--accent-cyan-bright) !important;
-        color: #020A0E !important;
-        box-shadow: 0 0 20px rgba(0, 229, 204, 0.48) !important;
+        background-color: #CBD5E1 !important;
+        border-color: #CBD5E1 !important;
+        color: #090C10 !important;
     }
 
     /* Download Buttons */
     .stDownloadButton button {
-        background-color: var(--bg-panel) !important;
-        border: 1px solid var(--accent-cyan) !important;
-        color: var(--accent-cyan) !important;
-        border-radius: 7px !important;
-        font-weight: 600 !important;
+        border-radius: 6px !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        height: 36px !important;
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-hairline) !important;
+        color: var(--text-secondary) !important;
+        box-shadow: none !important;
     }
     .stDownloadButton button:hover {
-        background-color: var(--accent-cyan) !important;
-        color: #020A0E !important;
+        background-color: var(--bg-surface-hover) !important;
+        border-color: var(--border-hover) !important;
+        color: var(--text-primary) !important;
     }
 
-    /* Claude-Style Unified Prompt Container */
+    /* 6. Clean Prompt Container */
     div[data-testid="stVerticalBlockBorderWrapper"] {
-        background-color: var(--bg-panel) !important;
-        border: 1px solid #1C445C !important;
-        border-radius: 14px !important;
-        padding: 14px 18px !important;
-        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.55), 0 0 24px rgba(0, 229, 204, 0.06) !important;
-        transition: border-color 0.2s, box-shadow 0.2s;
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-hairline) !important;
+        border-radius: 10px !important;
+        padding: 12px 16px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
     }
     div[data-testid="stVerticalBlockBorderWrapper"]:focus-within {
-        border-color: var(--accent-cyan) !important;
-        box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65), 0 0 28px rgba(0, 229, 204, 0.16) !important;
+        border-color: var(--border-hover) !important;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
     }
     div[data-testid="stVerticalBlockBorderWrapper"] [data-testid="stTextArea"] {
         margin-bottom: 6px !important;
@@ -329,7 +402,8 @@ st.markdown(
         border: none !important;
         box-shadow: none !important;
         color: var(--text-primary) !important;
-        font-size: 0.92em !important;
+        font-family: var(--font-sans) !important;
+        font-size: 0.92rem !important;
         line-height: 1.5 !important;
         resize: none !important;
         padding: 2px 0px !important;
@@ -343,112 +417,109 @@ st.markdown(
         outline: none !important;
     }
 
-    /* Retro Terminal Graph Cards */
+    /* 7. Minimalist Graph Cards (Uniform 1px border, no left stripe) */
     .graph-card {
-        background: var(--bg-panel);
-        border: 1px solid var(--border-subtle);
-        border-left: 3px solid var(--accent-cyan);
-        border-radius: 9px;
-        padding: 16px 16px;
-        min-height: 116px;
+        background: var(--bg-surface);
+        border: 1px solid var(--border-hairline);
+        border-radius: 8px;
+        padding: 16px;
+        min-height: 108px;
         display: flex;
         flex-direction: column;
         justify-content: space-between;
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
-        transition: all 0.2s ease;
+        transition: border-color 0.15s ease, background-color 0.15s ease;
         margin-bottom: 6px;
+        box-shadow: none;
     }
     .graph-card:hover {
-        border-color: var(--accent-cyan);
-        background: var(--bg-panel-hover);
-        box-shadow: 0 6px 20px rgba(0, 229, 204, 0.12);
+        border-color: var(--border-hover);
+        background: var(--bg-surface-hover);
     }
     .graph-card-tag {
-        color: var(--accent-cyan);
-        font-size: 0.74em;
-        font-weight: 700;
-        letter-spacing: 0.08em;
+        color: var(--accent-ocean);
+        font-family: var(--font-mono) !important;
+        font-size: 0.70rem;
+        font-weight: 500;
+        letter-spacing: 0.04em;
     }
     .graph-card-title {
         color: var(--text-primary);
-        font-weight: 700;
-        font-size: 0.93em;
-        margin-top: 4px;
+        font-family: var(--font-sans) !important;
+        font-weight: 600;
+        font-size: 0.92rem;
+        margin-top: 6px;
     }
     .graph-card-desc {
         color: var(--text-secondary);
-        font-size: 0.75em;
+        font-family: var(--font-sans) !important;
+        font-size: 0.78rem;
         margin-top: 4px;
-        line-height: 1.35;
+        line-height: 1.4;
     }
 
-    /* Metric Panels */
+    /* 8. Minimalist Metric Boxes */
     [data-testid="stMetric"] {
-        background-color: var(--bg-panel) !important;
-        border: 1px solid var(--border-subtle) !important;
-        border-left: 3px solid var(--accent-cyan) !important;
-        border-radius: 9px !important;
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-hairline) !important;
+        border-radius: 8px !important;
         padding: 12px 16px !important;
     }
     [data-testid="stMetricLabel"] {
-        color: var(--text-secondary) !important;
-        font-size: 0.72em !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.08em !important;
+        color: var(--text-muted) !important;
+        font-family: var(--font-sans) !important;
+        font-size: 0.70rem !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.05em !important;
     }
     [data-testid="stMetricValue"] {
-        color: var(--accent-cyan) !important;
-        font-size: 1.22em !important;
-        font-weight: 700 !important;
+        color: var(--text-primary) !important;
+        font-family: var(--font-mono) !important;
+        font-size: 1.15rem !important;
+        font-weight: 600 !important;
     }
 
-    /* Terminal Tabs */
+    /* 9. Clean Inputs, Tabs & Modals */
     button[data-baseweb="tab"] {
-        font-family: 'JetBrains Mono', monospace !important;
+        font-family: var(--font-sans) !important;
         color: var(--text-secondary) !important;
-        font-size: 0.8em !important;
-        font-weight: 600 !important;
-        letter-spacing: 0.06em !important;
+        font-size: 0.82rem !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.01em !important;
     }
     button[data-baseweb="tab"][aria-selected="true"] {
-        color: var(--accent-cyan) !important;
-        border-bottom-color: var(--accent-cyan) !important;
+        color: var(--text-primary) !important;
+        border-bottom-color: var(--text-primary) !important;
+        font-weight: 600 !important;
     }
-
-    /* Inputs, Selectboxes, Date Pickers */
     [data-testid="stSelectbox"] > div > div,
     [data-testid="stTextInput"] input,
     [data-testid="stDateInput"] input {
-        background-color: #051018 !important;
-        border: 1px solid var(--border-subtle) !important;
+        background-color: var(--bg-canvas) !important;
+        border: 1px solid var(--border-hairline) !important;
         color: var(--text-primary) !important;
-        border-radius: 7px !important;
-        font-size: 0.85em !important;
+        border-radius: 6px !important;
+        font-size: 0.84rem !important;
+        box-shadow: none !important;
     }
     [data-testid="stSelectbox"] > div > div:focus-within,
     [data-testid="stTextInput"] input:focus,
     [data-testid="stDateInput"] input:focus {
-        border-color: var(--accent-cyan) !important;
-        box-shadow: 0 0 8px rgba(0, 229, 204, 0.25) !important;
+        border-color: var(--border-hover) !important;
+        box-shadow: none !important;
     }
-
-    /* Floating Modal Dialog */
     div[data-testid="stDialog"] > div:first-child, div[role="dialog"] {
-        background-color: #050E15 !important;
-        border: 1px solid var(--accent-cyan) !important;
-        border-radius: 12px !important;
-        box-shadow: 0 0 40px rgba(0, 229, 204, 0.22) !important;
+        background-color: var(--bg-surface) !important;
+        border: 1px solid var(--border-hover) !important;
+        border-radius: 10px !important;
+        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6) !important;
         color: var(--text-primary) !important;
     }
-
-    /* Alert Banners */
     .banner-clarification {
-        background-color: #071D21;
-        border: 1px solid var(--accent-cyan);
-        border-left: 4px solid var(--accent-cyan);
-        padding: 12px 16px;
+        background-color: #0E1724;
+        border: 1px solid #1E2E44;
         border-radius: 8px;
-        color: #B2F5EA;
+        padding: 14px 18px;
+        color: #E2E8F0;
         margin-bottom: 14px;
     }
     </style>
@@ -523,6 +594,60 @@ GRAPH_TYPES = [
         "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
         "nl_hint": "e.g. acoustic sound speed profile Arabian Sea January 2022",
     },
+    {
+        "key": "hovmoller",
+        "tag": "[TIME // HOV]",
+        "title": "Hovmöller Diagram",
+        "desc": "Depth vs time 2D contour evolution",
+        "intent": Intent.HOVMOLLER,
+        "variables": [Variable.TEMP, Variable.PRES],
+        "nl_hint": "e.g. hovmoller depth vs time temperature in Arabian Sea 2022",
+    },
+    {
+        "key": "buoyancy",
+        "tag": "[TEOS-10 // N2]",
+        "title": "Buoyancy & Stability",
+        "desc": "Brunt-Väisälä N² & pycnocline core",
+        "intent": Intent.BUOYANCY,
+        "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
+        "nl_hint": "e.g. buoyancy frequency N2 and stability in Bay of Bengal April 2022",
+    },
+    {
+        "key": "ts_isopycnal",
+        "tag": "[TEOS-10 // TS-SIGMA]",
+        "title": "T-S with Isopycnals",
+        "desc": "Conservative T-S with σ₀ contours",
+        "intent": Intent.TS_ISOPYCNAL,
+        "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
+        "nl_hint": "e.g. temperature vs salinity with isopycnals in North Atlantic 2021",
+    },
+    {
+        "key": "climatology",
+        "tag": "[STAT // ENVELOPE]",
+        "title": "Climatology Envelope",
+        "desc": "Regional mean & ±1σ spread",
+        "intent": Intent.CLIMATOLOGY,
+        "variables": [Variable.TEMP, Variable.PRES],
+        "nl_hint": "e.g. regional temperature climatology envelope in Arabian Sea May 2022",
+    },
+    {
+        "key": "omz",
+        "tag": "[BGC // OMZ]",
+        "title": "Oxygen Minimum Zone",
+        "desc": "Dissolved oxygen & hypoxic ceiling",
+        "intent": Intent.OMZ,
+        "variables": [Variable.DOXY, Variable.PRES],
+        "nl_hint": "e.g. oxygen minimum zone dissolved oxygen in Arabian Sea 2022",
+    },
+    {
+        "key": "drift",
+        "tag": "[DYN // DRIFT]",
+        "title": "Float Drift Velocity",
+        "desc": "Lagrangian speed & eddy detection",
+        "intent": Intent.DRIFT,
+        "variables": [Variable.TEMP, Variable.PSAL, Variable.PRES],
+        "nl_hint": "e.g. float drift velocity in Arabian Sea 2022",
+    },
 ]
 
 _ALL_REGION_NAMES = sorted(KNOWN_REGIONS.keys())
@@ -585,8 +710,8 @@ def build_clarification_banner_html(message: str) -> str:
     safe_msg = html.escape(str(message))
     return (
         f'<div class="banner-clarification">\n'
-        f'    <div style="font-weight:700; font-size:0.86em; letter-spacing:0.06em; color:#00E5CC;">[CLARIFICATION REQUIRED]</div>\n'
-        f'    <div style="margin-top:6px; font-size:0.84em; color:#E4F3F7;">{safe_msg}</div>\n'
+        f'    <div style="font-weight:600; font-size:0.86rem; letter-spacing:0.04em; color:#38BDF8;">Clarification Required</div>\n'
+        f'    <div style="margin-top:6px; font-size:0.84rem; color:#F1F5F9; line-height:1.45;">{safe_msg}</div>\n'
         f'</div>'
     )
 
@@ -608,35 +733,35 @@ def build_graph_card_html(tag: str, title: str, desc: str) -> str:
 
 
 def _style_fig(fig: go.Figure, is_map: bool = False) -> go.Figure:
-    """Apply oceanic retro-terminal layout styling to Plotly charts."""
+    """Apply minimalist enterprise layout styling to Plotly charts."""
     if not isinstance(fig, go.Figure):
         return fig
 
     if is_map:
         fig.update_layout(
             height=490,
-            paper_bgcolor="#06131A",
-            plot_bgcolor="#0A1E29",
+            paper_bgcolor="#0F141C",
+            plot_bgcolor="#0F141C",
             showlegend=False,
             font=dict(
-                family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                color="#E6F1F5",
+                family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                color="#F1F5F9",
             ),
             margin=dict(l=10, r=10, t=40, b=10),
             title=dict(
                 font=dict(
-                    family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                    color="#E6F1F5",
+                    family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                    color="#F1F5F9",
                     size=13,
                 ),
             ),
         )
         fig.update_geos(
-            bgcolor="#06131A",
-            oceancolor="#0A1E29",
-            landcolor="#143545",
-            coastlinecolor="#2EC4B6",
-            countrycolor="#1E4558",
+            bgcolor="#0F141C",
+            oceancolor="#151C26",
+            landcolor="#1E2733",
+            coastlinecolor="#38BDF8",
+            countrycolor="#1E2733",
             showocean=True,
             showland=True,
             showcountries=True,
@@ -645,17 +770,17 @@ def _style_fig(fig: go.Figure, is_map: bool = False) -> go.Figure:
     else:
         fig.update_layout(
             height=490,
-            paper_bgcolor="#06131A",
-            plot_bgcolor="#0B1F2A",
+            paper_bgcolor="#0F141C",
+            plot_bgcolor="#0F141C",
             font=dict(
-                family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                color="#E6F1F5",
+                family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                color="#94A3B8",
             ),
             margin=dict(l=55, r=30, t=65, b=50),
             title=dict(
                 font=dict(
-                    family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                    color="#E6F1F5",
+                    family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                    color="#F1F5F9",
                     size=13,
                 ),
             ),
@@ -666,40 +791,79 @@ def _style_fig(fig: go.Figure, is_map: bool = False) -> go.Figure:
                 xanchor="right",
                 x=1,
                 font=dict(
-                    family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                    color="#E6F1F5",
+                    family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                    color="#94A3B8",
                     size=10,
                 ),
-                bgcolor="rgba(6, 19, 26, 0.75)",
-                bordercolor="#1E4558",
+                bgcolor="rgba(15, 20, 28, 0.85)",
+                bordercolor="#1E2733",
                 borderwidth=1,
             ),
         )
         fig.update_xaxes(
-            gridcolor="#1E4558",
-            zerolinecolor="#1E4558",
+            gridcolor="#1E2733",
+            zerolinecolor="#1E2733",
             tickfont=dict(
-                family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                color="#E6F1F5",
+                family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                color="#94A3B8",
             ),
             title_font=dict(
-                family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                color="#E6F1F5",
+                family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                color="#F1F5F9",
             ),
         )
         fig.update_yaxes(
-            gridcolor="#1E4558",
-            zerolinecolor="#1E4558",
+            gridcolor="#1E2733",
+            zerolinecolor="#1E2733",
             tickfont=dict(
-                family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                color="#E6F1F5",
+                family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                color="#94A3B8",
             ),
             title_font=dict(
-                family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-                color="#E6F1F5",
+                family="'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+                color="#F1F5F9",
             ),
         )
     return fig
+
+
+@st.dialog("Terminal Preferences & Diagnostics")
+def open_terminal_settings_modal() -> None:
+    st.markdown("**Execution & Cache Controls**")
+    st.session_state["force_refresh_global"] = st.toggle(
+        "Force refresh (bypass local cache)",
+        value=st.session_state.get("force_refresh_global", False),
+    )
+    guardrail_off = st.session_state.get("disable_size_guardrail", True)
+    new_guardrail_off = st.toggle(
+        "Bypass size guardrails (allow unlimited basin area & length)",
+        value=guardrail_off,
+    )
+    st.session_state["disable_size_guardrail"] = new_guardrail_off
+    if new_guardrail_off:
+        os.environ["SIQVA_DISABLE_SIZE_GUARDRAIL"] = "1"
+    else:
+        os.environ.pop("SIQVA_DISABLE_SIZE_GUARDRAIL", None)
+    st.markdown("**Gazetteer Regions Loaded**")
+    st.code(", ".join(_ALL_REGION_NAMES), language="text")
+
+    st.markdown("**Session & History Management**")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Clear Active Workspace", use_container_width=True):
+            _reset_to_new_query()
+            st.rerun()
+    with c2:
+        if st.button("Purge Streamlit Cache", use_container_width=True):
+            st.cache_data.clear()
+            st.success("Memory cache purged.")
+
+
+def _ui_max_request_size() -> Optional[float]:
+    """Return None to allow unlimited size in UI when guardrails are bypassed, or 15,000 when enabled."""
+    if st.session_state.get("disable_size_guardrail", True):
+        return None
+    return DEFAULT_MAX_REQUEST_SIZE
 
 
 def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> None:
@@ -714,7 +878,8 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
             unsafe_allow_html=True,
         )
     with top_right:
-        st.button("⋮", key=settings_key, help="Terminal Preferences")
+        if st.button("⋮", key=settings_key, help="Terminal Preferences & Diagnostics"):
+            open_terminal_settings_modal()
 
 
 def _render_pipeline_result(res: PipelineResult) -> None:
@@ -734,20 +899,57 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             unsafe_allow_html=True,
         )
         if clarification.missing_fields:
-            st.info(f"[MISSING FIELDS] {', '.join(clarification.missing_fields)}")
+            st.info(f"Missing fields: {', '.join(clarification.missing_fields)}")
         if clarification.ambiguous_fields:
-            st.warning(f"[AMBIGUOUS FIELDS] {', '.join(clarification.ambiguous_fields)}")
+            st.warning(f"Ambiguous fields: {', '.join(clarification.ambiguous_fields)}")
         if clarification.suggestions:
-            st.markdown("**[SUGGESTIONS]**")
-            for sug in clarification.suggestions:
-                st.markdown(f"- {sug}")
+            st.markdown("**Suggested Resolutions — Click to Execute**")
+            sug_cols = st.columns(min(len(clarification.suggestions), 3))
+            for idx, sug in enumerate(clarification.suggestions):
+                with sug_cols[idx % len(sug_cols)]:
+                    if st.button(f"> {sug}", key=f"clarify_sug_{idx}", use_container_width=True):
+                        with st.spinner("Executing suggested spec..."):
+                            st.session_state["pipeline_res"] = run(question=sug, force_refresh=False, max_request_size=_ui_max_request_size())
+                            st.rerun()
         return
 
     if res.status in (PipelineStatus.EMPTY, PipelineStatus.OVERSIZED, PipelineStatus.TIMEOUT, PipelineStatus.ERROR):
         tag = f"[{res.status.value.upper()}]"
         st.error(f"{tag} Execution halted: {res.error_message}")
+
+        # Auto-clamp button for OVERSIZED queries
+        if res.status == PipelineStatus.OVERSIZED and res.spec is not None:
+            if st.button("Auto-shrink Query to Fit Cost Limit & Re-run", type="primary", key="auto_clamp_btn"):
+                # If it's a Map or Drift plot, clamp depth to 0-20 dbar; otherwise clamp date window to fit cost cap
+                if res.spec.intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
+                    clamped_spec = res.spec.model_copy(
+                        update={"depth_range": DepthRange(min_depth=0.0, max_depth=20.0)}
+                    )
+                else:
+                    from datetime import timedelta
+
+                    area = (res.spec.region.lon_max - res.spec.region.lon_min) * (res.spec.region.lat_max - res.spec.region.lat_min)
+                    cur_span = (res.spec.depth_range.max_depth - res.spec.depth_range.min_depth) if res.spec.depth_range else 500.0
+                    depth_factor = cur_span / 500.0
+                    cost_per_day = area * depth_factor
+                    max_fitting_days = max(1, int(15_000.0 / cost_per_day)) if cost_per_day > 0 else 14
+                    clamped_days = min(max_fitting_days, 14)
+                    new_end = res.spec.date_range.start + timedelta(days=clamped_days)
+                    if new_end > res.spec.date_range.end:
+                        new_end = res.spec.date_range.end
+                    clamped_spec = res.spec.model_copy(
+                        update={"date_range": DateRange(start=res.spec.date_range.start, end=new_end)}
+                    )
+                with st.spinner("Re-executing with clamped parameters..."):
+                    new_res = run_spec(clamped_spec, force_refresh=False, max_request_size=_ui_max_request_size())
+                    if st.session_state["active_page"] == "query":
+                        st.session_state["pipeline_res"] = new_res
+                    else:
+                        st.session_state["active_plot_res"] = new_res
+                    st.rerun()
+
         if res.spec:
-            with st.expander("[INSPECTED SPEC PARAMETERS]"):
+            with st.expander("Inspected Spec Parameters"):
                 st.json(res.spec.model_dump())
         return
 
@@ -755,34 +957,95 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         return
 
     if res.warning:
-        st.warning(f"[WARN] {res.warning}")
+        st.warning(f"Notice: {res.warning}")
 
     if res.card and res.card.chunks and len(res.card.chunks) > 1:
         st.info(f"Result assembled from {len(res.card.chunks)} monthly chunks.")
 
+    # Spec Inspection and Override Drawer
+    if res.spec is not None:
+        with st.expander("Spec Parameters & Overrides", expanded=False):
+            with st.form(key=f"override_spec_form_{res.card.card_id if res.card else 'live'}"):
+                oc1, oc2, oc3, oc4 = st.columns(4)
+                with oc1:
+                    intent_opts = [i.value for i in Intent]
+                    intent_idx = intent_opts.index(res.spec.intent.value) if res.spec.intent.value in intent_opts else 0
+                    new_intent = st.selectbox(
+                        "Intent",
+                        options=intent_opts,
+                        index=intent_idx,
+                    )
+                with oc2:
+                    mode_opts = [m.value for m in DataMode]
+                    mode_idx = mode_opts.index(res.spec.mode.value) if res.spec.mode.value in mode_opts else 0
+                    new_mode = st.selectbox(
+                        "Data Mode",
+                        options=mode_opts,
+                        index=mode_idx,
+                    )
+                with oc3:
+                    cur_min_z = float(res.spec.depth_range.min_depth) if res.spec.depth_range else 0.0
+                    new_min_z = st.number_input("Min Depth (dbar)", value=cur_min_z, min_value=0.0, max_value=2000.0, step=10.0)
+                with oc4:
+                    cur_max_z = float(res.spec.depth_range.max_depth) if res.spec.depth_range else 1000.0
+                    new_max_z = st.number_input("Max Depth (dbar)", value=cur_max_z, min_value=10.0, max_value=6000.0, step=50.0)
+
+                od1, od2 = st.columns(2)
+                with od1:
+                    cur_start = res.spec.date_range.start
+                    new_start_dt = st.date_input("Start Date", value=cur_start, min_value=date(1999, 1, 1), max_value=date.today())
+                with od2:
+                    cur_end = res.spec.date_range.end
+                    new_end_dt = st.date_input("End Date", value=cur_end, min_value=date(1999, 1, 1), max_value=date.today())
+
+                force_ref = st.checkbox("Bypass Cache (Force Live Fetch)", value=False)
+                if st.form_submit_button("Re-execute with Updated Spec", type="primary"):
+                    if new_start_dt > new_end_dt:
+                        new_start_dt, new_end_dt = new_end_dt, new_start_dt
+                    updated_spec = res.spec.model_copy(
+                        update={
+                            "intent": Intent(new_intent),
+                            "mode": DataMode(new_mode),
+                            "date_range": DateRange(start=new_start_dt, end=new_end_dt),
+                            "depth_range": DepthRange(min_depth=new_min_z, max_depth=new_max_z),
+                        }
+                    )
+                    with st.spinner("Re-computing pipeline with overridden spec..."):
+                        new_res = run_spec(updated_spec, force_refresh=force_ref, max_request_size=_ui_max_request_size())
+                        if st.session_state["active_page"] == "query":
+                            st.session_state["pipeline_res"] = new_res
+                        else:
+                            st.session_state["active_plot_res"] = new_res
+                        st.rerun()
+
     # Summary Metrics Bar
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
-        st.metric("ROWS", f"{res.card.row_count:,}")
+        st.metric("Total Rows", f"{res.card.row_count:,}")
     with c2:
-        st.metric("PROFILES", f"{res.card.profile_count:,}")
+        st.metric("Float Profiles", f"{res.card.profile_count:,}")
     with c3:
         cache_str = "CACHED" if res.card.is_cached else "LIVE"
-        st.metric("SOURCE", f"{res.card.source.upper()} [{cache_str}]")
+        st.metric("Source", f"{res.card.source.upper()} [{cache_str}]")
     with c4:
-        st.metric("MODE", res.card.mode.value.upper())
+        st.metric("Data Mode", res.card.mode.value.title())
     with c5:
         depth_str = f"{res.card.effective_depth_range.min_depth:.0f}–{res.card.effective_depth_range.max_depth:.0f} dbar"
-        st.metric("DEPTH", depth_str)
+        st.metric("Depth Span", depth_str)
 
     # Tabbed visualizers
-    tab_plots, tab_stats, tab_card, tab_script = st.tabs(
-        ["[VISUALIZATIONS]", "[SUMMARY & STATISTICS]", "[QUERY CARD]", "[PYTHON SCRIPT]"]
+    tab_plots, tab_stats, tab_card, tab_script, tab_export = st.tabs(
+        ["Visualizations", "Summary & Statistics", "Query Card", "Python Script", "Export Artifacts"]
     )
 
     with tab_plots:
         has_map = "map" in res.figures
-        analytical_keys = [k for k in ["profile", "thermocline", "tchp", "acoustic", "ts"] if k in res.figures]
+        analytical_keys = [
+            k for k in [
+                "profile", "thermocline", "tchp", "acoustic", "ts",
+                "hovmoller", "buoyancy", "ts_isopycnal", "climatology", "omz", "drift"
+            ] if k in res.figures
+        ]
         other_keys = [k for k in res.figures if k not in analytical_keys and k != "map"]
         all_analytical = analytical_keys + other_keys
 
@@ -790,8 +1053,29 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             primary_key = all_analytical[0]
             c_map, c_plot = st.columns(2)
             with c_map:
-                st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
+                map_chart_key = f"map_chart_{res.card.card_id if res.card else 'live'}"
+                map_event = st.plotly_chart(
+                    _style_fig(res.figures["map"], is_map=True),
+                    use_container_width=True,
+                    theme=None,
+                    on_select="rerun",
+                    selection_mode="points",
+                    key=map_chart_key,
+                )
+
+            selected_wmo = None
+            if map_event and isinstance(map_event, dict) and "selection" in map_event:
+                sel_pts = map_event["selection"].get("points", [])
+                if sel_pts:
+                    curve_idx = sel_pts[0].get("curve_number", 0)
+                    if curve_idx < len(res.figures["map"].data):
+                        tr_name = res.figures["map"].data[curve_idx].name or ""
+                        if "WMO" in tr_name:
+                            selected_wmo = tr_name.replace("WMO", "").strip().split()[0]
+
             with c_plot:
+                if selected_wmo:
+                    st.caption(f"[CROSS-FILTER ACTIVE: ISOLATED FLOAT WMO {selected_wmo}]")
                 st.plotly_chart(_style_fig(res.figures[primary_key], is_map=False), use_container_width=True, theme=None)
 
             for extra_key in all_analytical[1:]:
@@ -873,7 +1157,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         st.info(f"**QC Filter Applied**: {card.qc_filter_description}")
 
         st.subheader("Reproducibility Check")
-        if st.button("[RE-RUN FETCH & DIFF]", key="rerun_btn"):
+        if st.button("Re-run Fetch & Diff", key="rerun_btn"):
             with st.spinner("Re-fetching remote data and comparing hashes..."):
                 diff: DiffSummary = rerun(card)
                 if diff.is_same and not diff.version_changed:
@@ -891,57 +1175,84 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         st.caption("Standalone reproducible Python script to re-fetch this exact dataset:")
         st.code(res.script, language="python")
         st.download_button(
-            label="[DOWNLOAD PYTHON SCRIPT]",
+            label="Download Python Script",
             data=res.script,
             file_name=f"siqva_{card.card_id}.py",
             mime="text/x-python",
         )
+
+    with tab_export:
+        st.markdown("**Download Research Artifacts**")
+        ex1, ex2, ex3 = st.columns(3)
+        with ex1:
+            card_json = json.dumps(res.card.model_dump(mode="json"), indent=2)
+            st.download_button(
+                label="Download Query Card (.json)",
+                data=card_json,
+                file_name=f"siqva_card_{res.card.card_id}.json",
+                mime="application/json",
+                use_container_width=True,
+            )
+        with ex2:
+            if res.analysis and res.analysis.physics_summaries:
+                phys_df = pd.DataFrame([s.__dict__ for s in res.analysis.physics_summaries])
+                st.download_button(
+                    label="Download Physics Metrics (.csv)",
+                    data=phys_df.to_csv(index=False),
+                    file_name=f"siqva_physics_{res.card.card_id}.csv",
+                    mime="text/csv",
+                    use_container_width=True,
+                )
+            else:
+                st.caption("No TEOS-10 physics summary to export")
+        with ex3:
+            if res.figures:
+                first_fig_key = next(iter(res.figures))
+                html_bytes = res.figures[first_fig_key].to_html(include_plotlyjs="cdn").encode("utf-8")
+                st.download_button(
+                    label="Download Interactive Plot (.html)",
+                    data=html_bytes,
+                    file_name=f"siqva_{first_fig_key}_{res.card.card_id}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+            else:
+                st.caption("No active figure to export")
 
 
 # ---------------------------------------------------------------------------
 # SIDEBAR: Brand Reset, Left-Aligned Navigation, & History
 # ---------------------------------------------------------------------------
 with st.sidebar:
-    if st.button("SIQVA", use_container_width=True, type="primary", key="brand_home_btn"):
+    if st.button("SIQVA", use_container_width=True, key="brand_home_btn"):
         _reset_to_new_query()
         st.rerun()
 
     st.divider()
 
     is_query = st.session_state["active_page"] == "query"
-    q_label = "●  Query" if is_query else "○  Query"
-    p_label = "●  Plot Graph" if not is_query else "○  Plot Graph"
+    is_plots = st.session_state["active_page"] == "plots"
+    is_compare = st.session_state["active_page"] == "compare"
 
-    if is_query:
-        st.markdown(
-            """
-            <style>
-            [data-testid="stSidebar"] div.stButton:nth-of-type(2) > button {
-                background-color: #0C2030 !important;
-                border: 1px solid #00E5CC !important;
-                color: #00E5CC !important;
-                box-shadow: 0 0 12px rgba(0, 229, 204, 0.2) !important;
-                font-weight: 700 !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            """
-            <style>
-            [data-testid="stSidebar"] div.stButton:nth-of-type(3) > button {
-                background-color: #0C2030 !important;
-                border: 1px solid #00E5CC !important;
-                color: #00E5CC !important;
-                box-shadow: 0 0 12px rgba(0, 229, 204, 0.2) !important;
-                font-weight: 700 !important;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+    q_label = "●  Query" if is_query else "○  Query"
+    p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
+    c_label = "●  Compare Runs" if is_compare else "○  Compare Runs"
+
+    active_nav_key = "nav_query_btn" if is_query else ("nav_plot_btn" if is_plots else "nav_compare_btn")
+    st.markdown(
+        f"""
+        <style>
+        [data-testid="stSidebar"] .st-key-{active_nav_key} button {{
+            background-color: #151C26 !important;
+            border: 1px solid #334155 !important;
+            color: #F1F5F9 !important;
+            font-weight: 600 !important;
+            box-shadow: none !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
     if st.button(q_label, use_container_width=True, key="nav_query_btn"):
         if st.session_state["active_page"] == "query":
@@ -957,9 +1268,13 @@ with st.sidebar:
             st.session_state["active_page"] = "plots"
         st.rerun()
 
+    if st.button(c_label, use_container_width=True, key="nav_compare_btn"):
+        st.session_state["active_page"] = "compare"
+        st.rerun()
+
     st.divider()
     st.markdown(
-        "<div style='color: #7A9AA8; font-size: 0.74rem; font-weight: 700; letter-spacing: 0.1em; margin: 8px 0 4px 2px;'>HISTORY:</div>",
+        "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 6px 2px;'>HISTORY</div>",
         unsafe_allow_html=True,
     )
     try:
@@ -984,73 +1299,133 @@ with st.sidebar:
 # ---------------------------------------------------------------------------
 # FLOATING MODAL DIALOG FOR PLOT GRAPHS (@st.dialog)
 # ---------------------------------------------------------------------------
-@st.dialog("PARAMETER TERMINAL // GENERATE GRAPH", width="large")
+@st.dialog("Configure Plot", width="large")
 def open_graph_parameter_modal(gt_def: dict) -> None:
     st.markdown(f"**{gt_def['tag']} — {gt_def['title']}**")
     st.caption(gt_def["desc"])
 
     tab_nl, tab_manual, tab_float = st.tabs([
-        "[NATURAL LANGUAGE]",
-        "[MANUAL SELECTION]",
-        "[FLOAT ID]",
+        "Natural Language",
+        "Manual Parameters",
+        "Float Identifier",
     ])
 
     with tab_nl:
         st.caption(gt_def["nl_hint"])
         with st.form(f"modal_nl_{gt_def['key']}"):
-            nl_query = st.text_input("QUERY >", placeholder=gt_def["nl_hint"])
-            nl_submit = st.form_submit_button("[GENERATE GRAPH]", type="primary")
+            nl_query = st.text_input("Query", placeholder=gt_def["nl_hint"])
+            nl_submit = st.form_submit_button("Generate Plot", type="primary")
         if nl_submit and nl_query:
-            with st.spinner("EXECUTING QUERY SPEC..."):
-                res = run(question=nl_query, force_refresh=False)
+            with st.spinner("Executing query spec..."):
+                res = run(question=nl_query, force_refresh=False, max_request_size=_ui_max_request_size())
                 st.session_state["active_plot_res"] = res
                 st.session_state["active_plot_title"] = gt_def["title"]
                 st.rerun()
 
     with tab_manual:
         with st.form(f"modal_manual_{gt_def['key']}"):
-            region_name = st.selectbox("REGION", options=_ALL_REGION_NAMES, index=0)
+            region_name = st.selectbox(
+                "Region",
+                options=_ALL_REGION_NAMES,
+                index=0,
+                key=f"modal_manual_region_{gt_def['key']}",
+            )
             c1, c2 = st.columns(2)
             with c1:
-                start_dt = st.date_input("START DATE", value=date(2022, 1, 1))
+                start_dt = st.date_input(
+                    "Start Date",
+                    value=date(2022, 1, 1),
+                    min_value=date(1999, 1, 1),
+                    max_value=date.today(),
+                    key=f"modal_manual_start_{gt_def['key']}",
+                )
             with c2:
-                end_dt = st.date_input("END DATE", value=date(2022, 1, 31))
-            manual_mode = st.selectbox("MODE", options=["research", "standard", "expert"], index=0)
-            manual_submit = st.form_submit_button("[GENERATE GRAPH]", type="primary")
+                # Default to 14 days for manual modal selection
+                end_dt = st.date_input(
+                    "End Date",
+                    value=date(2022, 1, 14),
+                    min_value=date(1999, 1, 1),
+                    max_value=date.today(),
+                    key=f"modal_manual_end_{gt_def['key']}",
+                )
+            c3, c4 = st.columns(2)
+            with c3:
+                default_max_z = 20.0 if gt_def["intent"] in (Intent.MAP, getattr(Intent, "DRIFT", None)) else 500.0
+                max_z = st.number_input(
+                    "Max Depth (dbar)",
+                    value=float(default_max_z),
+                    min_value=10.0,
+                    max_value=2000.0,
+                    step=50.0 if default_max_z >= 50.0 else 5.0,
+                    key=f"modal_manual_depth_{gt_def['key']}",
+                )
+            with c4:
+                manual_mode = st.selectbox(
+                    "Mode",
+                    options=["research", "standard", "expert"],
+                    index=0,
+                    key=f"modal_manual_mode_{gt_def['key']}",
+                )
+            manual_submit = st.form_submit_button("Generate Plot", type="primary")
         if manual_submit:
+            if start_dt > end_dt:
+                start_dt, end_dt = end_dt, start_dt
             bbox = KNOWN_REGIONS[region_name]
             spec = QuerySpec(
                 region=bbox,
                 date_range=DateRange(start=start_dt, end=end_dt),
+                depth_range=DepthRange(min_depth=0.0, max_depth=float(max_z)),
                 variables=gt_def["variables"],
                 mode=DataMode(manual_mode),
                 intent=gt_def["intent"],
             )
-            with st.spinner("FETCHING ARGO DATA & RENDERING..."):
-                res = run_spec(spec, force_refresh=False)
+            with st.spinner("Fetching Argo data & rendering..."):
+                res = run_spec(spec, force_refresh=False, max_request_size=_ui_max_request_size())
                 st.session_state["active_plot_res"] = res
                 st.session_state["active_plot_title"] = gt_def["title"]
                 st.rerun()
 
     with tab_float:
         with st.form(f"modal_float_{gt_def['key']}"):
-            float_wmo = st.text_input("WMO FLOAT ID", placeholder="e.g. 2901623")
+            float_wmo = st.text_input(
+                "WMO Float ID",
+                placeholder="e.g. 2901623",
+                key=f"modal_float_wmo_{gt_def['key']}",
+            )
             c1, c2 = st.columns(2)
             with c1:
-                float_start = st.date_input("START DATE", value=date(2022, 1, 1))
+                float_start = st.date_input(
+                    "Start Date",
+                    value=date(2022, 1, 1),
+                    min_value=date(1999, 1, 1),
+                    max_value=date.today(),
+                    key=f"modal_float_start_{gt_def['key']}",
+                )
             with c2:
-                float_end = st.date_input("END DATE", value=date(2022, 12, 31))
-            float_mode = st.selectbox("MODE", options=["research", "standard", "expert"], index=0)
-            float_submit = st.form_submit_button("[GENERATE GRAPH]", type="primary")
+                float_end = st.date_input(
+                    "End Date",
+                    value=date(2022, 12, 31),
+                    min_value=date(1999, 1, 1),
+                    max_value=date.today(),
+                    key=f"modal_float_end_{gt_def['key']}",
+                )
+            float_mode = st.selectbox(
+                "Mode",
+                options=["research", "standard", "expert"],
+                index=0,
+                key=f"modal_float_mode_{gt_def['key']}",
+            )
+            float_submit = st.form_submit_button("Generate Plot", type="primary")
         if float_submit and float_wmo:
             nl = f"{gt_def['title'].lower()} for float {float_wmo.strip()} between {float_start.isoformat()} and {float_end.isoformat()}"
-            with st.spinner("FETCHING FLOAT PROFILE..."):
-                res = run(question=nl, force_refresh=False)
+            with st.spinner("Fetching float profile..."):
+                res = run(question=nl, force_refresh=False, max_request_size=_ui_max_request_size())
                 if res.spec and res.spec.mode == DataMode.RESEARCH and float_mode != "research":
                     res = run_spec(
                         res.spec.model_copy(update={"mode": DataMode(float_mode)}),
                         force_refresh=False,
                         question=nl,
+                        max_request_size=_ui_max_request_size(),
                     )
                 st.session_state["active_plot_res"] = res
                 st.session_state["active_plot_title"] = gt_def["title"]
@@ -1124,7 +1499,16 @@ if st.session_state["active_page"] == "query":
             # Bottom toolbar inside prompt box: [+] on left, [mode] and [↑] on right
             b_attach, b_spacer, b_mode, b_send = st.columns([0.7, 4.9, 2.4, 0.9])
             with b_attach:
-                st.button("+", key="attach_placeholder_btn", help="Attach context (placeholder)")
+                with st.popover("+", help="Attach spatial/depth constraints to query"):
+                    st.markdown("**[ATTACH QUERY CONSTRAINTS]**")
+                    pin_region = st.selectbox("PIN REGION", options=["(None)"] + _ALL_REGION_NAMES, index=0)
+                    pin_wmo = st.text_input("PIN WMO ID (OPTIONAL)", placeholder="e.g. 2902269")
+                    c_z1, c_z2 = st.columns(2)
+                    with c_z1:
+                        pin_min_d = st.number_input("MIN dbar", value=0, min_value=0, max_value=2000, step=50)
+                    with c_z2:
+                        pin_max_d = st.number_input("MAX dbar", value=500, min_value=10, max_value=6000, step=50)
+                    pin_force = st.checkbox("FORCE LIVE ERDDAP/ARGOVIS FETCH", value=False)
             with b_mode:
                 st.session_state["delivery_mode"] = st.selectbox(
                     "Mode",
@@ -1137,6 +1521,11 @@ if st.session_state["active_page"] == "query":
 
         if send_clicked and user_question.strip():
             question_text = user_question.strip()
+            if pin_region != "(None)" and pin_region.lower() not in question_text.lower():
+                question_text += f" in {pin_region}"
+            if pin_wmo.strip():
+                question_text += f" for float {pin_wmo.strip()}"
+
             from siqva.followup import ConversationState, try_resolve_followup
 
             c_state: ConversationState = st.session_state.get("conversation_state") or ConversationState()
@@ -1145,11 +1534,24 @@ if st.session_state["active_page"] == "query":
             if followup.resolved and followup.spec is not None:
                 st.session_state["chat_message"] = None
                 with st.spinner("APPLYING FOLLOW-UP EDITS & FETCHING..."):
+                    target_spec = followup.spec
+                    updates = {}
+                    if pin_min_d > 0 or pin_max_d != 500:
+                        updates["depth_range"] = DepthRange(min_depth=float(pin_min_d), max_depth=float(pin_max_d))
+                    if updates:
+                        target_spec = target_spec.model_copy(update=updates)
                     pipeline_res = run_spec(
-                        followup.spec,
-                        force_refresh=False,
+                        target_spec,
+                        force_refresh=pin_force,
                         question=question_text,
+                        max_request_size=_ui_max_request_size(),
                     )
+                    st.session_state["pipeline_res"] = pipeline_res
+                    if pipeline_res.spec is not None:
+                        st.session_state["conversation_state"] = c_state.with_new_query(
+                            pipeline_res.spec, question=question_text
+                        )
+                    st.rerun()
                     st.session_state["pipeline_res"] = pipeline_res
                     if pipeline_res.spec is not None:
                         st.session_state["conversation_state"] = c_state.with_new_query(
@@ -1213,13 +1615,20 @@ if st.session_state["active_page"] == "query":
                 # DATA_FETCH, OPERATION, COMPARISON, CLARIFICATION — all go through run()
                 st.session_state["chat_message"] = None
                 with st.spinner("PARSING SPEC & FETCHING QC-VERIFIED PROFILES..."):
-                    pipeline_res = run(question=question_text, force_refresh=False)
-                    if pipeline_res.spec and pipeline_res.spec.mode == DataMode.RESEARCH and st.session_state["delivery_mode"] != "research":
-                        pipeline_res = run_spec(
-                            pipeline_res.spec.model_copy(update={"mode": DataMode(st.session_state["delivery_mode"])}),
-                            force_refresh=False,
-                            question=question_text,
-                        )
+                    pipeline_res = run(question=question_text, force_refresh=pin_force, max_request_size=_ui_max_request_size())
+                    if pipeline_res.spec:
+                        updates = {}
+                        if pipeline_res.spec.mode == DataMode.RESEARCH and st.session_state["delivery_mode"] != "research":
+                            updates["mode"] = DataMode(st.session_state["delivery_mode"])
+                        if pin_min_d > 0 or pin_max_d != 500:
+                            updates["depth_range"] = DepthRange(min_depth=float(pin_min_d), max_depth=float(pin_max_d))
+                        if updates:
+                            pipeline_res = run_spec(
+                                pipeline_res.spec.model_copy(update=updates),
+                                force_refresh=pin_force,
+                                question=question_text,
+                                max_request_size=_ui_max_request_size(),
+                            )
                     st.session_state["pipeline_res"] = pipeline_res
                     if pipeline_res.spec is not None:
                         st.session_state["conversation_state"] = c_state.with_new_query(
@@ -1229,7 +1638,7 @@ if st.session_state["active_page"] == "query":
 
         # Dynamic Quick Query Templates loaded from data/examples.json
         st.markdown(
-            "<div style='margin-top: 14px; margin-bottom: 8px; color: #7597A8; font-size: 0.72em; letter-spacing: 0.1em; font-weight: 700;'>QUICK QUERY TEMPLATES:</div>",
+            "<div style='margin-top: 14px; margin-bottom: 8px; color: #64748B; font-size: 0.70rem; letter-spacing: 0.06em; font-weight: 600;'>QUICK QUERY TEMPLATES</div>",
             unsafe_allow_html=True,
         )
         ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"
@@ -1254,12 +1663,12 @@ if st.session_state["active_page"] == "query":
         for idx, (sq_text, sq_label) in enumerate(sample_queries[:num_cols]):
             with q_cols[idx]:
                 if st.button(sq_label, key=f"quick_{sq_label}", use_container_width=True):
-                    with st.status("[PROCESSING OCEANOGRAPHIC QUERY]", expanded=False) as status_box:
+                    with st.status("Processing oceanographic query...", expanded=False) as status_box:
                         st.write("1. Parsing natural language and resolving bounding box...")
                         st.write("2. Checking Parquet cache and fetching Argo observations...")
-                        pipeline_res = run(question=sq_text, force_refresh=False)
+                        pipeline_res = run(question=sq_text, force_refresh=False, max_request_size=_ui_max_request_size())
                         st.write("3. Auditing Quality Control and constructing visualization cards...")
-                        status_box.update(label="[QUERY COMPLETED]", state="complete")
+                        status_box.update(label="Query completed", state="complete")
                     st.session_state["pipeline_res"] = pipeline_res
                     st.rerun()
 
@@ -1284,10 +1693,89 @@ elif st.session_state["active_page"] == "plots":
                     build_graph_card_html(gt["tag"], gt["title"], gt["desc"]),
                     unsafe_allow_html=True,
                 )
-                if st.button("[ CONFIGURE & GENERATE ]", key=f"gen_{gt['key']}", use_container_width=True):
+                if st.button("Configure & Plot", key=f"gen_{gt['key']}", use_container_width=True):
                     open_graph_parameter_modal(gt)
 
     if st.session_state.get("active_plot_res"):
         st.divider()
-        st.markdown(f"### OUTPUT // {st.session_state.get('active_plot_title', 'GRAPH RESULT').upper()}")
+        st.markdown(f"### {st.session_state.get('active_plot_title', 'Graph Result')}")
         _render_pipeline_result(st.session_state["active_plot_res"])
+
+
+# ---------------------------------------------------------------------------
+# PAGE 3: COMPARE RUNS (Side-by-Side Dual-Card A/B Comparator)
+# ---------------------------------------------------------------------------
+elif st.session_state["active_page"] == "compare":
+    _render_top_bar(
+        "SIQVA // RUN COMPARATOR",
+        "Side-by-side A/B comparative analysis of historical query cards",
+        "settings_compare_btn",
+    )
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+    try:
+        all_cards = list_cards(limit=25)
+    except Exception:
+        all_cards = []
+
+    if len(all_cards) < 2:
+        st.info("Insufficient history for comparison: need at least 2 saved query runs. Execute queries from the Query Terminal to generate cards.")
+    else:
+        card_labels = [f"{format_history_label(c)} [{c.card_id[:6]}]" for c in all_cards]
+        col_a, col_b = st.columns(2)
+        with col_a:
+            st.markdown("**Baseline Run (A)**")
+            idx_a = st.selectbox("Select Run A", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=0)
+        with col_b:
+            st.markdown("**Comparison Run (B)**")
+            idx_b = st.selectbox("Select Run B", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=min(1, len(all_cards) - 1))
+
+        card_a = all_cards[idx_a]
+        card_b = all_cards[idx_b]
+
+        st.divider()
+
+        # Delta Metrics Table
+        st.markdown("### Comparative Metrics Delta")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        with m1:
+            d_rows = card_b.row_count - card_a.row_count
+            st.metric("Rows", f"{card_b.row_count:,}", delta=f"{d_rows:,} vs A")
+        with m2:
+            d_prof = card_b.profile_count - card_a.profile_count
+            st.metric("Profiles", f"{card_b.profile_count:,}", delta=f"{d_prof:,} vs A")
+        with m3:
+            st.metric("QC Mode", f"{card_a.mode.value.title()} / {card_b.mode.value.title()}")
+        with m4:
+            st.metric("Intent", f"{card_a.spec.intent.value.title()} / {card_b.spec.intent.value.title()}")
+        with m5:
+            st.metric("Depth B", f"{card_b.effective_depth_range.min_depth:.0f}–{card_b.effective_depth_range.max_depth:.0f} dbar")
+
+        # Load results for both cards to render visualizations
+        with st.spinner("Loading dual run visualizations..."):
+            try:
+                res_a = run_spec(card_a.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+            except Exception:
+                res_a = None
+            try:
+                res_b = run_spec(card_b.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+            except Exception:
+                res_b = None
+
+        st.markdown("### Side-by-Side Visualizations")
+        v_col_a, v_col_b = st.columns(2)
+        with v_col_a:
+            st.markdown(f"**Run A: {html.escape(card_a.question or card_a.card_id[:8])}**")
+            if res_a and res_a.figures:
+                fig_key_a = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_a.figures), next(iter(res_a.figures)))
+                st.plotly_chart(_style_fig(res_a.figures[fig_key_a]), use_container_width=True, theme=None)
+            else:
+                st.info("No figure available for Run A")
+
+        with v_col_b:
+            st.markdown(f"**Run B: {html.escape(card_b.question or card_b.card_id[:8])}**")
+            if res_b and res_b.figures:
+                fig_key_b = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_b.figures), next(iter(res_b.figures)))
+                st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None)
+            else:
+                st.info("No figure available for Run B")

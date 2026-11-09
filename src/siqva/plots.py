@@ -724,3 +724,851 @@ def plot_acoustic_profile(
     )
     return apply_theme(fig, title=title or f"TEOS-10 Acoustic Sound Speed Profile — {profile_label}")
 
+
+# ==============================================================================
+# Shared Oceanic / Retro-Terminal Theme Helper
+# ==============================================================================
+def _apply_siqva_theme(
+    fig: go.Figure,
+    title: str,
+    xaxis_title: str,
+    yaxis_title: str,
+    invert_y: bool = True
+) -> go.Figure:
+    """Apply SIQVA retro-terminal theme styling to a Plotly figure."""
+    fig.update_layout(
+        title=dict(text=title, font=dict(family="Courier New, monospace", size=16, color="#00F0FF")),
+        paper_bgcolor="#070F1A",
+        plot_bgcolor="#0B192C",
+        font=dict(family="Courier New, monospace", color="#B8D8E8", size=12),
+        xaxis=dict(title=xaxis_title, gridcolor="#1A324C", zerolinecolor="#1A324C"),
+        yaxis=dict(
+            title=yaxis_title,
+            gridcolor="#1A324C",
+            zerolinecolor="#1A324C",
+            autorange="reversed" if invert_y else True
+        ),
+        hovermode="closest",
+        margin=dict(l=60, r=40, t=60, b=50),
+        legend=dict(bgcolor="rgba(11, 25, 44, 0.8)", bordercolor="#00F0FF", borderwidth=1)
+    )
+    return fig
+
+
+# ==============================================================================
+# 1. [TIME // HOV] Hovmöller Diagram (Depth vs. Time Contour)
+# ==============================================================================
+def plot_hovmoller_section(
+    df: Optional[pd.DataFrame],
+    param: str = "TEMP",
+    max_depth: float = 1000.0,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Plots a 2D Time vs. Depth (Pressure) interpolated contour chart for a single float
+    or regional time series to reveal seasonal thermocline shoaling/deepening or Rossby waves.
+    Expected columns: ['TIME', 'PRES', param]
+    """
+    fig = go.Figure()
+
+    if df is None or len(df) == 0:
+        fig.add_annotation(
+            text="No observation data available for Hovmöller section.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[TIME // HOV] Hovmöller Temporal Evolution ({param})",
+            xaxis_title="Observation Date / Cycle Time",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    # Normalize column names if lower-case
+    sub = df.copy()
+    col_map = {c.upper(): c for c in sub.columns}
+    time_col = col_map.get("TIME", "TIME" if "TIME" in sub.columns else None)
+    pres_col = col_map.get("PRES", "PRES" if "PRES" in sub.columns else ("depth_m" if "depth_m" in sub.columns else None))
+    param_col = col_map.get(param.upper(), param if param in sub.columns else None)
+
+    if not time_col or not pres_col or not param_col or time_col not in sub.columns or pres_col not in sub.columns or param_col not in sub.columns:
+        fig.add_annotation(
+            text=f"Hovmöller section requires TIME, PRES, and {param} columns in dataset.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=COLOR_AMBER, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[TIME // HOV] Hovmöller Temporal Evolution ({param})",
+            xaxis_title="Observation Date / Cycle Time",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    df_clean = sub.dropna(subset=[time_col, pres_col, param_col]).copy()
+    df_clean = df_clean[df_clean[pres_col] <= max_depth]
+
+    if df_clean.empty:
+        fig.add_annotation(
+            text=f"No valid observations found within 0–{max_depth:.0f} dbar.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[TIME // HOV] Hovmöller Temporal Evolution ({param})",
+            xaxis_title="Observation Date / Cycle Time",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    df_clean["TIME_DT"] = pd.to_datetime(df_clean[time_col])
+    df_clean = df_clean.sort_values(["TIME_DT", pres_col])
+
+    unique_times = np.sort(df_clean["TIME_DT"].unique())
+
+    if len(unique_times) < 2:
+        # Fallback to scatter if only one timestamp
+        fig.add_trace(go.Scatter(
+            x=df_clean[param_col],
+            y=df_clean[pres_col],
+            mode="lines+markers",
+            line=dict(color="#00F0FF", width=2),
+            name=f"{param} Profile"
+        ))
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[TIME // HOV] Single-Cycle Profile ({param})",
+            xaxis_title=f"{param}",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    depth_grid = np.linspace(5, max_depth, 100)
+    z_matrix = np.full((len(depth_grid), len(unique_times)), np.nan)
+
+    for j, t in enumerate(unique_times):
+        cycle_df = df_clean[df_clean["TIME_DT"] == t].sort_values(pres_col)
+        if len(cycle_df) >= 2:
+            z_matrix[:, j] = np.interp(
+                depth_grid,
+                cycle_df[pres_col].values,
+                cycle_df[param_col].values,
+                left=np.nan,
+                right=np.nan
+            )
+
+    colorscale = "Thermal" if "TEMP" in param.upper() else "Haline"
+    unit = "°C" if "TEMP" in param.upper() else ("PSU" if "PSAL" in param.upper() else "")
+
+    fig.add_trace(go.Contour(
+        z=z_matrix,
+        x=unique_times,
+        y=depth_grid,
+        colorscale=colorscale,
+        colorbar=dict(title=f"{param} ({unit})"),
+        contours=dict(coloring="heatmap", showlabels=True, labelfont=dict(size=10, color="white")),
+        hovertemplate="Date: %{x}<br>Depth: %{y:.1f} m<br>" + f"{param}: %{{z:.2f}} {unit}<extra></extra>"
+    ))
+
+    return _apply_siqva_theme(
+        fig,
+        title=title or f"[TIME // HOV] Hovmöller Temporal Evolution ({param})",
+        xaxis_title="Observation Date / Cycle Time",
+        yaxis_title="Depth / Pressure (dbar)",
+        invert_y=True
+    )
+
+
+# ==============================================================================
+# 2. [TEOS-10 // N2] Brunt-Väisälä Buoyancy Frequency & Water Column Stability
+# ==============================================================================
+def plot_stability_buoyancy(
+    pres: Any,
+    temp: Any = None,
+    psal: Any = None,
+    lat: float = 0.0,
+    lon: float = 0.0,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Calculates TEOS-10 Brunt-Väisälä Frequency Squared (N^2) and Potential Density Anomaly (sigma0).
+    Identifies the pycnocline core (maximum stratification) and static instabilities (N^2 < 0).
+    Accepts either (pres_array, temp_array, psal_array, lat, lon) or (df, lat=..., lon=...).
+    """
+    fig = go.Figure()
+
+    if gsw is None:
+        fig.add_annotation(
+            text="TEOS-10 GSW library is not available in environment.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=COLOR_AMBER, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[TEOS-10 // N2] Stratification & Brunt-Väisälä Frequency (N²)",
+            xaxis_title="Buoyancy Frequency Squared N² (×10⁻⁴ s⁻²)",
+            yaxis_title="Mid-Point Pressure / Depth (dbar)",
+            invert_y=True
+        )
+
+    # Handle DataFrame input
+    if isinstance(pres, pd.DataFrame):
+        df_in = pres
+        if df_in.empty:
+            fig.add_annotation(
+                text="No observation data available for buoyancy calculation.",
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                font=dict(color=THEME_TEXT, size=14)
+            )
+            return _apply_siqva_theme(
+                fig,
+                title=title or "[TEOS-10 // N2] Stratification & Brunt-Väisälä Frequency (N²)",
+                xaxis_title="Buoyancy Frequency Squared N² (×10⁻⁴ s⁻²)",
+                yaxis_title="Mid-Point Pressure / Depth (dbar)",
+                invert_y=True
+            )
+        col_pres = "PRES" if "PRES" in df_in.columns else ("pres" if "pres" in df_in.columns else ("depth_m" if "depth_m" in df_in.columns else None))
+        col_temp = "TEMP" if "TEMP" in df_in.columns else ("temp" if "temp" in df_in.columns else None)
+        col_psal = "PSAL" if "PSAL" in df_in.columns else ("psal" if "psal" in df_in.columns else None)
+
+        if not col_pres or not col_temp or not col_psal:
+            fig.add_annotation(
+                text="Buoyancy calculation requires PRES, TEMP, and PSAL variables.",
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                font=dict(color=COLOR_AMBER, size=14)
+            )
+            return _apply_siqva_theme(
+                fig,
+                title=title or "[TEOS-10 // N2] Stratification & Brunt-Väisälä Frequency (N²)",
+                xaxis_title="Buoyancy Frequency Squared N² (×10⁻⁴ s⁻²)",
+                yaxis_title="Mid-Point Pressure / Depth (dbar)",
+                invert_y=True
+            )
+
+        if "LATITUDE" in df_in.columns and lat == 0.0:
+            lat = float(df_in["LATITUDE"].dropna().mean()) if not df_in["LATITUDE"].dropna().empty else 0.0
+        if "LONGITUDE" in df_in.columns and lon == 0.0:
+            lon = float(df_in["LONGITUDE"].dropna().mean()) if not df_in["LONGITUDE"].dropna().empty else 0.0
+
+        p_arr = df_in[col_pres].values
+        t_arr = df_in[col_temp].values
+        sp_arr = df_in[col_psal].values
+    else:
+        p_arr = np.asarray(pres)
+        t_arr = np.asarray(temp)
+        sp_arr = np.asarray(psal)
+
+    mask = ~np.isnan(p_arr) & ~np.isnan(t_arr) & ~np.isnan(sp_arr)
+    p, t, sp = p_arr[mask], t_arr[mask], sp_arr[mask]
+
+    if len(p) < 3:
+        fig.add_annotation(
+            text="Insufficient profile levels (need >= 3 valid levels) for N² gradient.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[TEOS-10 // N2] Stratification & Brunt-Väisälä Frequency (N²)",
+            xaxis_title="Buoyancy Frequency Squared N² (×10⁻⁴ s⁻²)",
+            yaxis_title="Mid-Point Pressure / Depth (dbar)",
+            invert_y=True
+        )
+
+    sort_idx = np.argsort(p)
+    p, t, sp = p[sort_idx], t[sort_idx], sp[sort_idx]
+
+    try:
+        sa = gsw.SA_from_SP(sp, p, lon, lat)
+        ct = gsw.CT_from_t(sa, t, p)
+        n2, p_mid = gsw.Nsquared(sa, ct, p, lat=lat)
+    except Exception as exc:
+        fig.add_annotation(
+            text=f"TEOS-10 N² calculation failed: {exc}",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=COLOR_AMBER, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[TEOS-10 // N2] Stratification & Brunt-Väisälä Frequency (N²)",
+            xaxis_title="Buoyancy Frequency Squared N² (×10⁻⁴ s⁻²)",
+            yaxis_title="Mid-Point Pressure / Depth (dbar)",
+            invert_y=True
+        )
+
+    # Scale N^2 by 1e4 for readable units (10^-4 s^-2)
+    n2_scaled = n2 * 1e4
+
+    fig.add_trace(go.Scatter(
+        x=n2_scaled,
+        y=p_mid,
+        mode="lines",
+        name="N² (×10⁻⁴ s⁻²)",
+        line=dict(color="#00F0FF", width=2.5),
+        hovertemplate="N²: %{x:.2f} ×10⁻⁴ s⁻²<br>Depth: %{y:.1f} dbar<extra></extra>"
+    ))
+
+    # Highlight Pycnocline Core (Peak Stratification)
+    if len(n2_scaled) > 0 and not np.all(np.isnan(n2_scaled)):
+        max_n2_idx = int(np.nanargmax(n2_scaled))
+        pycnocline_depth = float(p_mid[max_n2_idx])
+        fig.add_hline(
+            y=pycnocline_depth,
+            line_dash="dash",
+            line_color="#FF007F",
+            annotation_text=f"Pycnocline Core ({pycnocline_depth:.1f} m)",
+            annotation_position="bottom right",
+            annotation_font_color="#FF007F"
+        )
+
+    # Highlight Static Instability threshold (N^2 = 0)
+    fig.add_vline(x=0, line_dash="dot", line_color="#FFB800")
+
+    return _apply_siqva_theme(
+        fig,
+        title=title or "[TEOS-10 // N2] Stratification & Brunt-Väisälä Frequency (N²)",
+        xaxis_title="Buoyancy Frequency Squared N² (×10⁻⁴ s⁻²)",
+        yaxis_title="Mid-Point Pressure / Depth (dbar)",
+        invert_y=True
+    )
+
+
+# ==============================================================================
+# 3. [TEOS-10 // TS-SIGMA] Enhanced T-S Diagram with Isopycnal (σ₀) Contours & Spiciness
+# ==============================================================================
+def plot_ts_with_isopycnals(
+    df: Optional[pd.DataFrame],
+    lon: float = 80.0,
+    lat: float = 15.0,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Upgrades a basic T-S diagram by computing a background TEOS-10 potential density (sigma0)
+    contour grid and water-mass bounding boxes.
+    Expected columns: ['PSAL', 'TEMP', 'PRES']
+    """
+    fig = go.Figure()
+
+    if df is None or len(df) == 0:
+        fig.add_annotation(
+            text="No observation data available for T-S isopycnal diagram.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[TEOS-10 // TS-SIGMA] Conservative T-S Diagram with Isopycnals (σ₀)",
+            xaxis_title="Absolute Salinity SA (g/kg)",
+            yaxis_title="Conservative Temperature Θ (°C)",
+            invert_y=False
+        )
+
+    if "PSAL" not in df.columns or "TEMP" not in df.columns or "PRES" not in df.columns:
+        fig.add_annotation(
+            text="T-S diagram requires PSAL, TEMP, and PRES columns in dataset.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=COLOR_AMBER, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[TEOS-10 // TS-SIGMA] Conservative T-S Diagram with Isopycnals (σ₀)",
+            xaxis_title="Absolute Salinity SA (g/kg)",
+            yaxis_title="Conservative Temperature Θ (°C)",
+            invert_y=False
+        )
+
+    df_clean = df.dropna(subset=["PSAL", "TEMP", "PRES"]).copy()
+    if df_clean.empty:
+        fig.add_annotation(
+            text="No valid non-null PSAL, TEMP, PRES observations.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[TEOS-10 // TS-SIGMA] Conservative T-S Diagram with Isopycnals (σ₀)",
+            xaxis_title="Absolute Salinity SA (g/kg)",
+            yaxis_title="Conservative Temperature Θ (°C)",
+            invert_y=False
+        )
+
+    if "LATITUDE" in df_clean.columns and lat == 15.0:
+        lat = float(df_clean["LATITUDE"].dropna().mean()) if not df_clean["LATITUDE"].dropna().empty else 15.0
+    if "LONGITUDE" in df_clean.columns and lon == 80.0:
+        lon = float(df_clean["LONGITUDE"].dropna().mean()) if not df_clean["LONGITUDE"].dropna().empty else 80.0
+
+    if gsw is not None:
+        try:
+            sa = gsw.SA_from_SP(df_clean["PSAL"].values, df_clean["PRES"].values, lon, lat)
+            ct = gsw.CT_from_t(sa, df_clean["TEMP"].values, df_clean["PRES"].values)
+
+            s_min = max(25.0, float(np.nanmin(sa)) - 0.5)
+            s_max = min(42.0, float(np.nanmax(sa)) + 0.5)
+            t_min = max(-2.0, float(np.nanmin(ct)) - 2.0)
+            t_max = min(35.0, float(np.nanmax(ct)) + 2.0)
+
+            s_grid = np.linspace(s_min, s_max, 80)
+            t_grid = np.linspace(t_min, t_max, 80)
+            S_mesh, T_mesh = np.meshgrid(s_grid, t_grid)
+            sigma0_mesh = gsw.sigma0(S_mesh, T_mesh)
+
+            # Background Isopycnals (sigma0 lines)
+            fig.add_trace(go.Contour(
+                x=s_grid,
+                y=t_grid,
+                z=sigma0_mesh,
+                contours=dict(coloring="none", showlabels=True, labelfont=dict(size=10, color="#5C85A6")),
+                line=dict(color="#2D4F6C", width=1, dash="dot"),
+                showscale=False,
+                name="σ₀ (kg/m³)",
+                hoverinfo="skip"
+            ))
+
+            # Actual observations
+            fig.add_trace(go.Scatter(
+                x=sa,
+                y=ct,
+                mode="markers",
+                marker=dict(
+                    size=5,
+                    color=df_clean["PRES"],
+                    colorscale="Viridis_r",
+                    colorbar=dict(title="Depth (dbar)"),
+                    showscale=True
+                ),
+                name="Float Profile",
+                hovertemplate="SA: %{x:.2f} g/kg<br>CT: %{y:.2f} °C<br>Depth: %{marker.color:.0f} dbar<extra></extra>"
+            ))
+
+            return _apply_siqva_theme(
+                fig,
+                title=title or "[TEOS-10 // TS-SIGMA] Conservative T-S Diagram with Isopycnals (σ₀)",
+                xaxis_title="Absolute Salinity SA (g/kg)",
+                yaxis_title="Conservative Temperature Θ (°C)",
+                invert_y=False
+            )
+        except Exception:
+            pass
+
+    # Fallback to standard T-S
+    fig.add_trace(go.Scatter(
+        x=df_clean["PSAL"],
+        y=df_clean["TEMP"],
+        mode="markers",
+        marker=dict(
+            size=5,
+            color=df_clean["PRES"],
+            colorscale="Viridis",
+            colorbar=dict(title="Depth (dbar)"),
+            showscale=True
+        ),
+        name="T-S Observations",
+        hovertemplate="Salinity: %{x:.2f}<br>Temp: %{y:.2f} °C<br>Depth: %{marker.color:.0f} dbar<extra></extra>"
+    ))
+
+    return _apply_siqva_theme(
+        fig,
+        title=title or "[TEMP // PSAL] Temperature-Salinity Diagram",
+        xaxis_title="Practical Salinity (PSAL)",
+        yaxis_title="Temperature (°C)",
+        invert_y=False
+    )
+
+
+# ==============================================================================
+# 4. [STAT // ENVELOPE] Regional Anomaly & Climatological Envelope Plot
+# ==============================================================================
+def plot_regional_climatology_envelope(
+    df_region: Optional[pd.DataFrame],
+    target_wmo: str | int | None = None,
+    param: str = "TEMP",
+    max_depth: float = 500.0,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Computes the regional mean and ±1 SD shaded envelope across multiple profiles,
+    overlaying a specific target profile to detect marine heatwaves or salinity anomalies.
+    Expected columns: ['PRES', param, 'PLATFORM_NUMBER']
+    """
+    fig = go.Figure()
+
+    if df_region is None or len(df_region) == 0:
+        fig.add_annotation(
+            text="No observation data available for regional envelope.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[STAT // ENVELOPE] Regional Mean & ±1σ Spread ({param})",
+            xaxis_title=f"{param}",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    col_pres = "PRES" if "PRES" in df_region.columns else ("pres" if "pres" in df_region.columns else None)
+    col_param = param if param in df_region.columns else (param.upper() if param.upper() in df_region.columns else None)
+
+    if not col_pres or not col_param:
+        fig.add_annotation(
+            text=f"Regional envelope requires {param} and PRES columns.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=COLOR_AMBER, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[STAT // ENVELOPE] Regional Mean & ±1σ Spread ({param})",
+            xaxis_title=f"{param}",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    depth_bins = np.arange(0, max_depth + 10, 10)
+    df_clean = df_region.dropna(subset=[col_pres, col_param]).copy()
+    df_clean = df_clean[df_clean[col_pres] <= max_depth]
+
+    if df_clean.empty:
+        fig.add_annotation(
+            text="No observations available within specified depth range.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or f"[STAT // ENVELOPE] Regional Mean & ±1σ Spread ({param})",
+            xaxis_title=f"{param}",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    df_clean["DEPTH_BIN"] = pd.cut(df_clean[col_pres], bins=depth_bins, labels=depth_bins[:-1] + 5)
+    stats = df_clean.groupby("DEPTH_BIN", observed=True)[col_param].agg(["mean", "std"]).dropna().reset_index()
+
+    depths = stats["DEPTH_BIN"].astype(float).values
+    mean_val = stats["mean"].values
+    std_val = stats["std"].fillna(0).values
+
+    if len(depths) > 0:
+        # ±1 Standard Deviation Shaded Envelope
+        fig.add_trace(go.Scatter(
+            x=np.concatenate([mean_val + std_val, (mean_val - std_val)[::-1]]),
+            y=np.concatenate([depths, depths[::-1]]),
+            fill="toself",
+            fillcolor="rgba(0, 240, 255, 0.18)",
+            line=dict(color="rgba(255,255,255,0)"),
+            name="Regional ±1σ Envelope",
+            hoverinfo="skip"
+        ))
+
+        # Regional Mean Curve
+        fig.add_trace(go.Scatter(
+            x=mean_val,
+            y=depths,
+            mode="lines",
+            line=dict(color="#00F0FF", width=2, dash="dash"),
+            name="Regional Mean"
+        ))
+
+    # Optional Target Float Profile Overlay
+    plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in df_clean.columns else ("wmo_id" if "wmo_id" in df_clean.columns else None)
+    if target_wmo is not None and plat_col:
+        target_df = df_clean[df_clean[plat_col].astype(str) == str(target_wmo)].sort_values(col_pres)
+        if not target_df.empty:
+            fig.add_trace(go.Scatter(
+                x=target_df[col_param],
+                y=target_df[col_pres],
+                mode="lines",
+                line=dict(color="#FF3366", width=3),
+                name=f"Float {target_wmo} (Target)"
+            ))
+
+    unit = "°C" if "TEMP" in param.upper() else ("PSU" if "PSAL" in param.upper() else "")
+    return _apply_siqva_theme(
+        fig,
+        title=title or f"[STAT // ENVELOPE] Regional Mean, ±1σ Spread & Anomaly ({param})",
+        xaxis_title=f"{param} ({unit})",
+        yaxis_title="Depth / Pressure (dbar)",
+        invert_y=True
+    )
+
+
+# ==============================================================================
+# 5. [BGC // OMZ] Dissolved Oxygen & Hypoxic Habitat Compression Profile
+# ==============================================================================
+def plot_bgc_omz_profile(
+    pres: Any,
+    doxy: Any = None,
+    temp: Any = None,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Plots BGC-Argo Dissolved Oxygen (μmol/kg) against depth, highlighting the
+    Hypoxic Threshold (< 60 μmol/kg) and Suboxic / Severe OMZ Core (< 20 μmol/kg).
+    Accepts either (pres_array, doxy_array) or (df).
+    """
+    fig = go.Figure()
+
+    if isinstance(pres, pd.DataFrame):
+        df_in = pres
+        if df_in.empty:
+            fig.add_annotation(
+                text="No observation data available for oxygen profile.",
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                font=dict(color=THEME_TEXT, size=14)
+            )
+            return _apply_siqva_theme(
+                fig,
+                title=title or "[BGC // OMZ] Dissolved Oxygen & Oxygen Minimum Zone (OMZ)",
+                xaxis_title="Dissolved Oxygen DOXY (μmol/kg)",
+                yaxis_title="Depth / Pressure (dbar)",
+                invert_y=True
+            )
+        col_pres = "PRES" if "PRES" in df_in.columns else ("pres" if "pres" in df_in.columns else ("depth_m" if "depth_m" in df_in.columns else None))
+        col_doxy = "DOXY" if "DOXY" in df_in.columns else ("doxy" if "doxy" in df_in.columns else ("OXYGEN" if "OXYGEN" in df_in.columns else None))
+
+        if not col_doxy or not col_pres:
+            fig.add_annotation(
+                text="BGC-Argo DOXY (Dissolved Oxygen) observations not present in this dataset.",
+                xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+                font=dict(color=COLOR_AMBER, size=13)
+            )
+            return _apply_siqva_theme(
+                fig,
+                title=title or "[BGC // OMZ] Dissolved Oxygen & Oxygen Minimum Zone (OMZ)",
+                xaxis_title="Dissolved Oxygen DOXY (μmol/kg)",
+                yaxis_title="Depth / Pressure (dbar)",
+                invert_y=True
+            )
+        p_arr = df_in[col_pres].values
+        ox_arr = df_in[col_doxy].values
+    else:
+        p_arr = np.asarray(pres)
+        ox_arr = np.asarray(doxy) if doxy is not None else np.array([])
+
+    if len(p_arr) == 0 or len(ox_arr) == 0:
+        fig.add_annotation(
+            text="No DOXY observations available to plot.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[BGC // OMZ] Dissolved Oxygen & Oxygen Minimum Zone (OMZ)",
+            xaxis_title="Dissolved Oxygen DOXY (μmol/kg)",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    mask = ~np.isnan(p_arr) & ~np.isnan(ox_arr)
+    p, ox = p_arr[mask], ox_arr[mask]
+
+    if len(p) == 0:
+        fig.add_annotation(
+            text="No valid non-null DOXY observations.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[BGC // OMZ] Dissolved Oxygen & Oxygen Minimum Zone (OMZ)",
+            xaxis_title="Dissolved Oxygen DOXY (μmol/kg)",
+            yaxis_title="Depth / Pressure (dbar)",
+            invert_y=True
+        )
+
+    sort_idx = np.argsort(p)
+    p, ox = p[sort_idx], ox[sort_idx]
+
+    # Shaded Hypoxic Risk Zone (< 60 umol/kg)
+    fig.add_vrect(
+        x0=0, x1=60,
+        fillcolor="rgba(255, 51, 102, 0.15)",
+        layer="below",
+        line_width=0,
+        annotation_text="Hypoxic Zone (<60 μmol/kg)",
+        annotation_position="top left",
+        annotation_font_color="#FF3366"
+    )
+
+    # Dissolved Oxygen Profile
+    fig.add_trace(go.Scatter(
+        x=ox,
+        y=p,
+        mode="lines+markers",
+        marker=dict(size=4),
+        line=dict(color="#39FF14", width=2.5),
+        name="Dissolved O₂"
+    ))
+
+    # Find OMZ ceiling (first depth where DOXY drops below 60 umol/kg)
+    hypoxic_indices = np.where(ox < 60.0)[0]
+    if len(hypoxic_indices) > 0:
+        omz_ceiling = float(p[hypoxic_indices[0]])
+        fig.add_hline(
+            y=omz_ceiling,
+            line_dash="dash",
+            line_color="#FFB800",
+            annotation_text=f"OMZ Ceiling / Habitable Floor ({omz_ceiling:.1f} m)",
+            annotation_font_color="#FFB800"
+        )
+
+    return _apply_siqva_theme(
+        fig,
+        title=title or "[BGC // OMZ] Dissolved Oxygen & Oxygen Minimum Zone (OMZ)",
+        xaxis_title="Dissolved Oxygen DOXY (μmol/kg)",
+        yaxis_title="Depth / Pressure (dbar)",
+        invert_y=True
+    )
+
+
+# ==============================================================================
+# 6. [DYN // DRIFT] Lagrangian Trajectory Drift Speed & Eddy Detection Time Series
+# ==============================================================================
+def plot_float_drift_velocity(
+    df_track: Optional[pd.DataFrame],
+    target_wmo: str | int | None = None,
+    title: Optional[str] = None
+) -> go.Figure:
+    """
+    Calculates cycle-to-cycle surface/parking drift velocity (cm/s) using great-circle
+    distance (`gsw.distance`) between consecutive Argo surfacing positions.
+    High spikes (> 30 cm/s) indicate entrainment in boundary currents or mesoscale eddies.
+    Expected columns: ['TIME', 'LATITUDE', 'LONGITUDE', 'CYCLE_NUMBER']
+    """
+    fig = go.Figure()
+
+    if df_track is None or len(df_track) == 0:
+        fig.add_annotation(
+            text="No trajectory observations available for drift velocity calculation.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[DYN // DRIFT] Lagrangian Float Drift Velocity (cm/s)",
+            xaxis_title="Surfacing Date",
+            yaxis_title="Estimated Drift Speed (cm/s)",
+            invert_y=False
+        )
+
+    col_map = {c.upper(): c for c in df_track.columns}
+    time_col = col_map.get("TIME", "TIME" if "TIME" in df_track.columns else None)
+    lat_col = col_map.get("LATITUDE", "LATITUDE" if "LATITUDE" in df_track.columns else None)
+    lon_col = col_map.get("LONGITUDE", "LONGITUDE" if "LONGITUDE" in df_track.columns else None)
+
+    if not time_col or not lat_col or not lon_col:
+        fig.add_annotation(
+            text="Drift velocity requires TIME, LATITUDE, and LONGITUDE columns.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=COLOR_AMBER, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[DYN // DRIFT] Lagrangian Float Drift Velocity (cm/s)",
+            xaxis_title="Surfacing Date",
+            yaxis_title="Estimated Drift Speed (cm/s)",
+            invert_y=False
+        )
+
+    df_clean = df_track.dropna(subset=[time_col, lat_col, lon_col]).copy()
+    plat_col = col_map.get("PLATFORM_NUMBER")
+    if plat_col and not df_clean.empty:
+        if target_wmo is not None:
+            df_clean = df_clean[df_clean[plat_col].astype(str) == str(target_wmo)]
+        else:
+            # Pick the float with the most distinct timestamps
+            counts = df_clean.groupby(plat_col)[time_col].nunique()
+            if not counts.empty:
+                best_wmo = counts.idxmax()
+                df_clean = df_clean[df_clean[plat_col] == best_wmo]
+
+    df_t = df_clean.copy()
+    df_t["TIME_DT"] = pd.to_datetime(df_t[time_col])
+
+    cyc_col = col_map.get("CYCLE_NUMBER")
+    if cyc_col:
+        df_t = df_t.sort_values("TIME_DT").drop_duplicates(subset=[cyc_col])
+    else:
+        df_t = df_t.sort_values("TIME_DT").drop_duplicates(subset=["TIME_DT"])
+
+    if len(df_t) < 2:
+        fig.add_annotation(
+            text="At least 2 surfacing timestamps are required to compute drift velocity.",
+            xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(color=THEME_TEXT, size=14)
+        )
+        return _apply_siqva_theme(
+            fig,
+            title=title or "[DYN // DRIFT] Lagrangian Float Drift Velocity (cm/s)",
+            xaxis_title="Surfacing Date",
+            yaxis_title="Estimated Drift Speed (cm/s)",
+            invert_y=False
+        )
+
+    lats = df_t[lat_col].values
+    lons = df_t[lon_col].values
+    times = df_t["TIME_DT"].values
+
+    if gsw is not None:
+        try:
+            # Great-circle distance in meters via GSW
+            dist_m = gsw.distance(lons, lats)
+        except Exception:
+            # Fallback haversine formula
+            lat_rad = np.radians(lats)
+            lon_rad = np.radians(lons)
+            dlat = np.diff(lat_rad)
+            dlon = np.diff(lon_rad)
+            a = np.sin(dlat / 2.0)**2 + np.cos(lat_rad[:-1]) * np.cos(lat_rad[1:]) * np.sin(dlon / 2.0)**2
+            c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+            dist_m = 6371000.0 * c
+    else:
+        lat_rad = np.radians(lats)
+        lon_rad = np.radians(lons)
+        dlat = np.diff(lat_rad)
+        dlon = np.diff(lon_rad)
+        a = np.sin(dlat / 2.0)**2 + np.cos(lat_rad[:-1]) * np.cos(lat_rad[1:]) * np.sin(dlon / 2.0)**2
+        c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+        dist_m = 6371000.0 * c
+
+    dt_sec = np.diff(times) / np.timedelta64(1, "s")
+    valid = dt_sec > 0
+
+    speed_cms = np.zeros_like(dist_m)
+    speed_cms[valid] = (dist_m[valid] / dt_sec[valid]) * 100.0  # m/s to cm/s
+    mid_times = times[1:]
+
+    fig.add_trace(go.Scatter(
+        x=mid_times,
+        y=speed_cms,
+        mode="lines+markers",
+        line=dict(color="#00F0FF", width=2),
+        marker=dict(
+            size=7,
+            color=speed_cms,
+            colorscale="Plasma",
+            showscale=True,
+            colorbar=dict(title="cm/s")
+        ),
+        name="Drift Speed (cm/s)",
+        hovertemplate="Date: %{x}<br>Drift Speed: %{y:.1f} cm/s<extra></extra>"
+    ))
+
+    # Threshold line for strong eddy / boundary current entrainment (~25 cm/s)
+    fig.add_hline(
+        y=25.0,
+        line_dash="dot",
+        line_color="#FF3366",
+        annotation_text="High Current / Eddy Entrainment (>25 cm/s)",
+        annotation_font_color="#FF3366"
+    )
+
+    return _apply_siqva_theme(
+        fig,
+        title=title or "[DYN // DRIFT] Lagrangian Float Drift Velocity (cm/s)",
+        xaxis_title="Surfacing Date",
+        yaxis_title="Estimated Drift Speed (cm/s)",
+        invert_y=False
+    )
