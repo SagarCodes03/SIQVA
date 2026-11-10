@@ -55,3 +55,4 @@ def test_pipeline_run_resolves_mock_fetcher_fetch(sample_fetch_result):
         res = run("temperature in the Arabian Sea between 2022-01-01 and 2022-01-05")
         assert mock_f_fetch.called
         assert res.status.value == "success"
+

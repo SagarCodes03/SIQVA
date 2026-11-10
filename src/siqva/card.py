@@ -24,7 +24,7 @@ from .fetcher import (
     fetch,
 )
 from .qc import get_qc_filter_description
-from .spec import DataMode, DepthRange, QuerySpec
+from .spec import DataMode, DepthRange, Intent, QuerySpec
 from .gazetteer import KNOWN_REGIONS
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -97,6 +97,7 @@ def build_card(
     card_id: Optional[str] = None,
     question: Optional[str] = None,
     session_id: Optional[str] = None,
+    chunks: Optional[list[tuple[str, str]]] = None,
 ) -> QueryCard:
     """Build an immutable QueryCard from a spec, fetch result, and optional analysis."""
     meta = fetch_result.metadata
@@ -130,7 +131,8 @@ def build_card(
     chunks: Optional[list[str]] = None
     from .chunking import is_chunked_spec, split_date_range_into_months
 
-    if is_chunked_spec(spec):
+    # Determine chunk labels: use provided chunks if given, otherwise compute from spec
+    if chunks is None and is_chunked_spec(spec):
         chunks = [label for _, label in split_date_range_into_months(spec.date_range)]
 
     return QueryCard(
@@ -172,6 +174,23 @@ def format_history_label(card: QueryCard, max_question_length: int = 40) -> str:
     return f"{question} \u00b7 {card.created_at[:10]} \u00b7 {region_name}"
 
 
+UNSUPPORTED_SCRIPT_PLOT_INTENTS = {
+    Intent.HOVMOLLER,
+    Intent.BUOYANCY,
+    Intent.TS_ISOPYCNAL,
+    Intent.CLIMATOLOGY,
+    Intent.OMZ,
+    Intent.DRIFT,
+}
+
+
+def _get_reproduction_scope(intent: Intent) -> str:
+    """Return explicit reproduction scope statement for the script header."""
+    if intent in UNSUPPORTED_SCRIPT_PLOT_INTENTS:
+        return "data fetch and counts only; plots for this intent are not included"
+    return f"data fetch, QC filtering, and profile counts for {intent.value} analysis"
+
+
 def generate_script(card: QueryCard) -> str:
     """Generate a standalone, runnable Python script reproducing this query via argopy."""
     spec = card.spec
@@ -187,6 +206,7 @@ def generate_script(card: QueryCard) -> str:
     end_str = spec.date_range.end.isoformat()
     mode_str = card.mode.value
     src_str = card.src
+    repro_scope = _get_reproduction_scope(spec.intent)
 
     if card.chunks and len(card.chunks) > 1:
         from .chunking import split_date_range_into_months
@@ -200,6 +220,8 @@ def generate_script(card: QueryCard) -> str:
 
 Card ID: {card.card_id}
 Spec Hash: {card.spec_hash}
+Intent: {spec.intent.value}
+Reproduction: {repro_scope}
 Data Mode: {mode_str} ({card.qc_filter_description})
 Timestamp: {card.fetch_timestamp}
 Expected Rows: {card.row_count}
@@ -247,6 +269,8 @@ print(f"Results: {{row_count}} rows across {{profile_count}} profiles.")
 
 Card ID: {card.card_id}
 Spec Hash: {card.spec_hash}
+Intent: {spec.intent.value}
+Reproduction: {repro_scope}
 Data Mode: {mode_str} ({card.qc_filter_description})
 Timestamp: {card.fetch_timestamp}
 Expected Rows: {card.row_count}
