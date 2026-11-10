@@ -3,7 +3,7 @@
 **Branch**: `analysis-baseline`  
 **Date**: 2026-11-10  
 **Environment**: Python 3.11, Windows  
-**Status**: Section 1 complete. Next section: Section 2.
+**Status**: Section 1 and Section 2 complete. Next section: Section 3.
 
 ---
 
@@ -153,3 +153,203 @@ Executed via background pytest command with `faulthandler_timeout=60` and `--dur
    *Reality*: `app/ui.py` grew into a 1,781-line "Oceanic Retro-Terminal" interface featuring custom CSS injections, terminal headers, modal dialogs (`@st.dialog`), and a multi-tab visual parameter editor.
 10. **Test Counts (`TASK_QUEUE.md` FIX 4, `README.md`)**: Documentation records "315 passed".
     *Reality*: The test suite currently has 324 passed tests, 4 skipped, 1 deselected, and 1 runtime warning (9 tests added in recent commits).
+
+
+---
+
+## SECTION 2: The Request-Size Limit (Change A)
+
+### 2.1 The Area × Days × Depth Cost Cap: Definition, Enforcement & Collaborator Changes
+
+1. **Existence & Definition**:
+   - The cost cap formula ($\text{Area} \times \text{Days} \times [\text{Depth Span} / 500\text{ dbar}]$) still exists.
+   - It is defined in [`src/siqva/validator.py:12`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/validator.py#L12):
+     ```python
+     DEFAULT_MAX_REQUEST_SIZE: float = 15_000.0
+     ```
+2. **Where Enforced in Code**:
+   - [`src/siqva/validator.py:165-172`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/validator.py#L165-L172): `validate_spec` computes `cost = area * days * depth_factor` and checks `if is_size_guardrail_enabled() and max_request_size is not None and cost > max_request_size:`.
+   - [`src/siqva/chunking.py:100-112`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/chunking.py#L100-L112): `is_chunked_spec` checks whether `cost > max_request_size`.
+   - [`src/siqva/chunking.py:133-148`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/chunking.py#L133-L148): `validate_chunkable_spec` checks whether individual monthly chunk costs exceed `max_request_size`.
+   - [`src/siqva/fetcher.py:728`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L728): `fetch` verifies `if is_size_guardrail_enabled() and max_request_size is not None and not is_chunked and cost > max_request_size:`.
+   - [`src/siqva/pipeline.py:80, 260`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/pipeline.py#L80): Propagates `max_request_size` to validator and chunking.
+   - [`app/ui.py:866`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L866): `_ui_max_request_size()` returns `DEFAULT_MAX_REQUEST_SIZE`.
+
+3. **Comparison with Tag `done-Q14` (`git diff done-Q14 HEAD`)**:
+   - **Did the collaborator raise the cap?** No. The numerical constant remains `15_000.0`.
+   - **Did the collaborator remove the cap?** No. The formula and exception `OversizedRequestError` remain in place.
+   - **What the collaborator changed (Bypassed & Made Optional)**:
+     1. *Bypass Hook Added*: In [`src/siqva/validator.py:15-21`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/validator.py#L15-L21), added `is_size_guardrail_enabled()`, which checks `os.getenv("SIQVA_DISABLE_SIZE_GUARDRAIL", "").lower() not in ("1", "true", "yes")`. If set, all size checks evaluate to `False`.
+     2. *Optional Argument Signature*: Changed parameter `max_request_size: float = DEFAULT_MAX_REQUEST_SIZE` to `Optional[float]` across `validator.py`, `chunking.py`, `fetcher.py`, and `pipeline.py`. When passed `max_request_size=None`, validation and chunking bypass the check.
+     3. *Chunking Bypass*: In [`src/siqva/chunking.py:106`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/chunking.py#L106), added `if max_request_size is None or not is_size_guardrail_enabled(): return True`, unconditionally allowing multi-month chunking.
+     4. *UI Clamping Button*: In [`app/ui.py:922`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L922), added an "Auto-shrink Query to Fit Cost Limit & Re-run" button when `PipelineStatus.OVERSIZED` is returned.
+
+---
+
+### 2.2 Other Operational Limits & Environment Variables
+
+| Limit Type | Constant Name | Default Value | Environment Variable | Defined Location |
+|---|---|---|---|---|
+| Single-Request Cost Cap | `DEFAULT_MAX_REQUEST_SIZE` | `15_000.0` cost units | `SIQVA_DISABLE_SIZE_GUARDRAIL=1` (to bypass) | [`validator.py:12`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/validator.py#L12) |
+| Maximum Monthly Chunks | `DEFAULT_MAX_CHUNKS` | `24` chunks (months) | `SIQVA_MAX_CHUNKS` | [`chunking.py:27, 33`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/chunking.py#L27) |
+| Maximum Combined Rows | `DEFAULT_MAX_TOTAL_ROWS` | `3,000,000` rows | `SIQVA_MAX_TOTAL_ROWS` | [`chunking.py:28, 44`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/chunking.py#L28) |
+| Pre-Fetch Profile Ceiling | `DEFAULT_MAX_PROFILE_COUNT` | `100` profiles | None | [`fetcher.py:38`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L38) |
+| Cache Expiration (Standard/Expert) | `DEFAULT_CACHE_EXPIRY_DAYS` | `7` days | None | [`fetcher.py:31`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L31) |
+| Cache Expiration (Research) | `DEFAULT_RESEARCH_CACHE_EXPIRY_DAYS` | `90` days (immutable by hash) | None | [`fetcher.py:32`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L32) |
+| Data Fetch Network Timeout | `timeout` | `60` seconds | None | [`fetcher.py:325, 592`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L325) |
+| Remote Index Network Timeout | `timeout` | `30` seconds | None | [`fetcher.py:441`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L441) |
+| Profile Display Plot Cap | `max_profiles` | `25` profiles | None | [`plots.py:68, 120`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/plots.py#L68) |
+| History Isolation Mode | `SIQVA_SHARED_HISTORY` | `1` (shared) | `SIQVA_SHARED_HISTORY=0` (isolated) | [`card.py:338`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/card.py#L338) |
+
+---
+
+### 2.3 The "Auto-Shrink" Button
+
+- **Location**: [`app/ui.py:920-950`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L920-L950)
+- **Trigger**: Appears exclusively when a query fails with `PipelineStatus.OVERSIZED`.
+- **Exact Behavior**:
+  1. *If Intent is Map or Drift*:
+     Clamps `depth_range` to `DepthRange(min_depth=0.0, max_depth=20.0)` while keeping the user's dates and region intact ([`app/ui.py:924-927`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L924-L927)).
+  2. *For All Other Intents (Profile, T-S, Physics, etc.)*:
+     - Computes the bounding box area: `area = (lon_max - lon_min) * (lat_max - lat_min)`.
+     - Computes depth factor: `depth_factor = cur_span / 500.0`.
+     - Computes daily cost: `cost_per_day = area * depth_factor`.
+     - Calculates maximum fitting days: `max_fitting_days = int(15_000.0 / cost_per_day)`.
+     - Arbitrarily caps maximum allowed duration to **14 days**: `clamped_days = min(max_fitting_days, 14)` ([`app/ui.py:936`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L936)).
+     - Sets new end date: `new_end = start + timedelta(days=clamped_days)`.
+     - Re-executes the pipeline with `run_spec(clamped_spec)` and calls `st.rerun()`.
+
+---
+
+### 2.4 Float Map: Data Fetching, Observations & Columns
+
+1. **Which Fetch Runs When Intent is "map"?**:
+   - `pipeline.run_spec` executes [`src/siqva/pipeline.py:96`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/pipeline.py#L96), which calls `fetcher.fetch()`.
+   - `fetcher.fetch()` instantiates [`src/siqva/fetcher.py:791`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L791):
+     ```python
+     engine = argopy.DataFetcher(mode=mode_str, src=src, api_timeout=timeout)
+     fetch_ds = engine.region(box)
+     ```
+   - **It downloads FULL physical observations** (all vertical measurement levels, temperature, salinity, pressure, QC flags, and error bars) over ERDDAP.
+2. **Which Columns Does `plot_position_map` Really Use?**:
+   - Defined in [`src/siqva/plots.py:264-340`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/plots.py#L264-L340).
+   - Only reads:
+     - `LATITUDE` (or `latitude`)
+     - `LONGITUDE` (or `longitude`)
+     - `PLATFORM_NUMBER` (WMO float identifier)
+     - `CYCLE_NUMBER` (profile cycle)
+     - `TIME` (for chronological trajectory sorting)
+   - It groups by `PLATFORM_NUMBER`, drops duplicates on `CYCLE_NUMBER`, and plots a `Scattergeo` trajectory.
+   - **It never uses `TEMP`, `PSAL`, `PRES`, or any observation values.**
+3. **Is There Any Code Path That Gets Float Positions Without Observations?**:
+   - **No.** There is zero runtime code in SIQVA that fetches positions without downloading full observation profiles.
+   - `argopy.IndexFetcher` exists in `fetcher.py:340, 444`, but it is only used in offline snapshot creation or remote count fallback. It is never used to populate the map.
+
+---
+
+### 2.5 Float Index: Inventory, Usage & Dead Code
+
+1. **What Exists?**:
+   - Function `create_float_index_snapshot(...)` in [`src/siqva/fetcher.py:320-438`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L320-L438).
+   - Sidecar evaluator `get_snapshot_coverage_status(...)` in [`src/siqva/fetcher.py:165-215`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L165-L215).
+   - Profile counter `count_profiles_in_snapshot(...)` in [`src/siqva/fetcher.py:220-315`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L220-L315).
+2. **Does `data/float_index.parquet` Exist? Size & Coverage**:
+   - File exists on disk: `data/float_index.parquet` (file size: **3,521 bytes**).
+   - Read from sidecar [`data/float_index.json`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/data/float_index.json):
+     ```json
+     {
+       "fetch_date": "2026-10-22T15:22:35.133613Z",
+       "bbox": [-30.0, -28.0, 32.0, 34.0],
+       "min_date": "2022-01-01",
+       "max_date": "2022-01-10",
+       "row_count": 2,
+       "source": "argopy.IndexFetcher snapshot"
+     }
+     ```
+   - It covers only **2 rows** in a 2°×2° patch of the North Atlantic across 10 days in 2022.
+3. **Which Code Uses It? What is Dead?**:
+   - In [`src/siqva/pipeline.py:96`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/pipeline.py#L96), `run_spec` calls `fetcher_fn(spec, ...)` without passing `float_index_path`.
+   - In [`src/siqva/fetcher.py:598`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L598), parameter `float_index_path: Optional[Path | str] = None` defaults to `None`.
+   - In `fetcher.py:702`: `if float_index_path is not None:`
+   - Because `float_index_path` is never passed by the pipeline or UI, **the float index is 100% dead code during live user runs**.
+   - Only test files (`tests/test_fetcher.py`) pass `float_index_path` explicitly.
+4. **Does `data/raw/` Exist, and Does It Hold `ar_index_global_prof.txt.gz`?**:
+   - **No.** `Test-Path data/raw` returns `False`. The directory does not exist and no GDAC global index file is present.
+
+---
+
+### 2.6 Reproduction of User Complaints (Real Path: Route -> Parse -> Validate -> Pipeline with Mocked Fetch)
+
+Executed offline via Python script importing real modules:
+
+#### a) "show floats in the Indian Ocean"
+- **Route**: `RouteTarget.DATA_FETCH` (confidence 0.8)
+- **Parsed Spec**: `None`
+- **Cause**: Parser missing required fields (`date_range`, `variables`).
+- **Exact User Message**:
+  > *"The language model is not available. Missing required fields: date_range, variables. Please specify the missing parameters or fill them in the spec panel. Please specify a time period (e.g. 'in year 2021' or '2022-01-01 to 2022-01-10'). Please specify ocean variables to measure (e.g. 'temperature', 'salinity', 'pressure'). You can manually configure missing parameters in the spec panel."*
+- **Actionability / Dead End**: **Dead end**. The user only asked to view float positions, but the pipeline requires time ranges and measurement variables (TEMP, PSAL) because it insists on downloading observation data.
+
+#### b) "map of floats in the Pacific Ocean"
+- **Route**: `RouteTarget.DATA_FETCH` (confidence 0.8)
+- **Parsed Spec**: `None`
+- **Cause**: Gazetteer Pacific Ocean guard ([`gazetteer.py:330-350`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/gazetteer.py#L330-L350)) + missing dates/variables.
+- **Exact User Message**:
+  > *"The language model is not available. Missing required fields: date_range, variables. Please specify the missing parameters or fill them in the spec panel. The Pacific Ocean as a whole is too large for one query and crosses the 180° meridian. Supported Pacific regions: Eastern equatorial Pacific, Nino 3.4, Nino 3, Nino 1+2. Or provide coordinates like '5S-5N, 170W-120W'. Please specify a time period (e.g. 'in year 2021' or '2022-01-01 to 2022-01-10'). Please specify ocean variables to measure (e.g. 'temperature', 'salinity', 'pressure'). You can manually configure missing parameters in the spec panel."*
+- **Actionability / Dead End**: **Dead end for the Pacific basin**. The whole Pacific Ocean cannot be resolved.
+
+#### c) "temperature profiles in the Pacific Ocean in 2023"
+- **Route**: `RouteTarget.DATA_FETCH` (confidence 0.8)
+- **Parsed Spec**: `None`
+- **Cause**: Gazetteer Pacific Ocean guard ([`gazetteer.py:330-350`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/gazetteer.py#L330-L350)).
+- **Exact User Message**:
+  > *"The language model is not available. Please specify the missing parameters or fill them in the spec panel. The Pacific Ocean as a whole is too large for one query and crosses the 180° meridian. Supported Pacific regions: Eastern equatorial Pacific, Nino 3.4, Nino 3, Nino 1+2. Or provide coordinates like '5S-5N, 170W-120W'. You can manually configure missing parameters in the spec panel."*
+- **Actionability / Dead End**: Offers 4 sub-regions, but querying the Pacific Ocean basin as a whole remains a hard rejection.
+
+#### d) "temperature profiles in the Indian Ocean in January 2023"
+- **Route**: `RouteTarget.DATA_FETCH` (confidence 0.8)
+- **Parsed Spec**: `None` (validator raised `OversizedRequestError` inside `parse_detailed`)
+- **Cause**: Cost Cap Guard ([`validator.py:165-200`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/validator.py#L165-L200)).
+  - Indian Ocean area = $100^\circ \times 75^\circ = 7,500^\circ{}^2$.
+  - 30 days at default 500 dbar depth span = $7,500 \times 30 \times 1.0 = 225,000$ cost units.
+  - $225,000 > 15,000$ cap. Because January 2023 is a single calendar month, chunking cannot partition it.
+- **Exact User Message**:
+  > *"Request exceeds allowable size cap (225000 > 15000 cost units). Request volume (225,000.0 cost units) exceeds the maximum limit (15,000.0). Current region 'Indian Ocean' (7,500.0°²) across 30 days with depth range 0–500 dbar (span 500 dbar). At this depth range, at most 2 days fit under the limit. Please narrow your query with one of the following: 1. Shorter period: narrowing the date range to 2 days or fewer (e.g. at most 2 days at this depth). 2. Shallower depth: choosing a shallower depth range with a span of at most 33 dbar (e.g. 0–33 dbar) for 30 days. 3. Smaller region: shrinking the bounding box or specifying precise coordinates to reduce the area from 7,500.0°²."*
+- **Actionability / Dead End**: **Dead end in practice**. Suggesting "at most 2 days" or "0–33 dbar" across the entire Indian Ocean is useless for physical oceanography.
+
+#### e) "temperature profiles in the Arabian Sea in 2024" (Multi-Month)
+- **Route**: `RouteTarget.DATA_FETCH` (confidence 0.8)
+- **Parsed Spec**: Validated successfully:
+  - Region: `[50.0, 77.0, 8.0, 25.0]` (Arabian Sea, Area = 459°²)
+  - Date: `2024-01-01` to `2024-12-31`
+  - Variables: `[TEMP]`
+  - Depth: `0–500 dbar`
+- **Cause**: Multi-month chunking succeeds!
+  - Monthly cost = $459 \times 31 \times 1.0 = 14,229 \le 15,000$ units.
+  - Decomposed into 12 monthly chunks under the cap.
+- **Pipeline Status**: `SUCCESS`
+- **User Message**: Rendered successfully.
+
+---
+
+### 2.7 Gazetteer: KNOWN_REGIONS & Basin Definitions
+
+Defined in [`src/siqva/gazetteer.py:39-65`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/gazetteer.py#L39-L65):
+
+| Region Name | Longitude Min | Longitude Max | Latitude Min | Latitude Max | Area (deg²) |
+|---|---|---|---|---|---|
+| **Arabian Sea** | 50.0 | 77.0 | 8.0 | 25.0 | 459.0 |
+| **Bay of Bengal** | 80.0 | 100.0 | 5.0 | 22.5 | 350.0 |
+| **Indian Ocean** | 20.0 | 120.0 | -50.0 | 25.0 | 7,500.0 |
+| **Eastern equatorial Pacific** | -170.0 | -80.0 | -10.0 | 10.0 | 1,800.0 |
+| **North Atlantic** | -80.0 | 0.0 | 0.0 | 65.0 | 5,200.0 |
+| **Mediterranean Sea** | -6.0 | 36.0 | 30.0 | 46.0 | 672.0 |
+| **Nino 1+2** | -90.0 | -80.0 | -10.0 | 0.0 | 100.0 |
+| **Nino 3** | -150.0 | -90.0 | -5.0 | 5.0 | 600.0 |
+| **Nino 3.4** | -170.0 | -120.0 | -5.0 | 5.0 | 500.0 |
+
+- **Does "Indian Ocean" have a box?**: **Yes**. Bounding box is `[20.0, 120.0, -50.0, 25.0]` (Area: 7,500 deg²).
+- **Which basin names are known?**:
+  - `Indian Ocean` (resolved to the 7,500 deg² box).
+  - `North Atlantic` (resolved to the 5,200 deg² box).
+  - `Pacific Ocean` has **no bounding box** in `KNOWN_REGIONS`. Queries matching "Pacific Ocean" are intercepted by a dedicated guard in `gazetteer.py:330-350` and returned as `UNKNOWN` with a clarification message.
