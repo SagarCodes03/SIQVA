@@ -13,7 +13,34 @@ import plotly.graph_objects as go
 
 from .analyzer import AnalysisResult, analyze
 from .card import QueryCard, build_card, generate_script, save_card
-from .fetcher import FetchResult, FetchStatus, fetch
+from . import fetcher
+from .fetcher import FetchResult, FetchStatus
+
+# Module attribute so patch("siqva.pipeline.fetch") works at test time
+fetch = fetcher.fetch
+_original_fetch = fetcher.fetch
+
+
+def _resolve_fetcher(fetcher_fn: Any = None) -> Any:
+    """Resolve fetch function at call time, respecting mocks on pipeline.fetch or fetcher.fetch."""
+    if fetcher_fn is not None:
+        return fetcher_fn
+
+    import sys
+    pipeline_mod = sys.modules.get("siqva.pipeline")
+    p_fetch = getattr(pipeline_mod, "fetch", None)
+    f_fetch = getattr(fetcher, "fetch", None)
+
+    # 1. Did someone patch siqva.pipeline.fetch?
+    if p_fetch is not _original_fetch and p_fetch is not None:
+        return p_fetch
+
+    # 2. Did someone patch siqva.fetcher.fetch?
+    if f_fetch is not _original_fetch and f_fetch is not None:
+        return f_fetch
+
+    # 3. Default to current siqva.fetcher.fetch
+    return f_fetch or _original_fetch
 from .parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from .plots import (
     plot_acoustic_profile,
@@ -74,7 +101,7 @@ def run_spec(
     cache_dir: Optional[Path] = None,
     force_refresh: bool = False,
     db_path: Optional[Path] = None,
-    fetcher_fn: Any = fetch,
+    fetcher_fn: Any = None,
     question: Optional[str] = None,
     session_id: Optional[str] = None,
     max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
@@ -83,17 +110,19 @@ def run_spec(
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
     from .chunking import fetch_chunked, is_chunked_spec
 
+    resolved_fetcher = _resolve_fetcher(fetcher_fn)
+
     if is_chunked_spec(spec, max_request_size=max_request_size):
         fetch_res: FetchResult = fetch_chunked(
             spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
-            fetcher_fn=fetcher_fn,
+            fetcher_fn=resolved_fetcher,
             max_request_size=max_request_size,
             **fetch_kwargs,
         )
     else:
-        fetch_res: FetchResult = fetcher_fn(
+        fetch_res: FetchResult = resolved_fetcher(
             spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
@@ -258,6 +287,7 @@ def run(
     allow_llm: bool = True,
     db_path: Optional[Path] = None,
     max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
+    fetcher_fn: Any = None,
     **kwargs: Any,
 ) -> PipelineResult:
     """Execute end-to-end question processing: parse -> validate -> fetch -> analyze -> card."""
@@ -283,6 +313,7 @@ def run(
         cache_dir=cache_dir,
         force_refresh=force_refresh,
         db_path=db_path,
+        fetcher_fn=fetcher_fn,
         question=question,
         max_request_size=max_request_size,
         **kwargs,
