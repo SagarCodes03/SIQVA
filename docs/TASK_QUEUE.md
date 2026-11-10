@@ -29,7 +29,7 @@ Resume instruction for future sessions:
 | [x] **F4** | Reproducibility honesty (reproduction scope in script header for all intents, chunked script support) | DONE (commit `8279ebe`, 366 passed) |
 | [-] **F5-F6** | Guardrail visibility & measurement / cleanup | Unfinished / superseded by S0-S10 sampling design |
 | [x] **S0** | Find and close the bypass; wall-clock budget (trace real UI path, enforce guard on all UI paths, foreground wall-clock budget 90s, AppTest fetch spy) | DONE (tag `done-S0`, 371 passed) |
-| [ ] **S1** | Local float index (src/siqva/floatindex.py, scripts/build_float_index.py, load once, query_profiles, count_profiles, last_positions, tracks, coverage_status, tests) | PENDING |
+| [x] **S1** | Local float index (src/siqva/floatindex.py, scripts/build_float_index.py, load once, query_profiles, count_profiles, last_positions, tracks, coverage_status, tests) | DONE (tag `done-S1`, 381 passed) |
 | [ ] **S2** | Capability profiles (src/siqva/capabilities.py table mapping intent -> METADATA / SAMPLE_OK / FULL_REQUIRED, default depths, 2000 dbar cap, tests) | PENDING |
 | [ ] **S3** | Layered validation and planner (validator.py, planner.py, PlanDecision, basin support, antimeridian, structured options, tests) | PENDING |
 | [ ] **S4** | Metadata and overview (router/rules parser, pipeline, plots, float-location queries, index overview map, Scattergeo, tests) | PENDING |

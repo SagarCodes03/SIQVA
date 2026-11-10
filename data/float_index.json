@@ -1,14 +1,14 @@
 {
-  "fetch_date": "2026-10-22T15:22:35.133613Z",
-  "bbox": [
-    -30.0,
-    -28.0,
-    32.0,
-    34.0
-  ],
-  "min_date": "2022-01-01",
-  "max_date": "2022-01-10",
-  "row_count": 2,
-  "source": "argopy.IndexFetcher snapshot",
-  "description": "Local float-index Parquet snapshot of Argo metadata for pre-fetch discovery and guards"
+  "source_file": "ar_index_global_prof.txt.gz",
+  "build_date": "2026-11-10T18:20:51.810028Z",
+  "row_count": 1993067,
+  "min_date": "1997-07-28",
+  "max_date": "2026-11-10",
+  "dropped_row_count": 7042,
+  "ocean_counts": {
+    "P": 1117540,
+    "A": 555521,
+    "I": 320006
+  },
+  "unique_floats": 11233
 }
