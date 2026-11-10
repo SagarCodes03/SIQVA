@@ -5,15 +5,35 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Optional
+import re
+from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from rapidfuzz import fuzz, process
 
 logger = logging.getLogger(__name__)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_GLOSSARY_PATH = PROJECT_ROOT / "data" / "glossary.json"
+
+
+class GlossarySource(BaseModel):
+    """Primary literature source citation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    title: str
+    author: str
+    year: int | str
+    url_or_doi: str
+    journal: Optional[str] = None
+
+    def __contains__(self, item: str) -> bool:
+        return item.lower() in str(self).lower()
+
+    def __str__(self) -> str:
+        j = f", {self.journal}" if self.journal else ""
+        return f"{self.author} ({self.year}), {self.title}{j}, {self.url_or_doi}".strip(", ")
 
 
 class GlossaryEntry(BaseModel):
@@ -24,9 +44,26 @@ class GlossaryEntry(BaseModel):
     term: str
     canonical_name: str
     definition: str
-    source: str
+    source: GlossarySource
     formula: Optional[str] = None
     aliases: list[str] = Field(default_factory=list)
+    verified: bool = False
+
+    @field_validator("source", mode="before")
+    @classmethod
+    def parse_source(cls, v: Any) -> Any:
+        if isinstance(v, GlossarySource):
+            return v
+        if isinstance(v, dict):
+            return GlossarySource(**v)
+        if isinstance(v, str):
+            return GlossarySource(
+                title=v,
+                author=v,
+                year="",
+                url_or_doi="",
+            )
+        return v
 
 
 class GlossarySearchResult(BaseModel):
@@ -35,7 +72,10 @@ class GlossarySearchResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     found: bool
+    term_name: Optional[str] = None
     entry: Optional[GlossaryEntry] = None
+    definition: Optional[str] = None
+    source_citation: Optional[str] = None
     suggestions: list[str] = Field(default_factory=list)
     message: str
 
@@ -72,24 +112,39 @@ def lookup_glossary(query: str, glossary_path: Optional[Path | str] = None) -> G
         )
 
     q_clean = query.strip().lower()
+    q_target = re.sub(r"^(what\s+is\s+(an?|the)?|define|explain|meaning\s+of)\s+", "", q_clean).strip()
+    if not q_target:
+        q_target = q_clean
 
-    # 1. Exact term or alias match
-    for entry in entries:
-        if q_clean == entry.term.lower() or q_clean == entry.canonical_name.lower():
+    def _format_result(entry: GlossaryEntry, match_info: str) -> GlossarySearchResult:
+        if not entry.verified:
             return GlossarySearchResult(
                 found=True,
-                entry=entry,
+                term_name=entry.term,
+                entry=None,
+                definition=None,
+                source_citation=str(entry.source) if entry.source else None,
                 suggestions=[],
-                message=f"Found exact definition for '{entry.term}'.",
+                message="I do not have a verified definition for that term yet",
             )
-        for alias in entry.aliases:
-            if q_clean == alias.lower():
-                return GlossarySearchResult(
-                    found=True,
-                    entry=entry,
-                    suggestions=[],
-                    message=f"Found definition for '{entry.term}' matching alias '{alias}'.",
-                )
+        return GlossarySearchResult(
+            found=True,
+            term_name=entry.term,
+            entry=entry,
+            definition=entry.definition,
+            source_citation=str(entry.source) if entry.source else None,
+            suggestions=[],
+            message=f"Found verified definition for '{entry.term}' ({match_info}).",
+        )
+
+    # 1. Exact term or alias match
+    for target in [q_target, q_clean]:
+        for entry in entries:
+            if target == entry.term.lower() or target == entry.canonical_name.lower():
+                return _format_result(entry, "exact match")
+            for alias in entry.aliases:
+                if target == alias.lower():
+                    return _format_result(entry, f"matching alias '{alias}'")
 
     # 2. Fuzzy match against term, canonical name, and aliases
     candidates_map: dict[str, GlossaryEntry] = {}
@@ -101,7 +156,7 @@ def lookup_glossary(query: str, glossary_path: Optional[Path | str] = None) -> G
 
     candidate_strings = list(candidates_map.keys())
     match = process.extractOne(
-        q_clean,
+        q_target,
         candidate_strings,
         scorer=fuzz.WRatio,
         score_cutoff=80.0,
@@ -110,21 +165,17 @@ def lookup_glossary(query: str, glossary_path: Optional[Path | str] = None) -> G
     if match:
         matched_str, score, _ = match
         matched_entry = candidates_map[matched_str]
-        return GlossarySearchResult(
-            found=True,
-            entry=matched_entry,
-            suggestions=[],
-            message=f"Found definition for '{matched_entry.term}' (fuzzy match with '{matched_str}', score {score:.0f}).",
-        )
+        return _format_result(matched_entry, f"fuzzy match with '{matched_str}', score {score:.0f}")
 
     # 3. Partial / suggestion search
     close_matches = process.extract(
-        q_clean,
+        q_target,
         candidate_strings,
         scorer=fuzz.WRatio,
         score_cutoff=55.0,
         limit=3,
     )
+    available = ", ".join(repr(e.term) for e in entries)
     if close_matches:
         suggested_terms = list(dict.fromkeys(candidates_map[m[0]].term for m in close_matches))
         return GlossarySearchResult(
@@ -132,19 +183,19 @@ def lookup_glossary(query: str, glossary_path: Optional[Path | str] = None) -> G
             entry=None,
             suggestions=suggested_terms,
             message=(
-                f"Term '{query}' not found in glossary. Did you mean: "
+                f"I do not have that term. Did you mean: "
                 f"{', '.join(repr(s) for s in suggested_terms)}? "
+                f"Available terms: {available}. "
                 "See docs/GLOSSARY_GUIDE.md to add verified definitions."
             ),
         )
 
-    available = ", ".join(repr(e.term) for e in entries)
     return GlossarySearchResult(
         found=False,
         entry=None,
         suggestions=[],
         message=(
-            f"Term '{query}' not found in oceanographic glossary. "
+            f"I do not have that term. "
             f"Available terms: {available}. See docs/GLOSSARY_GUIDE.md to add verified scientific definitions."
         ),
     )

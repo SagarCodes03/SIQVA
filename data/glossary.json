@@ -4,25 +4,46 @@
       "term": "MLD",
       "canonical_name": "Mixed Layer Depth",
       "definition": "The depth below the ocean surface where temperature or density changes by a specified threshold relative to the surface reference value, characterizing the turbulent, well-mixed surface layer.",
-      "source": "de Boyer Montégut et al. (2004), J. Geophys. Res., 109, C12003",
+      "source": {
+        "author": "de Boyer Montégut et al.",
+        "year": 2004,
+        "title": "Mixed layer depth over the global ocean: An examination of profile data and a profile-based climatology",
+        "journal": "J. Geophys. Res., 109, C12003",
+        "url_or_doi": "https://doi.org/10.1029/2004JC002378"
+      },
       "formula": "ΔT = 0.2 °C or Δσθ = 0.03 kg/m³ relative to 10 dbar reference",
-      "aliases": ["mld", "mixed layer", "mixed layer depth"]
+      "aliases": ["mld", "mixed layer", "mixed layer depth"],
+      "verified": false
     },
     {
       "term": "TCHP",
       "canonical_name": "Tropical Cyclone Heat Potential",
       "definition": "A measure of the integrated heat content of the upper ocean from the sea surface down to the depth of the 26 °C isotherm.",
-      "source": "Shay et al. (2000), Mon. Wea. Rev., 128, 1366–1383",
+      "source": {
+        "author": "Shay et al.",
+        "year": 2000,
+        "title": "Tropical Cyclone Heat Potential as an Indicator of Ocean Heat Storage and Intensity",
+        "journal": "Mon. Wea. Rev., 128, 1366–1383",
+        "url_or_doi": "https://doi.org/10.1175/1520-0493(2000)128<1366:TCPAAI>2.0.CO;2"
+      },
       "formula": "TCHP = ρ * Cp * ∫ (T(z) - 26) dz from z(T=26°C) to 0",
-      "aliases": ["tchp", "cyclone heat potential", "tropical cyclone heat potential", "ocean heat content to 26c"]
+      "aliases": ["tchp", "cyclone heat potential", "tropical cyclone heat potential", "ocean heat content to 26c"],
+      "verified": false
     },
     {
       "term": "SOFAR",
       "canonical_name": "SOFAR Channel Axis",
       "definition": "The Sound Fixing and Ranging channel axis corresponding to the oceanic depth where acoustic sound speed reaches a vertical minimum, acting as a deep sound waveguide.",
-      "source": "Ewing & Worzel (1948), Geol. Soc. Am. Mem., 27",
+      "source": {
+        "author": "Ewing & Worzel",
+        "year": 1948,
+        "title": "Long-range sound transmission",
+        "journal": "Geol. Soc. Am. Mem., 27",
+        "url_or_doi": "https://doi.org/10.1130/MEM27-p1"
+      },
       "formula": "depth(min(c(S_A, CT, p)))",
-      "aliases": ["sofar", "sofar axis", "sound channel", "deep sound channel"]
+      "aliases": ["sofar", "sofar axis", "sound channel", "deep sound channel"],
+      "verified": false
     }
   ]
 }

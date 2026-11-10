@@ -98,6 +98,10 @@ streamlit run app/ui.py
 ```
 
 ### Run Benchmark Evaluation Harness
+Evaluates question routing, parameter extraction, and parser-only latency against the internal developer test suite (`benchmark/questions.jsonl`).
+> [!NOTE]
+> This is a regression smoke test on 20 development questions written by the developers; not an independent evaluation. Latency reflects parser-only speed (rules path, no network, no data fetch).
+
 ```bash
 python benchmark/run_eval.py
 ```

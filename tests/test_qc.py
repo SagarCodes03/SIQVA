@@ -7,7 +7,7 @@ import pytest
 from siqva.qc import QCReport, VariableQCStats, audit_qc
 from siqva.spec import DataMode, Variable
 
-FIXTURE_PATH = Path("tests/fixtures/sample_argo_standard.parquet")
+FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "sample_argo_standard.parquet"
 
 
 def test_qc_audit_with_recorded_fixture():

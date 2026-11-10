@@ -61,3 +61,14 @@ def test_ui_runs_rules_only_query_against_mock_fetcher(sample_fetch_result):
 
         # Confirm no unhandled exceptions were raised in UI
         assert len(at.exception) == 0
+
+        # Assert result tiles / metrics are rendered
+        labels = [m.label for m in at.metric]
+        assert "Total Rows" in labels
+        assert "Float Profiles" in labels
+        assert "Source" in labels
+        assert "Data Mode" in labels
+        assert "Depth Span" in labels
+
+        rows_metric = next(m for m in at.metric if m.label == "Total Rows")
+        assert rows_metric.value == f"{sample_fetch_result.metadata.row_count:,}"

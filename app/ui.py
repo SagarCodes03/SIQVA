@@ -1472,6 +1472,10 @@ if st.session_state["active_page"] == "query":
                 if cm.get("formula"):
                     st.markdown(f"*Formula*: {cm['formula']}")
                 st.caption(f"Source: {cm['source']}")
+            elif cm["type"] == "glossary_unverified":
+                st.warning(f"**{cm.get('term', '')}**: {cm['message']}")
+                if cm.get("source"):
+                    st.caption(f"Preliminary literature citation: {cm['source']}")
             elif cm["type"] == "glossary_not_found":
                 st.info(cm["message"])
             elif cm["type"] == "meta":
@@ -1569,8 +1573,15 @@ if st.session_state["active_page"] == "query":
                         "term": html.escape(e.term),
                         "canonical_name": html.escape(e.canonical_name),
                         "definition": html.escape(e.definition),
-                        "source": html.escape(e.source),
+                        "source": html.escape(str(e.source)),
                         "formula": html.escape(e.formula or ""),
+                    }
+                elif gloss_res.found and gloss_res.entry is None:
+                    st.session_state["chat_message"] = {
+                        "type": "glossary_unverified",
+                        "term": html.escape(gloss_res.term_name or ""),
+                        "message": html.escape(gloss_res.message),
+                        "source": html.escape(gloss_res.source_citation or ""),
                     }
                 else:
                     st.session_state["chat_message"] = {

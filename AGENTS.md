@@ -71,7 +71,7 @@ src/siqva/
   analyzer.py      # stats + coverage metadata
   operations.py    # deterministic operations (mean, min, max, anomaly)
   comparison.py    # dual-dataset comparison without anomaly claims
-  glossary.py      # scientific term lookup with literature citations
+  glossary.py      # scientific term lookup with literature citations and verification flag
   router.py        # query intent router (data, op, compare, glossary, meta)
   followup.py      # conversational state and query edits (salinity, year, region)
   plots.py         # profile, map, T-S templates
@@ -160,11 +160,7 @@ The validator enforces: valid bbox, date order, allowed variables, and a maximum
 
 ## 10. Evaluation (do not break)
 
-`benchmark/` holds questions with reference specs. The scorer reports per-field
-accuracy, QC/mode correctness, region overlap, reproducibility rate, latency,
-and which fields needed the LLM. Baselines: LLM answering directly, and LLM
-generating argopy code without a validator. Do not change reference specs to
-make scores pass.
+`benchmark/` holds questions with reference specs. Benchmark questions carry a `split` field (`dev` for internal regression smoke tests, `heldout` reserved). The scorer reports per-field accuracy, QC/mode correctness, region overlap, reproducibility rate, per-split metrics, parser-only latency, and warns on sample sizes < 30. Baselines: LLM answering directly, and LLM generating argopy code without a validator. Do not change reference specs to make scores pass. Do not present internal regression test results as general system accuracy.
 
 ## 11. When uncertain
 

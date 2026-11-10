@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
-"""Automated evaluation harness for SIQVA router and hybrid parser (Q13).
+"""Automated evaluation harness for SIQVA router and hybrid parser (Q13 & FIX 3).
 
-Scores routing accuracy, field extraction accuracy, and latency across seed benchmark questions.
+Note: This is a regression smoke test on development questions written by the developers;
+it is not an independent evaluation. Latency measures parser-only speed (rules path,
+no network, no data fetch).
 """
 
 from __future__ import annotations
@@ -21,6 +23,26 @@ from siqva.gazetteer import KNOWN_REGIONS
 from siqva.parser import parse_detailed
 from siqva.router import RouteTarget, route
 
+MIN_STATISTICAL_SPLIT_SIZE = 30
+LATENCY_LABEL = "parser-only latency (rules path, no network, no data fetch)"
+REGRESSION_DISCLAIMER = (
+    "Regression smoke test on development questions written by developers; "
+    "not an independent evaluation."
+)
+
+
+@dataclass
+class SplitMetrics:
+    """Metrics calculated for a specific split (e.g. dev, heldout)."""
+
+    split_name: str
+    total_questions: int
+    routing_correct: int
+    routing_accuracy_pct: float
+    field_accuracy_pct: float
+    mean_latency_ms: float
+    warning: Optional[str] = None
+
 
 @dataclass
 class BenchmarkSummary:
@@ -32,12 +54,17 @@ class BenchmarkSummary:
     field_accuracy_pct: float
     mean_latency_ms: float
     per_category: dict[str, dict[str, Any]] = field(default_factory=dict)
+    splits: dict[str, SplitMetrics] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
+    description: str = REGRESSION_DISCLAIMER
+    latency_label: str = LATENCY_LABEL
 
 
 def evaluate_question(item: dict[str, Any], allow_llm: bool = False) -> dict[str, Any]:
     """Evaluate a single benchmark item."""
     q = item["question"]
     expected_target = item.get("expected_target")
+    split = item.get("split", "dev")
 
     t0 = time.perf_counter()
     route_res = route(q)
@@ -84,6 +111,7 @@ def evaluate_question(item: dict[str, Any], allow_llm: bool = False) -> dict[str
 
     return {
         "id": item.get("id"),
+        "split": split,
         "question": q,
         "expected_target": expected_target,
         "actual_target": actual_target,
@@ -137,6 +165,40 @@ def run_benchmark(
             "mean_latency_ms": round(data["total_lat"] / cnt, 2),
         }
 
+    # Per-split breakdown & sample size warning
+    split_groups: dict[str, list[dict[str, Any]]] = {}
+    for r in results:
+        s_name = r.get("split", "dev")
+        split_groups.setdefault(s_name, []).append(r)
+
+    splits: dict[str, SplitMetrics] = {}
+    warnings: list[str] = []
+
+    for s_name, s_results in split_groups.items():
+        s_count = len(s_results)
+        s_correct = sum(1 for r in s_results if r["target_match"])
+        s_routing_acc = (s_correct / s_count * 100.0) if s_count else 0.0
+        s_field_acc = (sum(r["field_accuracy"] for r in s_results) / s_count * 100.0) if s_count else 0.0
+        s_lat = (sum(r["latency_ms"] for r in s_results) / s_count) if s_count else 0.0
+
+        s_warn = None
+        if s_count < MIN_STATISTICAL_SPLIT_SIZE:
+            s_warn = (
+                f"Split '{s_name}' has {s_count} questions (< {MIN_STATISTICAL_SPLIT_SIZE}). "
+                "Small sample size has wide confidence intervals; do not interpret as general system accuracy."
+            )
+            warnings.append(s_warn)
+
+        splits[s_name] = SplitMetrics(
+            split_name=s_name,
+            total_questions=s_count,
+            routing_correct=s_correct,
+            routing_accuracy_pct=round(s_routing_acc, 2),
+            field_accuracy_pct=round(s_field_acc, 2),
+            mean_latency_ms=round(s_lat, 2),
+            warning=s_warn,
+        )
+
     return BenchmarkSummary(
         total_questions=total,
         routing_correct=routing_correct,
@@ -144,24 +206,48 @@ def run_benchmark(
         field_accuracy_pct=round(field_acc, 2),
         mean_latency_ms=round(mean_lat, 2),
         per_category=per_category,
+        splits=splits,
+        warnings=warnings,
+        description=REGRESSION_DISCLAIMER,
+        latency_label=LATENCY_LABEL,
     )
 
 
 def print_report(summary: BenchmarkSummary) -> None:
     """Pretty-print benchmark results table."""
-    print("=" * 70)
+    print("=" * 76)
     print("SIQVA BENCHMARK EVALUATION REPORT")
-    print("=" * 70)
+    print(f"Notice  : {summary.description}")
+    print(f"Latency : {summary.latency_label}")
+    print("=" * 76)
     print(f"Total Questions Evaluated : {summary.total_questions}")
     print(f"Routing Accuracy          : {summary.routing_accuracy_pct:.1f}% ({summary.routing_correct}/{summary.total_questions})")
     print(f"Field Extraction Accuracy : {summary.field_accuracy_pct:.1f}%")
-    print(f"Mean Latency              : {summary.mean_latency_ms:.2f} ms")
-    print("-" * 70)
+    print(f"Mean Latency (parser-only): {summary.mean_latency_ms:.2f} ms")
+
+    if summary.warnings:
+        print("-" * 76)
+        print("SAMPLE SIZE WARNINGS:")
+        for w in summary.warnings:
+            print(f"  [!] {w}")
+
+    print("-" * 76)
+    print("PER-SPLIT BREAKDOWN:")
+    print(f"{'Split':<12} {'Count':<8} {'Routing Acc':<16} {'Field Acc':<14} {'Mean Latency':<12}")
+    print("-" * 76)
+    for s_name, sm in summary.splits.items():
+        print(
+            f"{s_name:<12} {sm.total_questions:<8} {sm.routing_accuracy_pct:>5.1f}%{'':<10} "
+            f"{sm.field_accuracy_pct:>5.1f}%{'':<8} {sm.mean_latency_ms:>6.2f} ms"
+        )
+
+    print("-" * 76)
+    print("PER-CATEGORY BREAKDOWN:")
     print(f"{'Category':<18} {'Count':<8} {'Routing Accuracy':<20} {'Mean Latency':<12}")
-    print("-" * 70)
+    print("-" * 76)
     for cat, metrics in summary.per_category.items():
         print(f"{cat:<18} {metrics['count']:<8} {metrics['accuracy_pct']:>5.1f}%{'':<14} {metrics['mean_latency_ms']:>6.2f} ms")
-    print("=" * 70)
+    print("=" * 76)
 
 
 if __name__ == "__main__":
