@@ -66,6 +66,7 @@ class QueryCard(BaseModel):
     question: Optional[str] = None
     chunks: Optional[list[str]] = None
     session_id: Optional[str] = None
+    guardrail_disabled: bool = False
 
 
 class DiffSummary(BaseModel):
@@ -130,6 +131,9 @@ def build_card(
 
     chunks: Optional[list[str]] = None
     from .chunking import is_chunked_spec, split_date_range_into_months
+    from .validator import is_size_guardrail_enabled
+
+    guardrail_disabled = not is_size_guardrail_enabled()
 
     # Determine chunk labels: use provided chunks if given, otherwise compute from spec
     if chunks is None and is_chunked_spec(spec):
@@ -158,6 +162,7 @@ def build_card(
         question=question,
         chunks=chunks,
         session_id=session_id,
+        guardrail_disabled=guardrail_disabled,
     )
 
 
@@ -207,6 +212,7 @@ def generate_script(card: QueryCard) -> str:
     mode_str = card.mode.value
     src_str = card.src
     repro_scope = _get_reproduction_scope(spec.intent)
+    guardrail_note = "\nGuardrails: Bypassed (SIQVA_DISABLE_SIZE_GUARDRAIL=1)" if card.guardrail_disabled else ""
 
     if card.chunks and len(card.chunks) > 1:
         from .chunking import split_date_range_into_months
@@ -226,7 +232,7 @@ Data Mode: {mode_str} ({card.qc_filter_description})
 Timestamp: {card.fetch_timestamp}
 Expected Rows: {card.row_count}
 Expected Profiles: {card.profile_count}
-Chunked Fetch: {len(card.chunks)} monthly chunks
+Chunked Fetch: {len(card.chunks)} monthly chunks{guardrail_note}
 """
 
 import argopy
@@ -274,7 +280,7 @@ Reproduction: {repro_scope}
 Data Mode: {mode_str} ({card.qc_filter_description})
 Timestamp: {card.fetch_timestamp}
 Expected Rows: {card.row_count}
-Expected Profiles: {card.profile_count}
+Expected Profiles: {card.profile_count}{guardrail_note}
 """
 
 import argopy

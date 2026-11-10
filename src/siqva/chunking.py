@@ -198,6 +198,7 @@ def fetch_chunked(
     max_chunks: Optional[int] = None,
     max_total_rows: Optional[int] = None,
     max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
+    wall_clock_budget: Optional[float] = None,
     **fetch_kwargs: Any,
 ) -> Any:
     """Fetch a large multi-month query by decomposing it into calendar-month requests.
@@ -205,6 +206,7 @@ def fetch_chunked(
     Each month is fetched via standard fetch(), taking full advantage of the Parquet cache.
     Results are concatenated and deduplicated across chunk boundaries.
     """
+    import time
     from .fetcher import (
         FetchMetadata,
         FetchResult,
@@ -212,6 +214,7 @@ def fetch_chunked(
         compute_canonical_data_hash,
         count_unique_profiles,
         fetch,
+        get_wall_clock_budget,
     )
 
     if fetcher_fn is None:
@@ -219,6 +222,11 @@ def fetch_chunked(
 
     if max_total_rows is None:
         max_total_rows = get_max_total_rows()
+
+    if wall_clock_budget is None:
+        wall_clock_budget = get_wall_clock_budget()
+
+    start_time = time.monotonic()
 
     depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
     chunks = split_date_range_into_months(spec.date_range)
@@ -245,18 +253,36 @@ def fetch_chunked(
     total_chunks = len(chunks)
 
     for idx, (chunk_range, chunk_label) in enumerate(chunks):
+        elapsed = time.monotonic() - start_time
+        if elapsed >= wall_clock_budget:
+            return FetchResult(
+                status=FetchStatus.TIMEOUT,
+                data=None,
+                is_cached=False,
+                cache_key=spec.fetch_key(),
+                error_message=(
+                    f"Foreground work exceeded the wall-clock budget of {wall_clock_budget:.0f}s (elapsed {elapsed:.1f}s). "
+                    f"Completed {idx}/{total_chunks} monthly chunks ({cached_chunk_count} cached). "
+                    f"Any completed chunks remain cached so a retry will resume from where it stopped."
+                ),
+                suggestion="Retry the query to continue fetching remaining chunks, or choose a narrower date range.",
+                effective_depth_range=depth,
+            )
+
         if progress_callback is not None:
             try:
                 progress_callback(idx + 1, total_chunks, chunk_label)
             except Exception:
                 pass
 
+        remaining_budget = max(1.0, wall_clock_budget - elapsed)
         chunk_spec = spec.model_copy(update={"date_range": chunk_range})
         res: FetchResult = fetcher_fn(
             chunk_spec,
             cache_dir=cache_dir,
             force_refresh=force_refresh,
             max_request_size=max_request_size,
+            wall_clock_budget=remaining_budget,
             **fetch_kwargs,
         )
 

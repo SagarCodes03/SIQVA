@@ -72,3 +72,23 @@ def test_ui_runs_rules_only_query_against_mock_fetcher(sample_fetch_result):
 
         rows_metric = next(m for m in at.metric if m.label == "Total Rows")
         assert rows_metric.value == f"{sample_fetch_result.metadata.row_count:,}"
+
+
+def test_ui_indian_ocean_question_does_not_start_region_fetch():
+    """Verify that 'temperature profiles in the Indian Ocean in January 2023' does NOT call fetch in UI."""
+    with patch("siqva.pipeline.fetch") as spy_pipe_fetch, patch("siqva.fetcher.fetch") as spy_mod_fetch:
+        at = AppTest.from_file(UI_PATH)
+        at.run(timeout=30)
+        assert len(at.exception) == 0
+
+        # Input oversized basin query and submit
+        at.text_area[0].input("temperature profiles in the Indian Ocean in January 2023")
+        at.button(key="send_query_btn").click().run(timeout=30)
+
+        # UI completes without unhandled exceptions
+        assert len(at.exception) == 0
+
+        # Neither fetcher was called because size guardrail rejected the request before fetching
+        spy_pipe_fetch.assert_not_called()
+        spy_mod_fetch.assert_not_called()
+

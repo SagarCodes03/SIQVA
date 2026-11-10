@@ -28,7 +28,7 @@ Resume instruction for future sessions:
 | [x] **F3** | Plot size (MAX_PLOT_OBSERVATIONS=5000 stratified sampling, Scattergl, sampling annotation) | DONE (tag `done-F3`, 340 passed) |
 | [x] **F4** | Reproducibility honesty (reproduction scope in script header for all intents, chunked script support) | DONE (commit `8279ebe`, 366 passed) |
 | [-] **F5-F6** | Guardrail visibility & measurement / cleanup | Unfinished / superseded by S0-S10 sampling design |
-| [ ] **S0** | Find and close the bypass; wall-clock budget (trace real UI path, enforce guard on all UI paths, foreground wall-clock budget 90s, AppTest fetch spy) | PENDING |
+| [x] **S0** | Find and close the bypass; wall-clock budget (trace real UI path, enforce guard on all UI paths, foreground wall-clock budget 90s, AppTest fetch spy) | DONE (tag `done-S0`, 371 passed) |
 | [ ] **S1** | Local float index (src/siqva/floatindex.py, scripts/build_float_index.py, load once, query_profiles, count_profiles, last_positions, tracks, coverage_status, tests) | PENDING |
 | [ ] **S2** | Capability profiles (src/siqva/capabilities.py table mapping intent -> METADATA / SAMPLE_OK / FULL_REQUIRED, default depths, 2000 dbar cap, tests) | PENDING |
 | [ ] **S3** | Layered validation and planner (validator.py, planner.py, PlanDecision, basin support, antimeridian, structured options, tests) | PENDING |
