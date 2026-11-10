@@ -3,7 +3,7 @@
 **Branch**: `analysis-baseline`  
 **Date**: 2026-11-10  
 **Environment**: Python 3.11, Windows  
-**Status**: Sections 1, 2, and 3 complete. Next section: Section 4.
+**Status**: Sections 1, 2, 3, and 4 complete. Next section: Section 5.
 
 ---
 
@@ -520,3 +520,125 @@ Evaluated directly via `compute_new_features(df, intent=None)`:
 - **Crucial Conflict Identified**:
   - The default depth (500 dbar) prevents SOFAR calculation ($< 1000\text{ m}$).
   - Specifying the required 2000 dbar depth quadruples the cost ($459 \times 30 \times 4.0 = 55,080$), triggering the cost cap and blocking the query!
+
+
+---
+
+## SECTION 4: Speed Baseline (Offline, Honest)
+
+Benchmarked via [`scripts/review/bench_baseline.py`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/scripts/review/bench_baseline.py) using `time.perf_counter()` over 3 consecutive passes (reporting Cold = pass 1 and Warm = median of passes 1–3). Memory profiling was executed in a completely separate, independent pass using `tracemalloc` to prevent instrumentation overhead from biasing timings.
+
+### 4.1 Benchmark Datasets Evaluated
+1. **Fixed Fixture Dataset**: `tests/fixtures/sample_argo_standard.parquet`
+   - **Rows**: 188
+   - **Columns**: 18
+   - **Unique Float Platforms**: 2
+2. **Largest Cached Parquet in `cache/`**: `cache/5a78b3256b9e886ae7b8c9b9a5c812f5d128e175e342bb8441a289dabcb07c99.parquet`
+   - **Rows**: 59,163
+   - **Columns**: 12
+   - **Unique Float Platforms**: 19
+
+---
+
+### 4.2 Stage Timing Breakdown
+
+| Pipeline Stage | Fixed Fixture (188 rows) Cold | Fixed Fixture (188 rows) Warm | Largest Cache (59,163 rows) Cold | Largest Cache (59,163 rows) Warm |
+|---|---|---|---|---|
+| **1. Parse (Rules)** | 2.28 ms | 2.25 ms | 2.00 ms | 2.41 ms |
+| **2. Validate Spec** | 0.01 ms | <0.01 ms | <0.01 ms | <0.01 ms |
+| **3. Cache Load (Parquet Read)** | 2.77 ms | 2.77 ms | 5.25 ms | 5.50 ms |
+| **4. QC Audit** | 6.59 ms | 1.63 ms | 2.96 ms | 2.72 ms |
+| **5. Analyze (Coverage & Stats)** | 5.50 ms | 2.62 ms | 26.51 ms | 26.51 ms |
+| **6. Plot: Map (`plot_position_map`)** | 450.67 ms (first Geo import) | 14.75 ms | 36.38 ms | 39.21 ms |
+| **7. Plot: Profile (`plot_depth_profile`)** | 16.30 ms | 15.52 ms | 114.13 ms | 114.13 ms |
+| **8. Plot: T-S (`plot_ts_diagram`)** | 33.97 ms | 13.41 ms | 14.54 ms | 14.54 ms |
+| **9. Physics Calc (All Intents)** | 6.98 ms | 3.91 ms | 161.12 ms | 164.91 ms |
+| **10. Plot: Thermocline** | 27.69 ms | 23.14 ms | 42.09 ms | 42.59 ms |
+| **11. Plot: TCHP** | 16.90 ms | 16.52 ms | 34.73 ms | 35.56 ms |
+| **12. Plot: Acoustic** | 15.94 ms | 15.94 ms | 31.94 ms | 31.94 ms |
+| **13. Card Build** | 6.00 ms | 0.14 ms | 0.14 ms | 0.13 ms |
+| **14. SQLite Save Card** | 22.27 ms | 17.91 ms | 21.12 ms | 20.78 ms |
+| **15. History List (`list_cards`)** | 3.50 ms | 1.77 ms | 1.60 ms | 1.62 ms |
+| **16. History Restore (`restore_card_result`)** | 0.22 ms | 0.14 ms | 101.58 ms | 99.29 ms |
+| **17. Total `pipeline.run` (Mock Fetch)** | **63.41 ms** | **56.09 ms** | **231.58 ms** | **203.05 ms** |
+
+---
+
+### 4.3 Figure Serialization & Traces Breakdown
+
+| Plot Figure | Fixture Traces | Fixture Points | Fixture JSON Size (KB) | Fixture JSON Time | Cache Traces | Cache Points | Cache JSON Size (KB) | Cache JSON Time |
+|---|---|---|---|---|---|---|---|---|
+| **Map** (`plot_position_map`) | 2 | 2 | 8.06 KB | 6.39 ms | 19 | 152 | 16.91 KB | 1.91 ms |
+| **Profile** (`plot_depth_profile`) | 2 | 188 | 9.90 KB | 0.72 ms | 25 | 4,933 | 69.60 KB | 2.45 ms |
+| **T-S Diagram** (`plot_ts_diagram`) | 1 | 188 | 10.86 KB | 0.73 ms | 1 | 59,163 | **960.10 KB** | **4.16 ms** |
+| **Thermocline** | 1 | 146 | 10.78 KB | 0.65 ms | 1 | 150 | 11.15 KB | 0.76 ms |
+| **TCHP** | 1 | 146 | 10.22 KB | 0.72 ms | 2 | 152 | 11.12 KB | 0.74 ms |
+| **Acoustic** | 2 | 147 | 11.16 KB | 0.66 ms | 2 | 250 | 13.42 KB | 0.70 ms |
+
+#### Key Plotting Observations
+1. **T-S Diagram Bloat**: `plot_ts_diagram` renders **every single observation row** into a single scatter trace. On the 59,163-row dataset, it generates a **960.1 KB JSON payload** that must be transferred and rendered in the browser.
+2. **Profile Cap Guard**: `plot_depth_profile` correctly limits rendering to `max_profiles = 25` (4,933 points instead of 59,163), keeping the JSON under 70 KB.
+
+---
+
+### 4.4 Memory Profiling (Isolated Pass)
+
+- **Fixed Fixture (188 rows)**:
+  - Current Memory: `1.00 MB`
+  - Peak Memory: `1.16 MB`
+- **Largest Cache Parquet (59,163 rows)**:
+  - Current Memory: `11.80 MB`
+  - Peak Memory: `33.41 MB`
+
+---
+
+### 4.5 Does `pipeline.run` Build Plots That the Chosen Intent Does Not Need?
+
+**YES.** Verified in [`src/siqva/pipeline.py:140-165`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/pipeline.py#L140-L165):
+1. **Unconditional Map Generation**:
+   ```python
+   # Map figure
+   try:
+       figures["map"] = plot_position_map(fetch_res.data)
+   except Exception:
+       pass
+   ```
+   `figures["map"]` is built unconditionally for **every single query**, regardless of whether the user asked for `acoustic`, `thermocline`, `tchp`, `ts`, or `profile`.
+2. **Dual Plotting on Profile Intent**:
+   ```python
+   if spec.intent in (Intent.TS, Intent.PROFILE):
+       if Variable.TEMP in spec.variables and Variable.PSAL in spec.variables:
+           figures["ts"] = plot_ts_diagram(fetch_res.data)
+   ```
+   If a user asks for a `profile` query that happens to include both temperature and salinity, `pipeline.run` builds the profile plot, the map plot, AND the full T-S diagram.
+
+---
+
+### 4.6 Streamlit Rerun Overhead (`app/ui.py`)
+
+1. **SQLite Database Access on Every Rerun**:
+   - In [`app/ui.py:1281`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L1281), `recent_cards = list_cards(limit=10, session_id=...)` executes inside the sidebar block. Because Streamlit re-executes the entire script from top to bottom on any interaction (e.g., clicking a tab, checking a box, selecting a menu), **an SQLite query runs on every single user interaction**.
+2. **File System Reads on Every Landing Rerun**:
+   - In [`app/ui.py:1644-1650`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L1644-L1650), whenever the user is on the query page without active results, `open("data/examples.json")` reads and deserializes the JSON file from disk on every rerun.
+3. **Ollama Background Warm-Up**:
+   - In [`app/ui.py:682-686`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/app/ui.py#L682-L686), `warmup_ollama_async()` is guarded by `if "ollama_warmed" not in st.session_state:`. It fires a background thread once per browser session, not on every rerun.
+4. **Session State Retention**:
+   - Results are retained across reruns in `st.session_state`:
+     - `st.session_state["pipeline_res"]`: Holds active PipelineResult with plots, stats, and spec.
+     - `st.session_state["active_plot_res"]`: Holds specialized plot page result.
+     - `st.session_state["conversation_state"]`: Tracks previous query context for follow-ups.
+     - `st.session_state["loaded_card_id"]`: Tracks current card.
+   - When a user clicks a history item, `restore_card_result(card)` is called, which re-reads the Parquet file from disk (~100 ms for 59k rows) to recreate plots.
+
+---
+
+### 4.7 Network Timing Notice: What the Owner Must Measure Live
+
+Offline tests cannot measure network latency. The owner must measure the following against live servers:
+1. **Remote ERDDAP Endpoint Handshake & Streaming**:
+   - Initial HTTP TLS connection to `erddap.ifremer.fr` or `incois.gov.in`.
+   - Data transfer time for un-cached multi-megabyte queries.
+2. **Chunked Query Fan-Out**:
+   - For a 12-month or 24-month chunked query, whether the 12–24 sequential HTTP requests cause ERDDAP rate-limiting or cumulative HTTP overhead (e.g. $12 \times 2\text{s} = 24\text{s}$).
+3. **argopy IndexFetcher Latency**:
+   - Live querying of remote Argo profile index vs reading pre-indexed local Parquet metadata.
