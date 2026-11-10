@@ -19,6 +19,7 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | FIX 2 | Explicit utf-8 loading confirmed across repo; structured GlossarySource with mandatory citation fields; verified=false flag returns unverified warning without factual definition | Guarantees clean UTF-8 rendering without mojibake and prevents presenting unverified physical oceanography definitions as facts.
 - 2026-11-07 | FIX 3 | Explicitly label benchmark as regression smoke test on developer questions with split: dev (heldout reserved); report per-split metrics, sample size warning (< 30), and explicit parser-only latency label | Prevents presenting internal regression tests as independent accuracy claims and acknowledges statistical confidence intervals.
 - 2026-11-07 | FIX 4 | Verified safety guards for unquantified dates, fast Ollama-unavailable fallback (< 3s), and actionable oversized basin suggestions; synchronized README.md, AGENTS.md, and docs/CODE_FLOW.md | Ensures system refuses or clarifies ambiguous/oversized inputs cleanly without stack traces or guesses.
+- 2026-11-10 | F1 | Physics honesty: SOFAR axis requires interior minimum with MIN_SAMPLES_EACH_SIDE=3 samples on each side and higher sound speed above and below; never report deepest sample. SLD at shallowest sample reported as 'sound speed maximum at the surface'. Aggregate text 'N of M profiles reached the feature' and shallower-depth profile count added to missing_data_notes and summary | Ensures physical oceanography metrics are strictly truthful and never extrapolated or falsely reported at profile boundaries.
 
 
 

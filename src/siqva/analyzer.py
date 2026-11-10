@@ -197,7 +197,8 @@ def summary_text(analysis: AnalysisResult) -> str:
             "### TEOS-10 Ocean Physics Features",
         ]
         if analysis.physics_summaries:
-            p_lines.append(f"Analyzed **{len(analysis.physics_summaries)}** profile(s) using TEOS-10 thermodynamics (`gsw`):")
+            total_m = len(analysis.physics_summaries)
+            p_lines.append(f"Analyzed **{total_m}** profile(s) using TEOS-10 thermodynamics (`gsw`):")
 
             if analysis.intent == Intent.THERMOCLINE:
                 mlds = [s.mld_dens_m for s in analysis.physics_summaries if s.mld_dens_m is not None]
@@ -206,23 +207,23 @@ def summary_text(analysis: AnalysisResult) -> str:
                 z20s = [s.z20_isotherm_m for s in analysis.physics_summaries if s.z20_isotherm_m is not None]
                 p_lines.append(
                     f"- **Density MLD (Δσ₀ = +0.03 kg/m³ from 10m)**: "
-                    f"Mean: `{np.mean(mlds):.1f} m` | Min: `{np.min(mlds):.1f} m` | Max: `{np.max(mlds):.1f} m`"
-                    if mlds else "- **Density MLD**: Not reached"
+                    f"Mean: `{np.mean(mlds):.1f} m` | Min: `{np.min(mlds):.1f} m` | Max: `{np.max(mlds):.1f} m` ({len(mlds)} of {total_m} profiles reached the feature)"
+                    if mlds else f"- **Density MLD**: Not reached within profile (0 of {total_m} profiles reached the feature)"
                 )
                 p_lines.append(
                     f"- **Temp ILD (ΔT = -0.2°C from 10m)**: "
-                    f"Mean: `{np.mean(ilds):.1f} m` | Min: `{np.min(ilds):.1f} m` | Max: `{np.max(ilds):.1f} m`"
-                    if ilds else "- **Temp ILD**: Not reached"
+                    f"Mean: `{np.mean(ilds):.1f} m` | Min: `{np.min(ilds):.1f} m` | Max: `{np.max(ilds):.1f} m` ({len(ilds)} of {total_m} profiles reached the feature)"
+                    if ilds else f"- **Temp ILD**: Not reached within profile (0 of {total_m} profiles reached the feature)"
                 )
                 p_lines.append(
                     f"- **Barrier Layer Thickness (BLT = max(0, ILD - MLD))**: "
-                    f"Mean: `{np.mean(blts):.1f} m` | Max: `{np.max(blts):.1f} m`"
-                    if blts else "- **Barrier Layer Thickness**: None detected"
+                    f"Mean: `{np.mean(blts):.1f} m` | Max: `{np.max(blts):.1f} m` ({len(blts)} of {total_m} profiles reached the feature)"
+                    if blts else f"- **Barrier Layer Thickness**: None detected (0 of {total_m} profiles reached the feature)"
                 )
                 p_lines.append(
                     f"- **Z20 Isotherm (20°C Thermocline Proxy)**: "
-                    f"Mean: `{np.mean(z20s):.1f} m` | Min: `{np.min(z20s):.1f} m` | Max: `{np.max(z20s):.1f} m`"
-                    if z20s else "- **Z20 Isotherm**: Not reached"
+                    f"Mean: `{np.mean(z20s):.1f} m` | Min: `{np.min(z20s):.1f} m` | Max: `{np.max(z20s):.1f} m` ({len(z20s)} of {total_m} profiles reached the feature)"
+                    if z20s else f"- **Z20 Isotherm**: Not reached within profile (0 of {total_m} profiles reached the feature)"
                 )
                 p_lines.append("\n#### Per-Profile Thermocline & Barrier Layer Table")
                 p_lines.append(
@@ -243,11 +244,12 @@ def summary_text(analysis: AnalysisResult) -> str:
                 )
 
             elif analysis.intent == Intent.TCHP:
+                total_m = len(analysis.physics_summaries)
                 tchps = [s.tchp_kj_cm2 for s in analysis.physics_summaries]
                 z26s = [s.z26_isotherm_m for s in analysis.physics_summaries if s.z26_isotherm_m is not None]
                 p_lines.append(
-                    f"- **26°C Isotherm (Z26)**: Mean: `{np.mean(z26s):.1f} m`"
-                    if z26s else "- **26°C Isotherm**: Surface < 26°C"
+                    f"- **26°C Isotherm (Z26)**: Mean: `{np.mean(z26s):.1f} m` ({len(z26s)} of {total_m} profiles reached the feature)"
+                    if z26s else f"- **26°C Isotherm**: Not reached within profile (0 of {total_m} profiles reached the feature)"
                 )
                 p_lines.append(
                     f"- **Cyclone TCHP (Upper-Layer Heat Content)**: "
@@ -271,28 +273,41 @@ def summary_text(analysis: AnalysisResult) -> str:
                 )
 
             elif analysis.intent == Intent.ACOUSTIC:
-                slds = [s.sld_m for s in analysis.physics_summaries if s.sld_m is not None]
+                total_m = len(analysis.physics_summaries)
+                subsurface_slds = [s.sld_m for s in analysis.physics_summaries if s.sld_m is not None and not getattr(s, "sld_is_surface", False)]
+                surface_sld_count = sum(1 for s in analysis.physics_summaries if getattr(s, "sld_is_surface", False))
                 sofars = [s.sofar_axis_m for s in analysis.physics_summaries if s.sofar_axis_m is not None]
-                p_lines.append(
-                    f"- **Sonic Layer Depth (SLD Peak)**: "
-                    f"Mean: `{np.mean(slds):.1f} m`"
-                    if slds else "- **Sonic Layer Depth**: N/A"
-                )
-                p_lines.append(
-                    f"- **SOFAR Channel Axis (Sound Speed Minimum)**: "
-                    f"Mean: `{np.mean(sofars):.1f} m` ({len(sofars)} profiles ≥ 1000m sampled)"
-                    if sofars else "- **SOFAR Channel Axis**: None (all profiles < 1000 m threshold)"
-                )
+                if subsurface_slds:
+                    p_lines.append(
+                        f"- **Sonic Layer Depth (SLD Peak)**: "
+                        f"Mean: `{np.mean(subsurface_slds):.1f} m` ({len(subsurface_slds)} of {total_m} profiles reached the feature)"
+                    )
+                elif surface_sld_count > 0:
+                    p_lines.append(
+                        f"- **Sonic Layer Depth**: sound speed maximum at the surface ({surface_sld_count} of {total_m} profiles, no subsurface acoustic duct)"
+                    )
+                else:
+                    p_lines.append(f"- **Sonic Layer Depth**: Not reached (0 of {total_m} profiles reached the feature)")
+
+                if sofars:
+                    p_lines.append(
+                        f"- **SOFAR Channel Axis (Sound Speed Minimum)**: "
+                        f"Mean: `{np.mean(sofars):.1f} m` ({len(sofars)} of {total_m} profiles reached the feature)"
+                    )
+                else:
+                    p_lines.append(f"- **SOFAR Channel Axis**: Not reached within profile (0 of {total_m} profiles reached the feature)")
                 p_lines.append("\n#### Per-Profile Acoustic Properties Table")
                 p_lines.append(
                     "| Profile | Date | Lat | Lon | Max Depth | SST (°C) | SSS (PSU) | SLD (m) | SOFAR (m) |\n"
                     "|---|---|---|---|---|---|---|---|---|"
                 )
                 for s in analysis.physics_summaries:
+                    sld_disp = "Surface" if getattr(s, "sld_is_surface", False) else (f"{s.sld_m:.1f}" if s.sld_m is not None else "-")
+                    sofar_disp = f"{s.sofar_axis_m:.1f}" if s.sofar_axis_m is not None else "Not reached"
                     p_lines.append(
                         f"| `{s.profile_id}` | {s.date} | {s.lat:.2f} | {s.lon:.2f} | {s.max_depth_m:.0f}m "
-                        f"| {s.sst_c:.2f} | {s.sss_psu:.2f} | {s.sld_m if s.sld_m is not None else '-'} "
-                        f"| {s.sofar_axis_m if s.sofar_axis_m is not None else '-'} |"
+                        f"| {s.sst_c:.2f} | {s.sss_psu:.2f} | {sld_disp} "
+                        f"| {sofar_disp} |"
                     )
                 p_lines.append("\n#### Scientific Methodology & Scope Notes")
                 p_lines.append(
@@ -475,6 +490,11 @@ def analyze(
         if depth_coverage:
             shallowest_overall = float(min(d.shallowest_depth for d in depth_coverage))
             deepest_overall = float(max(d.deepest_depth for d in depth_coverage))
+            shallower_count = len(depth_coverage) - reached_target_count
+            if shallower_count > 0:
+                missing_notes.append(
+                    f"{shallower_count} of {len(depth_coverage)} profiles ended shallower than requested target depth ({effective_depth.max_depth:.0f} dbar)."
+                )
 
     fraction_reaching = (
         float(reached_target_count / len(depth_coverage)) if depth_coverage else 0.0
@@ -508,6 +528,30 @@ def analyze(
                     missing_notes.append(skip_note)
                     if not physics_summaries:
                         physics_skipped_reason = f"All {len(skipped_physics_profiles)} profiles were skipped for physics analysis: {tally_str}."
+
+                if physics_summaries:
+                    tot_p = len(physics_summaries)
+                    if spec.intent == Intent.THERMOCLINE:
+                        cnt_mld = sum(1 for s in physics_summaries if s.mld_dens_m is not None)
+                        cnt_ild = sum(1 for s in physics_summaries if s.ild_temp_m is not None)
+                        cnt_z20 = sum(1 for s in physics_summaries if s.z20_isotherm_m is not None)
+                        if cnt_mld < tot_p:
+                            missing_notes.append(f"Density MLD: {cnt_mld} of {tot_p} profiles reached the feature.")
+                        if cnt_ild < tot_p:
+                            missing_notes.append(f"Temp ILD: {cnt_ild} of {tot_p} profiles reached the feature.")
+                        if cnt_z20 < tot_p:
+                            missing_notes.append(f"Z20 isotherm: {cnt_z20} of {tot_p} profiles reached the feature.")
+                    elif spec.intent == Intent.TCHP:
+                        cnt_z26 = sum(1 for s in physics_summaries if s.z26_isotherm_m is not None)
+                        if cnt_z26 < tot_p:
+                            missing_notes.append(f"Z26 isotherm: {cnt_z26} of {tot_p} profiles reached the feature.")
+                    elif spec.intent == Intent.ACOUSTIC:
+                        cnt_sofar = sum(1 for s in physics_summaries if s.sofar_axis_m is not None)
+                        cnt_sld = sum(1 for s in physics_summaries if s.sld_m is not None and not getattr(s, "sld_is_surface", False))
+                        if cnt_sofar < tot_p:
+                            missing_notes.append(f"SOFAR channel axis: {cnt_sofar} of {tot_p} profiles reached the feature.")
+                        if cnt_sld < tot_p:
+                            missing_notes.append(f"Sonic Layer Depth: {cnt_sld} of {tot_p} profiles reached the feature (sound speed maximum at surface for others).")
             except Exception as exc:
                 note = f"Ocean physics calculation failed: {exc}"
                 missing_notes.append(note)

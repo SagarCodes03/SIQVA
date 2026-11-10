@@ -37,6 +37,10 @@ class SkippedProfileInfo(BaseModel):
     reason: str
 
 
+MIN_SAMPLES_EACH_SIDE: int = 3
+"""Minimum number of measurement levels required on each side of a sound speed minimum to qualify as an interior SOFAR channel axis."""
+
+
 class ProfilePhysicsSummary(BaseModel):
     """Deterministic TEOS-10 ocean physics summary for a single Argo profile."""
 
@@ -58,7 +62,10 @@ class ProfilePhysicsSummary(BaseModel):
     z26_isotherm_m: Optional[float] = None
     tchp_kj_cm2: float = 0.0
     sld_m: Optional[float] = None
+    sld_is_surface: bool = False
+    sld_status: Optional[str] = None
     sofar_axis_m: Optional[float] = None
+    sofar_status: Optional[str] = None
 
     def __getitem__(self, item: str) -> Any:
         return getattr(self, item)
@@ -107,9 +114,10 @@ CYCLONE_TCHP_DISCLAIMER = (
 ACOUSTIC_DISCLAIMER = (
     "Scientific Guardrail / Disclaimer: TEOS-10 sound speed is derived from Absolute Salinity, Conservative "
     "Temperature, and pressure via gsw.sound_speed. The Sonic Layer Depth (SLD) marks the near-surface acoustic "
-    "duct maximum. The SOFAR (Sound Fixing and Ranging) channel axis is the deep sound speed minimum and is "
-    "strictly set to None whenever a profile's max_depth_m < 1000 metres, as shallow profiles do not sample "
-    "the deep acoustic waveguide."
+    "duct maximum; if the maximum is at the shallowest sample, the sound speed maximum is at the surface and "
+    "no acoustic duct exists. The SOFAR (Sound Fixing and Ranging) channel axis is the deep sound speed minimum and is "
+    "reported only when a profile reaches ≥ 1000 m and exhibits a true interior minimum with higher sound speed "
+    "both above and below (requiring at least 3 samples on each side)."
 )
 
 
@@ -305,14 +313,55 @@ def compute_new_features(
 
         # 3. Sonic Layer Depth & Depth-Checked SOFAR Axis
         sld = None
+        sld_is_surface = False
+        sld_status = None
         sofar = None
+        sofar_status = None
         if intent in (None, Intent.ACOUSTIC):
             # For acoustic intent, if z20 was not calculated, compute z20 for sld_cap
             z20_cap = _first_downward_crossing(z_m, temp, 20.0) if temp[0] >= 20.0 else None
             sld_cap = min(300.0, z20_cap if z20_cap is not None else 300.0)
             up_mask = z_m <= max(sld_cap, 30.0)
-            sld = float(z_m[up_mask][np.argmax(snd_p[up_mask])]) if np.any(up_mask) else None
-            sofar = float(z_m[np.argmin(snd_p)]) if max_depth >= 1000.0 else None
+            if np.any(up_mask):
+                sub_z = z_m[up_mask]
+                sub_snd = snd_p[up_mask]
+                max_idx = int(np.argmax(sub_snd))
+                sld = float(sub_z[max_idx])
+                if max_idx == 0:
+                    sld_is_surface = True
+                    sld_status = "sound speed maximum at the surface"
+                else:
+                    sld_is_surface = False
+                    sld_status = f"{sld:.1f} m"
+            else:
+                sld_status = "Not reached"
+
+            if max_depth < 1000.0:
+                sofar = None
+                sofar_status = f"SOFAR axis not reached: profile ends at {max_depth:.1f} m"
+            else:
+                min_idx = int(np.argmin(snd_p))
+                n_pts = len(snd_p)
+                has_enough_samples = (
+                    min_idx >= MIN_SAMPLES_EACH_SIDE
+                    and min_idx <= (n_pts - 1 - MIN_SAMPLES_EACH_SIDE)
+                )
+                if has_enough_samples:
+                    higher_above = np.max(snd_p[:min_idx]) > snd_p[min_idx]
+                    higher_below = np.max(snd_p[min_idx + 1:]) > snd_p[min_idx]
+                    is_interior = higher_above and higher_below
+                else:
+                    is_interior = False
+
+                if is_interior:
+                    sofar = float(z_m[min_idx])
+                    sofar_status = f"{sofar:.1f} m"
+                else:
+                    sofar = None
+                    if min_idx >= (n_pts - MIN_SAMPLES_EACH_SIDE):
+                        sofar_status = f"SOFAR axis not reached: profile ends at {max_depth:.1f} m"
+                    else:
+                        sofar_status = "SOFAR axis not reached: no interior minimum"
 
         time_val = grp["time"].iloc[0] if "time" in grp.columns else "N/A"
         date_str = str(time_val)[:10]
@@ -335,7 +384,10 @@ def compute_new_features(
                 z26_isotherm_m=round(z26, 1) if z26 is not None else None,
                 tchp_kj_cm2=tchp,
                 sld_m=round(sld, 1) if sld is not None else None,
+                sld_is_surface=sld_is_surface,
+                sld_status=sld_status,
                 sofar_axis_m=round(sofar, 1) if sofar is not None else None,
+                sofar_status=sofar_status,
             )
         )
 
@@ -410,19 +462,22 @@ def build_feature_context(intent: str, summaries: list[Any]) -> str:
 
         if normalized_intent in ("acoustic_profile", "acoustic", "all"):
             sld = s.get("sld_m")
+            sld_status = s.get("sld_status")
             sofar = s.get("sofar_axis_m")
+            sofar_status = s.get("sofar_status")
             lines.append("  [TEOS-10 Acoustic Properties]")
-            lines.append(
-                f"  • Sonic Layer Depth (SLD Peak): {sld} m"
-                if sld is not None
-                else "  • Sonic Layer Depth: N/A"
-            )
+            if s.get("sld_is_surface", False) or sld_status == "sound speed maximum at the surface":
+                lines.append("  • Sonic Layer Depth: sound speed maximum at the surface (no subsurface acoustic duct)")
+            elif sld is not None:
+                lines.append(f"  • Sonic Layer Depth (SLD Peak): {sld} m")
+            else:
+                lines.append("  • Sonic Layer Depth: Not reached")
+
             if sofar is not None:
                 lines.append(f"  • SOFAR Channel Axis (Sound Speed Minimum): {sofar} m")
             else:
-                lines.append(
-                    f"  • SOFAR Channel Axis: None (max_depth_m = {max_z} m < 1000.0 m threshold)"
-                )
+                status_msg = sofar_status or f"SOFAR axis not reached: profile ends at {max_z} m"
+                lines.append(f"  • SOFAR Channel Axis: {status_msg}")
 
         lines.append("")
 

@@ -391,7 +391,7 @@ def test_each_physics_intent_calls_only_its_own_calculation_group():
     z = np.linspace(5.0, 1200.0, 120)
     lat = 10.0
     pres = gsw.p_from_z(-z, lat)
-    temp = np.where(z <= 30.0, 29.0, 29.0 - (z - 30.0) / 1170.0 * 26.0)
+    temp = np.where(z <= 30.0, 29.0, 2.0 + 27.0 * np.exp(-(z - 30.0) / 300.0))
     psal = np.where(z <= 30.0, 34.8, 34.8 + (z - 30.0) / 1170.0 * 0.4)
 
     df = pd.DataFrame({

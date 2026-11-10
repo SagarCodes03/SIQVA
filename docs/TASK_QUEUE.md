@@ -23,3 +23,4 @@ Resume instruction for future sessions:
 | [x] **FIX 2** | Glossary utf-8 encoding and verification (`verified: false` default, structured `GlossarySource`, warning on unverified terms, guide checklist) | DONE (commit `6e8794d`, 311 passed) |
 | [x] **FIX 3** | Honest benchmark labelling and split field (`split: dev` schema, sample size warning < 30, parser-only latency label, docs disclaimer) | DONE (commit `015f86c`, 312 passed) |
 | [x] **FIX 4** | Safety verification (unquantified date clarifications, Ollama-unavailable < 3s, actionable oversized basin message, docs sync) | DONE (commit `938d3f5`, 315 passed) |
+| [x] **F1** | Physics honesty (SOFAR interior requirement, MIN_SAMPLES_EACH_SIDE=3, SLD surface behavior, aggregate 'N of M' text, shallower profiles count) | DONE (tag `done-F1`, 329 passed) |
