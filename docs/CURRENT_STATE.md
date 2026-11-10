@@ -3,7 +3,7 @@
 **Branch**: `analysis-baseline`  
 **Date**: 2026-11-10  
 **Environment**: Python 3.11, Windows  
-**Status**: Section 1 and Section 2 complete. Next section: Section 3.
+**Status**: Sections 1, 2, and 3 complete. Next section: Section 4.
 
 ---
 
@@ -353,3 +353,170 @@ Defined in [`src/siqva/gazetteer.py:39-65`](file:///c:/Users/Sagar%20Gowda%20H/O
   - `Indian Ocean` (resolved to the 7,500 deg² box).
   - `North Atlantic` (resolved to the 5,200 deg² box).
   - `Pacific Ocean` has **no bounding box** in `KNOWN_REGIONS`. Queries matching "Pacific Ocean" are intercepted by a dedicated guard in `gazetteer.py:330-350` and returned as `UNKNOWN` with a clarification message.
+
+
+---
+
+## SECTION 3: Depth Defaults (Change B)
+
+### 3.1 Where the Default Depth is Set, Flagged & Overridden
+
+1. **`src/siqva/spec.py:97-104`**:
+   - Class `DepthRange` defines default fields `min_depth: float = 0.0` and `max_depth: float = 2000.0`.
+   - On `QuerySpec:117`, field `depth_range: Optional[DepthRange] = None` defaults to `None`.
+2. **`src/siqva/rules_parser.py:550-610`**:
+   - `_extract_depth_range(text)` attempts to extract depth from user text. If no depth phrase is found, returns `None`.
+3. **`src/siqva/parser.py:230-234, 265-267`**:
+   - Primary default assignment:
+     ```python
+     if depth_range is None:
+         depth_range = DepthRange(min_depth=0.0, max_depth=500.0)
+         provenance["depth_range"] = "default"
+     ```
+   - **Intent-Dependent Override (Commit `d625a03`)**:
+     ```python
+     # Surface maps and drift velocity only require surface layer coordinates; default to 0-20 dbar
+     if provenance.get("depth_range") == "default" and intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
+         depth_range = DepthRange(min_depth=0.0, max_depth=20.0)
+     ```
+     *Key Observation*: When intent is `MAP` or `DRIFT`, depth is set to `0–20.0 dbar`, while `provenance["depth_range"]` remains labeled `"default"`. For all other intents (`PROFILE`, `TS`, `ACOUSTIC`, `THERMOCLINE`, `TCHP`, etc.), default depth is `0–500.0 dbar`.
+4. **`src/siqva/validator.py:154`**:
+   - Uses fallback `depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)` for boundary checks and cost calculations.
+5. **`src/siqva/fetcher.py:885`**:
+   - Records `effective_depth_range = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)` in the returned `FetchResult`.
+6. **`src/siqva/chunking.py:92, 131`**:
+   - Uses `depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)` to compute chunk costs.
+7. **`src/siqva/card.py:146, 455-520`**:
+   - Persists `depth_range` in `QueryCard` and renders `depth_range=[min, max]` in `generate_script`.
+8. **`app/ui.py`**:
+   - In `app/ui.py:924-927`, the auto-shrink button forces `DepthRange(0.0, 20.0)` for MAP and DRIFT intents.
+   - In manual parameter editor panels, depth defaults to `0–500 dbar`.
+9. **Quick-Query Templates & Example Gallery (`data/examples.json`)**:
+   - All 5 example queries (including `[SOFAR // ARABIAN SEA]`) omit depth from their text.
+   - Therefore, all quick-query templates currently default to `0–500 dbar`.
+10. **`src/siqva/followup.py:83`**:
+    - Conversational follow-ups carry over the previous query's depth range if not explicitly modified; otherwise it remains default.
+
+---
+
+### 3.2 Maximum Depth Allowed & User Depth Text Parsing
+
+1. **Maximum Depth the Validator Allows**:
+   - **There is NO hard upper limit on depth in `validator.py`**.
+   - [`src/siqva/validator.py:155-162`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/validator.py#L155-L162) only verifies:
+     ```python
+     if depth.min_depth < 0:
+         raise SpecValidationError(...)
+     if depth.min_depth > depth.max_depth:
+         raise SpecValidationError(...)
+     ```
+   - Any depth (e.g., 2000 dbar, 5000 dbar) is syntactically permitted by the validator. However, deeper queries linearly inflate the geometric cost formula:
+     $$\text{Cost} = \text{Area} \times \text{Days} \times \frac{\text{max\_depth} - \text{min\_depth}}{500\text{ dbar}}$$
+     A 2000 dbar query has a $4\times$ multiplier ($2000 / 500 = 4.0$), triggering the 15,000 cost cap on typical regional basins.
+2. **How User Depth Text is Parsed (`rules_parser.py:550-610`)**:
+   - Units recognized: `(?:m|meters|meter|dbar|decibars|decibar)`.
+   - The parser assumes a strict **1:1 equivalence between meters and decibars** (oceanographic pressure in dbar is numerically within ~1% of depth in meters).
+   - Regex patterns:
+     - `"between 100 and 500 m"` $\to$ `DepthRange(100.0, 500.0)`
+     - `"top 500 m"`, `"surface to 200 dbar"` $\to$ `DepthRange(0.0, 500.0)`
+     - `"below 1000 m"`, `"deeper than 1000 dbar"` $\to$ `DepthRange(1000.0, 2000.0)`
+     - `"down to 1500 m"`, `"to 1500 dbar"` $\to$ matched by pattern 5 (`(?:down to|up to|to)\s+(\d+)`) $\to$ `DepthRange(0.0, 1500.0)`.
+3. **What "0–500 dbar (default)" is Derived From**:
+   - Derived from hardcoded default constants in `src/siqva/parser.py:231-233`. It is an arbitrary design convention representing standard upper-ocean sampling.
+
+---
+
+### 3.3 Physics Calculations on Synthetic Profiles
+
+Evaluated directly via `compute_new_features(df, intent=None)`:
+
+#### Profile A: Sound Speed Ending at 500 dbar (Max Depth: 496.5 m)
+- **MLD (Density)**: `None`
+- **ILD (Temperature)**: `15.5 m`
+- **Barrier Layer Thickness (BLT)**: `None`
+- **Z20 Isotherm**: `223.6 m`
+- **Z26 Isotherm**: `59.6 m`
+- **TCHP**: `22.3 kJ/cm²`
+- **Sonic Layer Depth (SLD)**: `5.0 m`
+- **SOFAR Channel Axis**: `None`
+- *Code Rule Enforced*: [`src/siqva/physics.py:315`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/physics.py#L315):
+  `sofar = float(z_m[np.argmin(snd_p)]) if max_depth >= 1000.0 else None`.
+  Because $496.5 < 1000.0$, the SOFAR channel axis is **strictly set to `None`**.
+
+#### Profile B: Ending at 2000 dbar with Sound Speed Minimum near 1000 dbar (Max Depth: 1978.9 m)
+- **MLD (Density)**: `None`
+- **ILD (Temperature)**: `None`
+- **Barrier Layer Thickness (BLT)**: `None`
+- **Z20 Isotherm**: `121.0 m`
+- **Z26 Isotherm**: `26.0 m`
+- **TCHP**: `6.9 kJ/cm²`
+- **Sonic Layer Depth (SLD)**: `5.0 m`
+- **SOFAR Channel Axis**: `884.6 m`
+- *Code Rule Enforced*: Profile reaches $\ge 1000\text{ m}$; successfully identifies the interior acoustic waveguide minimum at $884.6\text{ m}$.
+
+#### Profile C: Cold Profile where 20°C and 26°C are Never Reached (Max Depth: 1481.8 m)
+- **MLD (Density)**: `25.4 m`
+- **ILD (Temperature)**: `32.8 m`
+- **Barrier Layer Thickness (BLT)**: `7.4 m`
+- **Z20 Isotherm**: `None` (temperature never reaches 20°C)
+- **Z26 Isotherm**: `None` (temperature never reaches 26°C)
+- **TCHP**: `0.0 kJ/cm²` (no heat content above 26°C)
+- **Sonic Layer Depth (SLD)**: `5.0 m`
+- **SOFAR Channel Axis**: `1481.8 m` (exact bottom of profile)
+
+#### Does the Code Ever Report the Deepest Sample as the SOFAR Axis?
+- **YES.** In Profile C and Profile D (monotonic sound speed decrease with depth), `np.argmin(snd_p)` points to the final index. Because the check only requires `max_depth >= 1000.0` without testing whether an interior minimum exists ($c_{axis} < c_{bottom}$), the code reports the deepest sampled measurement (`1481.8 m`) as the SOFAR axis.
+
+---
+
+### 3.4 Depth in Cache Keys & Storage Sharing
+
+1. **Is Depth Part of `fetch_key` and the Cache Filename?**:
+   - **Yes.** In [`src/siqva/spec.py:185-189, 210-222`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/spec.py#L185), `fetch_dict()` includes:
+     ```python
+     "depth_range": {
+         "max_depth": round(float(self.depth_range.max_depth), 2),
+         "min_depth": round(float(self.depth_range.min_depth), 2),
+     }
+     ```
+   - `fetch_key()` computes the SHA-256 hash of this dictionary, and the Parquet cache file is stored directly as `cache/{fetch_key}.parquet` ([`src/siqva/fetcher.py:731-732`](file:///c:/Users/Sagar%20Gowda%20H/OneDrive/Desktop/SIQVA/src/siqva/fetcher.py#L731)).
+2. **Do a 0–500 and a 0–2000 Query Share a Cache Entry?**:
+   - **No.** They produce completely different SHA-256 hashes and store separate `.parquet` files.
+   - If a user previously fetched data down to 2000 dbar, a subsequent 0–500 dbar query will not read from the 2000 dbar cache file, but will trigger an independent fetch/cache entry.
+
+---
+
+### 3.5 Real Path Execution of Sound Speed Queries (Fetcher Mocked)
+
+#### 1. "sound speed in the Arabian Sea in January 2023"
+- **Parsed Depth**: `{'min_depth': 0.0, 'max_depth': 500.0}`
+- **Flagged as Default?**: **`True`** (`provenance='default'`)
+- **Understood As**: `Depth: 0–500 dbar (default) [default]`
+- **Pipeline Status**: `SUCCESS`
+- **Answer Text Output**:
+  > *### TEOS-10 Ocean Physics Features*  
+  > *Analyzed 2 profile(s) using TEOS-10 thermodynamics (gsw):*  
+  > *- Sonic Layer Depth (SLD Peak): Mean: 5.0 m*  
+  > *- SOFAR Channel Axis: None (all profiles < 1000 m threshold)*  
+  > *- Per-Profile Table: Profile `1_1` Max Depth: 485m, SLD: 5.0m, SOFAR: -*
+
+#### 2. "acoustic sound speed profile in Arabian Sea January 2022" (SOFAR Quick-Query Template in `app/ui.py` & `examples.json`)
+- **Parsed Depth**: `{'min_depth': 0.0, 'max_depth': 500.0}`
+- **Flagged as Default?**: **`True`** (`provenance='default'`)
+- **Understood As**: `Depth: 0–500 dbar (default) [default]`
+- **Pipeline Status**: `SUCCESS`
+- **Answer Text Output**:
+  > *- SOFAR Channel Axis: None (all profiles < 1000 m threshold)*  
+  > *Table: Profile `1_1` Max Depth: 485m, SLD: 5.0m, SOFAR: -*  
+  > **Finding**: The official SOFAR quick-query template in the UI yields an empty SOFAR axis because it lacks an explicit depth specification and defaults to 500 dbar.
+
+#### 3. "sound speed in the Arabian Sea in January 2023 down to 2000 dbar"
+- **Parsed Depth**: `{'min_depth': 0.0, 'max_depth': 2000.0}`
+- **Flagged as Default?**: **`False`** (`provenance='rules'`)
+- **Understood As**: `Depth: 0–2000 dbar [rules]`
+- **Pipeline Status**: **`CLARIFICATION_NEEDED`**
+- **Exact User Message**:
+  > *"Request exceeds allowable size cap (55080 > 15000 cost units). Request volume (55,080.0 cost units) exceeds the maximum limit (15,000.0). Current region 'Arabian Sea' (459.0°²) across 30 days with depth range 0–2000 dbar (span 2000 dbar). At this depth range, at most 8 days fit under the limit. Please narrow your query with one of the following: 1. Shorter period: narrowing the date range to 8 days or fewer (e.g. at most 8 days at this depth). 2. Shallower depth: choosing a shallower depth range with a span of at most 544 dbar (e.g. 0–544 dbar) for 30 days. 3. Smaller region: shrinking the bounding box or specifying precise coordinates to reduce the area from 459.0°²."*
+- **Crucial Conflict Identified**:
+  - The default depth (500 dbar) prevents SOFAR calculation ($< 1000\text{ m}$).
+  - Specifying the required 2000 dbar depth quadruples the cost ($459 \times 30 \times 4.0 = 55,080$), triggering the cost cap and blocking the query!
