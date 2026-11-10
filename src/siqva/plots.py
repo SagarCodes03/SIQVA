@@ -23,6 +23,58 @@ COLOR_TEMP = "#FF8C42"  # warm orange
 COLOR_PSAL = "#2EC4B6"  # teal
 COLOR_PRES = "#8FA9B8"  # muted blue-grey
 
+# Maximum per-row observations rendered in scatter plots to keep JSON payloads lightweight
+MAX_PLOT_OBSERVATIONS: int = 5000
+
+
+def _stratified_sample_observations(
+    df: pd.DataFrame,
+    max_points: int = MAX_PLOT_OBSERVATIONS,
+) -> pd.DataFrame:
+    """Deterministically downsample observations stratified by profile to at most max_points."""
+    if len(df) <= max_points:
+        return df
+
+    # Find profile grouping column(s)
+    group_cols: list[str] = []
+    if "PLATFORM_NUMBER" in df.columns and "CYCLE_NUMBER" in df.columns:
+        group_cols = ["PLATFORM_NUMBER", "CYCLE_NUMBER"]
+    elif "PLATFORM_NUMBER" in df.columns:
+        group_cols = ["PLATFORM_NUMBER"]
+    elif "wmo_id" in df.columns and "cycle" in df.columns:
+        group_cols = ["wmo_id", "cycle"]
+    elif "wmo_id" in df.columns:
+        group_cols = ["wmo_id"]
+
+    if not group_cols:
+        # No profile metadata; use deterministic uniform index sampling
+        indices = np.linspace(0, len(df) - 1, max_points, dtype=int)
+        return df.iloc[np.unique(indices)].copy()
+
+    # Stratified by profile: allocate sample quota per profile
+    groups = [group for _, group in df.groupby(group_cols, sort=True)]
+    n_groups = len(groups)
+    if n_groups == 0:
+        return df
+
+    total_rows = len(df)
+    target_ratio = max_points / total_rows
+
+    selected_indices: list[int] = []
+    for g in groups:
+        g_len = len(g)
+        k = max(1, int(round(g_len * target_ratio)))
+        # Select evenly spaced indices within group to preserve surface and deep structure
+        local_idx = np.unique(np.round(np.linspace(0, g_len - 1, k)).astype(int))
+        selected_indices.extend(g.index[local_idx].tolist())
+
+    selected_indices = sorted(set(selected_indices))
+    if len(selected_indices) > max_points:
+        sub_idx = np.round(np.linspace(0, len(selected_indices) - 1, max_points)).astype(int)
+        selected_indices = [selected_indices[i] for i in sub_idx]
+
+    return df.loc[selected_indices].copy()
+
 
 def apply_theme(fig: go.Figure, title: Optional[str] = None) -> go.Figure:
     """Apply the shared Deep Ocean Plotly theme to a figure."""
@@ -230,10 +282,16 @@ def plot_ts_diagram(
         )
         return apply_theme(fig, title=title or "Temperature-Salinity (T-S) Diagram")
 
+    total_obs = len(valid_df)
+    sampled_df = _stratified_sample_observations(valid_df, max_points=MAX_PLOT_OBSERVATIONS)
+    is_sampled = len(sampled_df) < total_obs
+
+    ScatterTrace = getattr(go, "Scattergl", go.Scatter)
+
     if pres_col:
         marker_dict = dict(
             size=4,
-            color=valid_df[pres_col],
+            color=sampled_df[pres_col],
             colorscale="Viridis",
             colorbar=dict(
                 title=dict(text="Pressure (dbar)", font=dict(color=THEME_TEXT)),
@@ -245,14 +303,30 @@ def plot_ts_diagram(
         marker_dict = dict(size=4, color=COLOR_PRIMARY_TEAL, opacity=0.75)
 
     fig.add_trace(
-        go.Scatter(
-            x=valid_df["PSAL"],
-            y=valid_df["TEMP"],
+        ScatterTrace(
+            x=sampled_df["PSAL"],
+            y=sampled_df["TEMP"],
             mode="markers",
             marker=marker_dict,
             hovertemplate="Salinity: %{x:.2f}<br>Temp: %{y:.2f} °C<extra></extra>",
         )
     )
+
+    if is_sampled:
+        fig.add_annotation(
+            text=f"Showing {len(sampled_df):,} of {total_obs:,} observations (sampled)",
+            xref="paper",
+            yref="paper",
+            x=0.02,
+            y=0.98,
+            xanchor="left",
+            yanchor="top",
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=11),
+            bgcolor="rgba(10, 25, 40, 0.7)",
+            bordercolor=THEME_GRID,
+            borderwidth=1,
+        )
 
     fig.update_layout(
         xaxis_title="Practical Salinity (PSAL)",
@@ -1094,6 +1168,11 @@ def plot_ts_with_isopycnals(
             invert_y=False
         )
 
+    total_obs = len(df_clean)
+    sampled_df = _stratified_sample_observations(df_clean, max_points=MAX_PLOT_OBSERVATIONS)
+    is_sampled = len(sampled_df) < total_obs
+    ScatterTrace = getattr(go, "Scattergl", go.Scatter)
+
     if "LATITUDE" in df_clean.columns and lat == 15.0:
         lat = float(df_clean["LATITUDE"].dropna().mean()) if not df_clean["LATITUDE"].dropna().empty else 15.0
     if "LONGITUDE" in df_clean.columns and lon == 80.0:
@@ -1101,13 +1180,13 @@ def plot_ts_with_isopycnals(
 
     if gsw is not None:
         try:
-            sa = gsw.SA_from_SP(df_clean["PSAL"].values, df_clean["PRES"].values, lon, lat)
-            ct = gsw.CT_from_t(sa, df_clean["TEMP"].values, df_clean["PRES"].values)
+            sa_full = gsw.SA_from_SP(df_clean["PSAL"].values, df_clean["PRES"].values, lon, lat)
+            ct_full = gsw.CT_from_t(sa_full, df_clean["TEMP"].values, df_clean["PRES"].values)
 
-            s_min = max(25.0, float(np.nanmin(sa)) - 0.5)
-            s_max = min(42.0, float(np.nanmax(sa)) + 0.5)
-            t_min = max(-2.0, float(np.nanmin(ct)) - 2.0)
-            t_max = min(35.0, float(np.nanmax(ct)) + 2.0)
+            s_min = max(25.0, float(np.nanmin(sa_full)) - 0.5)
+            s_max = min(42.0, float(np.nanmax(sa_full)) + 0.5)
+            t_min = max(-2.0, float(np.nanmin(ct_full)) - 2.0)
+            t_max = min(35.0, float(np.nanmax(ct_full)) + 2.0)
 
             s_grid = np.linspace(s_min, s_max, 80)
             t_grid = np.linspace(t_min, t_max, 80)
@@ -1126,14 +1205,17 @@ def plot_ts_with_isopycnals(
                 hoverinfo="skip"
             ))
 
+            sa_sampled = gsw.SA_from_SP(sampled_df["PSAL"].values, sampled_df["PRES"].values, lon, lat)
+            ct_sampled = gsw.CT_from_t(sa_sampled, sampled_df["TEMP"].values, sampled_df["PRES"].values)
+
             # Actual observations
-            fig.add_trace(go.Scatter(
-                x=sa,
-                y=ct,
+            fig.add_trace(ScatterTrace(
+                x=sa_sampled,
+                y=ct_sampled,
                 mode="markers",
                 marker=dict(
                     size=5,
-                    color=df_clean["PRES"],
+                    color=sampled_df["PRES"],
                     colorscale="Viridis_r",
                     colorbar=dict(title="Depth (dbar)"),
                     showscale=True
@@ -1141,6 +1223,22 @@ def plot_ts_with_isopycnals(
                 name="Float Profile",
                 hovertemplate="SA: %{x:.2f} g/kg<br>CT: %{y:.2f} °C<br>Depth: %{marker.color:.0f} dbar<extra></extra>"
             ))
+
+            if is_sampled:
+                fig.add_annotation(
+                    text=f"Showing {len(sampled_df):,} of {total_obs:,} observations (sampled)",
+                    xref="paper",
+                    yref="paper",
+                    x=0.02,
+                    y=0.98,
+                    xanchor="left",
+                    yanchor="top",
+                    showarrow=False,
+                    font=dict(color=THEME_TEXT, size=11),
+                    bgcolor="rgba(10, 25, 40, 0.7)",
+                    bordercolor=THEME_GRID,
+                    borderwidth=1,
+                )
 
             return _apply_siqva_theme(
                 fig,
@@ -1153,13 +1251,13 @@ def plot_ts_with_isopycnals(
             pass
 
     # Fallback to standard T-S
-    fig.add_trace(go.Scatter(
-        x=df_clean["PSAL"],
-        y=df_clean["TEMP"],
+    fig.add_trace(ScatterTrace(
+        x=sampled_df["PSAL"],
+        y=sampled_df["TEMP"],
         mode="markers",
         marker=dict(
             size=5,
-            color=df_clean["PRES"],
+            color=sampled_df["PRES"],
             colorscale="Viridis",
             colorbar=dict(title="Depth (dbar)"),
             showscale=True
@@ -1167,6 +1265,22 @@ def plot_ts_with_isopycnals(
         name="T-S Observations",
         hovertemplate="Salinity: %{x:.2f}<br>Temp: %{y:.2f} °C<br>Depth: %{marker.color:.0f} dbar<extra></extra>"
     ))
+
+    if is_sampled:
+        fig.add_annotation(
+            text=f"Showing {len(sampled_df):,} of {total_obs:,} observations (sampled)",
+            xref="paper",
+            yref="paper",
+            x=0.02,
+            y=0.98,
+            xanchor="left",
+            yanchor="top",
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=11),
+            bgcolor="rgba(10, 25, 40, 0.7)",
+            bordercolor=THEME_GRID,
+            borderwidth=1,
+        )
 
     return _apply_siqva_theme(
         fig,

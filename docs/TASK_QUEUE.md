@@ -25,7 +25,8 @@ Resume instruction for future sessions:
 | [x] **FIX 4** | Safety verification (unquantified date clarifications, Ollama-unavailable < 3s, actionable oversized basin message, docs sync) | DONE (commit `938d3f5`, 315 passed) |
 | [x] **F1** | Physics honesty (SOFAR interior requirement, MIN_SAMPLES_EACH_SIDE=3, SLD surface behavior, aggregate 'N of M' text, shallower profiles count) | DONE (tag `done-F1`, 329 passed) |
 | [x] **F2** | Fetcher binding and offline-safe tests (call-time fetch resolution in pipeline.run/run_spec, autouse network guard in conftest.py, fix test_ui_smoke deselect) | DONE (tag `done-F2`, 335 passed) |
-| [ ] **F3** | Plot size (deterministic stratified sampling for plot_ts_diagram and per-row traces, MAX_PLOT_OBSERVATIONS=5000, scattergl support, before/after JSON size) | IN PROGRESS |
+| [x] **F3** | Plot size (deterministic stratified sampling for plot_ts_diagram and per-row traces, MAX_PLOT_OBSERVATIONS=5000, scattergl support, before/after JSON size) | DONE (tag `done-F3`, 340 passed) |
+| [ ] **F4** | Reproducibility honesty (generate_script support/disclaimers for all 13 intents, audit CLIMATOLOGY external reference/anomaly behavior in DECISIONS.md) | IN PROGRESS |
 | [ ] **F4** | Reproducibility honesty (generate_script support/disclaimers for all 13 intents, audit CLIMATOLOGY external reference/anomaly behavior in DECISIONS.md) | PENDING |
 | [ ] **F5** | Guardrail visibility (banner when SIQVA_DISABLE_SIZE_GUARDRAIL=1, card note, AUTO_SHRINK_MAX_DAYS=14, 2000 dbar max depth validator rule) | PENDING |
 | [ ] **F6** | Cleanup, measurement script, docs (git rm old_ui_0.1.py app/old_ui.py, measure_live.py, AGENTS.md/README.md synchronization, final report) | PENDING |
