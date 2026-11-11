@@ -59,22 +59,27 @@ Suggested layout:
 ```
 src/siqva/
   spec.py          # Pydantic QuerySpec + enums
-  validator.py     # bounds, dates, variable allow-list, size caps
+  validator.py     # bounds, dates, variable allow-list, size caps (structural)
+  capabilities.py  # capability profiles (METADATA, SAMPLE_ALLOWED, FULL_REQUIRED)
+  planner.py       # layered execution planning (FULL, CHUNKED, SAMPLE, REFUSE)
+  floatindex.py    # local float index query, counts, overview maps, deterministic sampling
+  regions.py       # safe region description and bbox resolution
   gazetteer.py     # region name -> bounding box (+ fuzzy match)
   rules_parser.py  # dates, variables, mode, intent via rules
   llm_parser.py    # constrained-output fallback (Ollama)
   parser.py        # parse(question) -> QuerySpec | ClarificationNeeded
   interpretation.py# deterministic "Understood as" formatting
-  fetcher.py       # argopy access, caching by spec hash
+  pipeline.py      # top-level error handling and execution pipeline
+  fetcher.py       # argopy access, caching by spec hash, per-profile sampling
   chunking.py      # large-query calendar-month splitting and assembly
   qc.py            # mode / QC filtering
-  analyzer.py      # stats + coverage metadata
+  analyzer.py      # stats + coverage metadata (regional stats suppressed on samples)
   operations.py    # deterministic operations (mean, min, max, anomaly)
   comparison.py    # dual-dataset comparison without anomaly claims
   glossary.py      # scientific term lookup with literature citations and verification flag
   router.py        # query intent router (data, op, compare, glossary, meta)
   followup.py      # conversational state and query edits (salinity, year, region)
-  plots.py         # profile, map, T-S templates
+  plots.py         # profile, map, T-S, overview map templates
   card.py          # query card + generated script + re-run/diff
 app/ui.py          # Streamlit
 benchmark/         # questions + reference specs + scorer
@@ -113,11 +118,17 @@ tests/
 - If validation fails after one retry, return a clarification request. Never
   guess a region, date range, or QC mode.
 
-## 7. Spec and validation
+## 7. Spec, validation, and planning
 
-`QuerySpec` fields: `region` (bbox), `date_range`, `variables`, `depth_range`,
+`QuerySpec` fields: `region` (bbox or basin), `date_range`, `variables`, `depth_range`,
 `mode` (`research` | `standard` | `expert`), `intent`
 (`profile` | `map` | `ts` | `trend` | `thermocline` | `tchp` | `acoustic`).
+
+Layered validation and planning:
+- Structural validation (`validator.py`): enforces valid bounds, chronological date ordering, allowed variables, depth ranges, and basic syntax. Bounding boxes crossing the antimeridian (180° meridian, where `lon_min > lon_max`) are rejected with an explicit plain-words explanation.
+- Capability profiles (`capabilities.py`): classifies each intent as `METADATA` (e.g. float overview maps, counts), `SAMPLE_ALLOWED` (e.g. profile, ts, acoustic), or `FULL_REQUIRED` (e.g. trend, thermocline, tchp, operations, comparison). Caps maximum requested depth at 2000 dbar.
+- Execution planning (`planner.py`): evaluates the validated spec against capability rules, region geometry, and float-index profile counts. Emits a `PlanDecision` (`FULL`, `CHUNKED`, `SAMPLE`, `REFUSE`).
+- No-dead-ends rule: Every refusal (`REFUSE`) must provide actionable, structured options (e.g. smaller subregions, shorter time period, overview float map, sample if permitted), never a blank refusal.
 
 Physics intents (on-demand TEOS-10 analysis via `gsw`):
 - `thermocline`: Mixed Layer Depth (MLD), Isothermal Layer Depth (ILD), Barrier Layer Thickness (BLT), and 20°C isotherm (Z20).
@@ -126,15 +137,19 @@ Physics intents (on-demand TEOS-10 analysis via `gsw`):
 
 Physics runs *only* on those three intents; standard queries (`profile`, `map`, `ts`, `trend`) skip all physics calculations and plots.
 Water-mass classification was permanently removed because it was Indian-Ocean-only and gave wrong, misleading labels elsewhere.
-Known limitation: Bounding boxes crossing the antimeridian (180° meridian, where `lon_min > lon_max`) are rejected by the validator with an explicit plain-words explanation.
-The validator enforces: valid bbox, date order, allowed variables, and a maximum request size. Oversized requests trigger an actionable, numerically computed message detailing region, area, days, depth span, maximum days fitting at requested depth, and three concrete suggestions (shorter period, shallower depth, smaller region/coords).
 
-## 8. Fetching, caching, reproducibility
+## 8. Fetching, caching, reproducibility, and sampling
 
 - Normalise the spec, hash it, and use the hash as the cache key (Parquet).
 - Large multi-month queries exceeding the single-request cost cap (15,000) are decomposed into calendar-month chunks up to `SIQVA_MAX_CHUNKS` (default 24). Each month is fetched and cached independently via standard Parquet cache, enabling shared reuse across overlapping queries. Combined data is deduplicated by `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)` and capped by `SIQVA_MAX_TOTAL_ROWS` (default 3,000,000). If any single month exceeds 15,000 cost cap, chunking cannot save it and the standard oversized suggestion applies.
-- Record source (ERDDAP/GDAC), argopy and xarray versions, fetch timestamp, and
-  a data hash in every card.
+- Deterministic profile sampling (`fetch_sample`): when the planner chooses `SAMPLE`, space-time stratified profile picks are selected deterministically via `FloatIndex.select_sample` using a seed derived from `(fetch_key, build_date)`. Profiles are fetched sequentially with single-profile caching (`mode, variables, wmo, cycle`) within a 90-second foreground wall-clock budget.
+- **Samples are never region statistics:** The analyzer strictly suppresses regional statistics, area averages, and physics summaries on sample runs. Per-profile display and plots are permitted, but samples must never be presented as regional aggregates.
+- Query card and reproducibility:
+  - Record source (ERDDAP/GDAC), argopy and xarray versions, fetch timestamp, and a data hash in every card.
+  - Query cards record `plan_decision` and, for samples, the `sample_picks` list, method, seed, and index build date.
+  - `generate_script` generates standalone reproducible code: for samples, it fetches the exact picked profiles without requiring the float index and explicitly states in its header that it reproduces the sample, not the region.
+  - Re-run reproduces the exact same sample picks and diffs data hashes.
+  - Compare Runs (`/compare`) compares only complete runs (`FULL` or `CHUNKED`). Samples cannot be compared as regional datasets and display clear explanatory options.
 - `QueryCard` persists an optional `question` field in SQLite (`data/cards.sqlite`), with automatic migration (`ALTER TABLE`) for legacy databases. Cards for chunked queries record `chunks`, and `generate_script` generates a reproducible loop over monthly chunks.
 - `list_cards()` deduplicates entries by `(spec_hash, mode)` returning newest cards.
 - Sidebar history label format: `"{question} · {created_at[:10]} · {region_name}"` (question truncated to 40 characters, falling back to `"{Intent} query"`).
@@ -167,4 +182,4 @@ The validator enforces: valid bbox, date order, allowed variables, and a maximum
 Stop and ask rather than adding features, dependencies, or assumptions.
 Prefer the simplest implementation that satisfies the task and the rules above.
 
-Float index cache (allowed): A local Parquet snapshot of float metadata (WMO, last position, date, type), fetched via argopy IndexFetcher, used only for discovery (“floats near X”) and map display. Record the fetch date. Never use it for profile values.
+Float index cache (allowed): A local Parquet snapshot of float metadata (`data/float_index.parquet`), loaded once via `FloatIndex` (`src/siqva/floatindex.py`), used strictly for discovery ("floats near X"), overview maps, profile counts, and deterministic stratified space-time profile sampling (`select_sample`). Record the index build date. **Never use it for profile values.**

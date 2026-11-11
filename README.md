@@ -36,35 +36,41 @@
          |                            v                            |
          |                   +------------------+                  |
          |                   | Spec Validator   |                  |
-         |                   | & Cost Cap Guard |                  |
+         |                   | (validator.py)   |                  |
          |                   +--------+---------+                  |
          |                            |                            |
          |                            v                            |
          |                   +------------------+                  |
-         |                   | Multi-Month      |                  |
-         |                   | Calendar Chunking|                  |
-         |                   | (chunking.py)    |                  |
-         |                   +--------+---------+                  |
-         |                            |                            |
-         |                            v                            |
-         |                   +------------------+                  |
-         |                   | argopy Fetcher   |                  |
-         |                   | & Parquet Cache  |                  |
-         |                   +--------+---------+                  |
-         |                            |                            |
-         |                            v                            |
-         |                   +------------------+                  |
-         |                   | QC Audit & Filter|                  |
-         |                   | (src/siqva/qc.py)|                  |
-         |                   +--------+---------+                  |
-         |                            |                            |
-         |                            v                            v
-         |                   +------------------+       +---------------------+
-         |                   | TEOS-10 Physics  |       | Deterministic Stats |
-         |                   | (on-demand gsw)  |       | & Answer Templates  |
-         |                   +--------+---------+       +----------+----------+
-         |                            |                            |
-         +----------------------------+----------------------------+
+         |                   | Execution Planner|                  |
+         |                   | (planner.py)     | <---+ Local Float Index
+         |                   +--------+---------+     | (floatindex.py)
+         |                            |               |
+         |         +------------------+---------------+
+         |         |                  |               |
+         |         v (FULL/CHUNKED)   v (SAMPLE)      v (METADATA)
+         |   +-----------+      +-----------+   +---------------+
+         |   | Multi-    |      | Space-Time|   | Float Index   |
+         |   | Month     |      | Stratified|   | Overview Map  |
+         |   | Chunking  |      | Sample    |   | & Counts      |
+         |   | & Fetch   |      | Fetch     |   +-------+-------+
+         |   +-----+-----+      +-----+-----+           |
+         |         |                  |                 |
+         |         +------------------+                 |
+         |                            |                 |
+         |                            v                 |
+         |                   +------------------+       |
+         |                   | QC Audit & Filter|       |
+         |                   | (src/siqva/qc.py)|       |
+         |                   +--------+---------+       |
+         |                            |                 |
+         |                            v                 v
+         |                   +------------------+  +---------------------+
+         |                   | Analyzer & Plots |  | Deterministic Stats |
+         |                   | (No regional     |  | & Answer Templates  |
+         |                   |  stats on sample)|  +----------+----------+
+         |                   +--------+---------+             |
+         |                            |                       |
+         +----------------------------+-----------------------+
                                       |
                                       v
                            +----------------------+
@@ -115,7 +121,24 @@ pytest -q
 
 ## 4. Key Capabilities
 
-### Data Retrieval & Multi-Month Chunking
+### Capability Matrix & Layered Planning (`capabilities.py`, `planner.py`)
+Queries are evaluated against an explicit capability matrix before fetching live observations:
+
+| Capability Tier | Intents / Subsystems | Permitted Modes | Behavior on Oversized / Basin Query |
+| :--- | :--- | :--- | :--- |
+| **`METADATA`** | Float overview maps, profile counts, float track inspection | Instant Index metadata | Renders interactive Scattergeo float map and profile counts directly from local index. |
+| **`SAMPLE_ALLOWED`** | Depth profiles, T-S diagrams, sound speed acoustic profiles | `FULL`, `CHUNKED`, `SAMPLE` | Deterministic space-time stratified sampling (12, 24, 48 profiles) with overview map & sample plots. |
+| **`FULL_REQUIRED`** | Trends, thermocline/barrier layers, cyclone TCHP, numerical operations, comparisons | `FULL`, `CHUNKED` | Refused with structured alternatives (smaller subregion, shorter period, overview map, sample if permitted). |
+
+- **No Dead Ends**: When a query cannot run in full (e.g. basin-wide trend or statistical operation), SIQVA never returns an empty rejection; it provides structured, interactive alternative buttons (narrow time period, smaller subregion, overview float map, or sample).
+
+### Float Index & Deterministic Profile Sampling (`floatindex.py`, `fetcher.py`)
+- **Local Float Index Snapshot (`data/float_index.parquet`)**: Fast, in-memory index loaded once at startup providing metadata for ~2 million Argo profiles. Used strictly for discovery, float overview maps, profile counts, and deterministic profile selection—**never for profile observation values**.
+- **Deterministic Space-Time Stratification**: Profiles are sampled deterministically across spatial latitude/longitude grid cells and temporal time slices, deduplicating floats so no single platform dominates. The pseudo-random selection uses a seed derived deterministically from the canonical spec hash and index build date.
+- **Scientific Honesty (No Regional Stats on Samples)**: When a query runs as a sample, the analyzer strictly suppresses regional statistics, area averages, and physics summaries. Per-profile curves and curves are displayed, but regional aggregates are omitted with a clear explanatory notice.
+- **Sequential Profile Fetcher & Budget Guard**: Fetches sampled profiles sequentially with individual Parquet cache entries (`mode, variables, wmo, cycle`) within a strict 90-second foreground wall-clock budget.
+
+### Data Retrieval & Multi-Month Chunking (`fetcher.py`, `chunking.py`)
 - **Single-Request Cost Cap**: Automatically enforces a 15,000 cost-unit cap ($\text{Area} \times \text{Days} \times [\text{Depth} / 500\text{ dbar}]$).
 - **Calendar-Month Chunking**: Large multi-month queries exceeding 15,000 cost units are decomposed into monthly chunks up to `SIQVA_MAX_CHUNKS` (default 24).
 - **Shared Monthly Caching**: Each monthly slice is fetched and stored independently in Parquet format, allowing overlapping queries to reuse cached months instantly.

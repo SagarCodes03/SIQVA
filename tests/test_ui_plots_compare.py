@@ -205,3 +205,4 @@ def test_compare_runs_refuses_when_side_is_sample(sample_and_full_cards):
         # Delta metrics table is suppressed
         metric_labels = [m.label for m in at.metric]
         assert "Rows" not in metric_labels
+

@@ -81,25 +81,29 @@ User Question (Natural Language)
 | File | Primary Responsibility |
 | :--- | :--- |
 | `src/siqva/spec.py` | Defines `QuerySpec`, `BoundingBox`, `DateRange`, `DepthRange`, enums (`Variable`, `DataMode`, `Intent`), canonical serialization, and SHA-256 hashing. |
-| `src/siqva/validator.py` | Enforces geographic bounds, chronological date ordering, allowed variables, depth ranges, and depth-scaled query cost caps. |
+| `src/siqva/capabilities.py` | Defines capability profiles (`METADATA`, `SAMPLE_ALLOWED`, `FULL_REQUIRED`), default depth bounds, 2000 dbar physical cap, and max observation/sample constants. |
+| `src/siqva/planner.py` | Evaluates specs against capability profiles, geographic bounds/basins, and float-index counts to produce `PlanDecision` (`FULL`, `CHUNKED`, `SAMPLE`, `REFUSE`) with actionable options. |
+| `src/siqva/floatindex.py` | Fast in-memory local float index querying, profile counts, float tracks, coverage checks, and deterministic space-time stratified profile sampling (`select_sample`). |
+| `src/siqva/regions.py` | Helper providing safe region descriptions and optional bounding boxes across named boxes, ocean basins, and metadata requests. |
+| `src/siqva/validator.py` | Enforces structural geographic bounds, chronological date ordering, allowed variables, depth ranges, and antimeridian constraints. |
 | `src/siqva/chunking.py` | Decomposes multi-month queries exceeding single-request cost cap into calendar months (up to `SIQVA_MAX_CHUNKS=24`), executes monthly fetches via standard Parquet cache, deduplicates combined records, and enforces `SIQVA_MAX_TOTAL_ROWS=3,000,000`. |
 | `src/siqva/gazetteer.py` | Resolves geographic ocean names to bounding boxes via dictionary lookup, fuzzy matching (`rapidfuzz`), and coordinate regex extraction. |
 | `src/siqva/rules_parser.py` | Extracts variables, dates, regions, delivery modes, depth limits, and user intent using deterministic regular expressions and dictionary rules. |
 | `src/siqva/llm_parser.py` | Provides JSON-schema-constrained Ollama fallback extraction for individual fields that rule-based parsing leaves unfilled. |
 | `src/siqva/parser.py` | Orchestrates the hybrid parsing strategy: runs rules first, calls the LLM fallback only if needed, validates the candidate spec, and returns a `QuerySpec` or `ClarificationNeeded`. |
 | `src/siqva/interpretation.py` | Formats deterministic "Understood as" query summaries with field-level provenance tags (`[rules]`, `[llm]`, `[default]`). |
-| `src/siqva/fetcher.py` | Interfaces with `argopy.DataFetcher` using explicit modes, evaluates local float-index profile guards, manages Parquet caching with sidecar JSON, and handles network timeouts. |
+| `src/siqva/pipeline.py` | Chains parsing, planning, execution dispatch (`fetch` / `fetch_chunked` / `fetch_sample`), QC auditing, analysis, visualization, and card persistence with top-level error protection. |
+| `src/siqva/fetcher.py` | Interfaces with `argopy.DataFetcher` using explicit modes, executes sequential profile sampling within a 90s budget, manages Parquet caching with sidecars, and handles timeouts. |
 | `src/siqva/qc.py` | Documents mode filtering behaviors (research, standard, expert) and performs non-destructive quality control auditing per variable and profile. |
-| `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, on-demand physics orchestration, skipped-profile tracking, and deterministic template summaries. |
+| `src/siqva/analyzer.py` | Calculates non-depth-weighted observation statistics, vertical depth-bin distributions, depth penetration percentages, on-demand physics orchestration, skipped-profile tracking, and deterministic template summaries (suppresses regional stats on samples). |
 | `src/siqva/operations.py` | Executes deterministic statistical operations (`mean`, `median`, `min`, `max`, `std`, `count`, `anomaly`), temporal binning, depth filtering, and formats deterministic answer text without LLM imports. |
 | `src/siqva/comparison.py` | Executes dual-dataset comparisons across regions or periods with deterministic difference reporting, strictly avoiding unscientific subjective framing ('anomalous', 'abnormal', 'unusual'). |
 | `src/siqva/glossary.py` | Provides exact, alias, and fuzzy lookup of oceanographic terms loaded with explicit UTF-8 encoding from `data/glossary.json` with mandatory scientific literature citations and `verified: false` flag with verification checklist. |
 | `src/siqva/router.py` | Deterministic rules-first classifier routing user questions to the correct subsystem: `DATA_FETCH`, `OPERATION`, `COMPARISON`, `GLOSSARY`, `META`, or `CLARIFICATION`. |
 | `src/siqva/followup.py` | Tracks `ConversationState` and resolves conversational follow-up edits ("same for salinity", "now 2023", region changes) deterministically against the last query spec. |
 | `src/siqva/physics.py` | Implements deterministic TEOS-10 thermodynamic and acoustic physical properties (MLD, ILD, BLT, Z20, Z26, TCHP, sound speed, SLD, SOFAR axis) using `gsw`. Executed strictly on-demand for physics intents; water-mass classification permanently removed; tracks skipped profiles via `SkippedProfileInfo`. |
-| `src/siqva/plots.py` | Generates interactive Plotly visualizations (depth profiles, spatial trajectories, T-S diagrams, thermocline/barrier layers, cyclone TCHP, sound speed) under the Deep Ocean dark theme. |
-| `src/siqva/card.py` | Constructs immutable `QueryCard` provenance records, persists them to SQLite, generates reproducible Python scripts, and computes data diff summaries upon re-run. |
-| `src/siqva/pipeline.py` | Chains parsing, validation, data fetching, QC auditing, analysis, visualization, and card persistence into a single end-to-end entry point. |
+| `src/siqva/plots.py` | Generates interactive Plotly visualizations (depth profiles, spatial trajectories, T-S diagrams, thermocline/barrier layers, cyclone TCHP, sound speed, overview float maps) under the Deep Ocean dark theme. |
+| `src/siqva/card.py` | Constructs immutable `QueryCard` provenance records, persists them to SQLite, generates reproducible Python scripts (with honest sample reproduction), and computes data diff summaries upon re-run. |
 | `app/ui.py` | Streamlit web application providing natural-language search, interactive multi-mode graph builders, query card inspection, and script downloads. |
 
 ---
@@ -149,45 +153,44 @@ When a query is processed through `siqva.pipeline.run(question)`:
         - Rendered in Streamlit UI via `st.caption(...)` above **both** successful query results and clarification banners.
    - **Output**: `ParseOutcome` containing candidate `QuerySpec` (or `ClarificationNeeded`), `provenance` dictionary, and `UnderstoodQuery`.
 
-3. **Validation & Size Capping**
-   - **File**: `src/siqva/validator.py` -> `validate_spec(spec)`
-   - **Input**: Candidate `QuerySpec`.
-   - **Checks**:
-     - Longitudes within `[-180, 180]` and `lon_min <= lon_max`. Bounding boxes crossing the 180° meridian (antimeridian where `lon_min > lon_max`) are rejected with an explicit, plain-words explanation directing the user to split the query into eastern and western boxes.
-     - Latitudes within `[-90, 90]` and `lat_min <= lat_max`.
-     - Dates chronological: `start <= end`.
-     - Variables in allowed set (`TEMP`, `PSAL`, `PRES`).
-     - Depth range valid: `0 <= min_depth <= max_depth`.
-     - Cost estimate cap: `cost = area_deg2 * days * (depth_span / 500.0) <= 15,000.0`.
-   - **Actionable Oversized Guidance**:
-     - When `cost > 15,000.0`, `format_oversized_suggestion` computes real numbers:
-       - Region name and exact area in deg²
-       - Requested duration in days and depth span in dbar
-       - Maximum days that fit at the requested depth span
-       - Three actionable suggestions:
-         1. *Shorter period*: reduce days to $\le \text{max\_days}$.
-         2. *Shallower depth*: target maximum depth span that fits the requested days.
-         3. *Smaller region*: narrow bounding box or specify custom coordinates.
-   - **Output**: Returns `None` if valid; raises `SpecValidationError` or `OversizedRequestError`.
-
-4. **Data Retrieval, Chunking & Pre-Fetch Guards**
-   - **Files**: `src/siqva/fetcher.py` -> `fetch(spec)` and `src/siqva/chunking.py` -> `fetch_chunked(spec)`
-   - **Input**: Validated `QuerySpec`, cache parameters.
+3. **Layered Validation & Execution Planning**
+   - **Files**: `src/siqva/validator.py` -> `validate_spec(spec)` and `src/siqva/planner.py` -> `plan_request(spec, index)`
+   - **Input**: Candidate `QuerySpec`, loaded `FloatIndex`.
    - **Internal Steps**:
-     1. **Chunking for Large Multi-Month Queries**:
-        - If query cost exceeds 15,000 units and spans multiple calendar months, `fetch_chunked()` splits the date range into calendar-month chunks via `split_date_range_into_months()`.
-        - Enforces `SIQVA_MAX_CHUNKS` (default 24). If more chunks are required, refuses with an actionable error.
-        - Validates that each individual monthly chunk fits within the 15,000 cost cap; if any month exceeds the cap, refuses with the standard oversized suggestions.
-        - Fetches each month via `fetch(chunk_spec)`, caching each monthly slice in Parquet under its own `fetch_key` (enabling cache reuse across overlapping queries).
-        - If any chunk fails (timeout/error), the entire fetch aborts, naming the failed chunk and reporting that completed chunks remain cached.
-        - Combines chunk DataFrames, deduplicating on `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)`, recomputes profile count, and caps cumulative rows at `SIQVA_MAX_TOTAL_ROWS` (default 3,000,000).
-        - UI displays `st.info("Result assembled from N monthly chunks.")`.
-     2. Evaluates local float index snapshot (`data/float_index.parquet`). If coverage is `FULL`, enforces the 100-profile maximum guard (`DEFAULT_MAX_PROFILE_COUNT = 100`). If coverage is `PARTIAL` or `NOT_COVERED`, skips profile count ceiling, applies only the cost cap, and marks `profile_count_verified = False`.
-     2. Computes `fetch_key = spec.fetch_key()`. Checks local Parquet cache (`cache/<fetch_key>.parquet` and sidecar JSON). If present and valid within expiration window (7 days for standard/expert, 90 days for research), loads cached data immediately (`is_cached = True`).
-     3. If cache miss, constructs the 8-element bounding box:
-        `[lon_min, lon_max, lat_min, lat_max, dpt_min, dpt_max, start_iso, end_iso]`
-        and invokes `argopy.DataFetcher(mode=spec.mode.value, src="erddap")`.
-     4. Saves retrieved data to Parquet and generates sidecar JSON containing row count, profile count, data hash, versions, and timestamp.
+     1. **Structural Validation (`validator.py`)**:
+        - Checks longitudes within `[-180, 180]` and `lon_min <= lon_max`. Bounding boxes crossing the 180° meridian (antimeridian where `lon_min > lon_max`) are rejected with explicit guidance.
+        - Checks latitudes within `[-90, 90]` and `lat_min <= lat_max`.
+        - Checks dates are chronological: `start <= end`.
+        - Enforces allowed variables (`TEMP`, `PSAL`, `PRES`).
+        - Enforces depth range: `0 <= min_depth <= max_depth <= 2000 dbar`.
+     2. **Capability Check (`capabilities.py`)**:
+        - Retrieves capability profile for `spec.intent`: `METADATA`, `SAMPLE_ALLOWED`, or `FULL_REQUIRED`.
+     3. **Planner Decision (`planner.py`)**:
+        - `METADATA` intent: returns `PlanDecision(decision="metadata")`.
+        - Evaluates profile count from `FloatIndex` (if available and covered).
+        - If query fits within single fetch cost cap (15,000 units) or profile count limit (100): returns `PlanDecision(decision="full")`.
+        - If multi-month query fits monthly chunking rules (<= 24 chunks, each <= 15,000 cost units, cumulative <= 3,000,000 rows): returns `PlanDecision(decision="chunked")`.
+        - If query exceeds limits and intent allows sampling (`SAMPLE_ALLOWED`): returns `PlanDecision(decision="sample", sample_size=12, ...)`.
+        - If query exceeds limits and intent requires full data (`FULL_REQUIRED`): returns `PlanDecision(decision="refuse")` accompanied by structured, non-dead-end options (`structured_options`).
+   - **Output**: `PlanDecision`.
+
+4. **Data Retrieval Dispatch (Full, Chunked, or Sample)**
+   - **Files**: `src/siqva/pipeline.py` -> `run_spec()`, `src/siqva/fetcher.py`, `src/siqva/chunking.py`
+   - **Input**: Validated `QuerySpec`, `PlanDecision`.
+   - **Execution Branches**:
+     - **Branch A: Full Fetch (`fetcher.fetch`)**:
+       - Bounding box query dispatched to `argopy.DataFetcher(mode=spec.mode.value, src="erddap")`.
+       - Parquet cache keyed by `spec.fetch_key()`.
+     - **Branch B: Monthly Chunked Fetch (`chunking.fetch_chunked`)**:
+       - Splits date range into calendar-month chunks.
+       - Fetches each month independently into Parquet cache; combines, deduplicates on `(PLATFORM_NUMBER, CYCLE_NUMBER, PRES, TIME)`, caps at 3,000,000 rows.
+     - **Branch C: Deterministic Space-Time Sample Fetch (`fetcher.fetch_sample`)**:
+       - `FloatIndex.select_sample()` selects space-time stratified profile picks (WMO, cycle) using seed derived from `(fetch_key, build_date)`.
+       - Sequentially fetches individual profiles with single-profile cache (`mode, variables, wmo, cycle`).
+       - Enforces foreground 90-second wall-clock budget.
+       - Returns `FetchResult` with `is_sample=True`, `sample_picks`, `sample_method`, `sample_seed`.
+     - **Branch D: Metadata Overview**:
+       - Bypasses raw observation fetch. Renders interactive Scattergeo float map and profile counts directly from local index snapshot.
    - **Output**: `FetchResult` (Status: `SUCCESS`, `EMPTY`, `OVERSIZED`, `TIMEOUT`, or `ERROR`).
 
 5. **Quality Control Audit**
@@ -199,11 +202,12 @@ When a query is processed through `siqva.pipeline.run(question)`:
 6. **Deterministic Oceanographic & Physical Analysis**
    - **File**: `src/siqva/analyzer.py` -> `analyze(df, spec, fetch_res)` and `src/siqva/physics.py` -> `compute_new_features(df)`
    - **Input**: Fetched DataFrame, spec, fetch result.
-   - **Calculations**:
-     - Min, mean, max for each physical variable.
+   - **Calculations & Sample Rules**:
+     - **Sample Integrity Guard**: When `fetch_res.is_sample = True`, regional statistics, depth-layer averages, and area-wide physics summaries are **strictly suppressed** to avoid misrepresenting a small sample as a regional climatology.
+     - Min, mean, max for each physical variable (on full runs).
      - Observation means grouped into discrete vertical layers (`0–100 dbar`, `100–500 dbar`, `500–2000 dbar`).
      - Profile depth penetration (% reaching target depth).
-     - **On-Demand TEOS-10 Physics via `gsw`**: Executed *only* when `spec.intent` is one of `thermocline`, `tchp`, or `acoustic`. Standard queries (`profile`, `map`, `ts`, `trend`) bypass physics computation completely.
+     - **On-Demand TEOS-10 Physics via `gsw`**: Executed *only* on full runs when `spec.intent` is one of `thermocline`, `tchp`, or `acoustic`. Standard queries (`profile`, `map`, `ts`, `trend`) bypass physics computation completely.
        - Mixed Layer Depth (MLD), Isothermal Layer Depth (ILD), Barrier Layer Thickness (BLT), 20°C isotherm depth (Z20), Tropical Cyclone Heat Potential (TCHP), sound speed, Sonic Layer Depth (SLD), SOFAR axis.
        - Skipped profiles (fewer than 5 observations or shallowest depth > 15 m) are tracked via `SkippedProfileInfo` and explicitly reported in `missing_data_notes` and summary text. Water-mass classification is permanently removed.
    - **Output**: `AnalysisResult`.
@@ -211,20 +215,26 @@ When a query is processed through `siqva.pipeline.run(question)`:
 7. **Deterministic Summary Generation**
    - **File**: `src/siqva/analyzer.py` -> `summary_text(analysis)`
    - **Input**: `AnalysisResult`.
-   - **Action**: Formats structured Markdown using fixed string templates. Never calls an LLM. Clearly labels non-depth-weighted observation averages and attaches scientific methodology disclaimers.
+   - **Action**: Formats structured Markdown using fixed string templates. Never calls an LLM. Clearly labels non-depth-weighted observation averages and attaches scientific methodology disclaimers. If `analysis.is_sample = True`, includes a clear disclaimer that the displayed profiles are an illustrative sample and not regional statistics.
    - **Output**: Formatted summary text (`summary_markdown`).
 
 8. **Visualization Generation**
    - **File**: `src/siqva/plots.py` (orchestrated by `src/siqva/pipeline.py`)
-   - **Functions**: `plot_depth_profile`, `plot_position_map`, `plot_ts_diagram`, `plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`.
-   - **Input**: DataFrame, representative profile physics metrics.
-   - **Behavior**: Standard figures (`profile`, `map`, and `ts` when temperature and salinity are present) are generated for standard queries. Physics plots (`plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`) are strictly generated on-demand only when the matching physics intent is requested (`Intent.THERMOCLINE`, `Intent.TCHP`, or `Intent.ACOUSTIC`).
+   - **Functions**: `plot_depth_profile`, `plot_position_map`, `plot_ts_diagram`, `plot_thermocline_and_barrier`, `plot_cyclone_tchp`, `plot_acoustic_profile`, `render_index_overview_map`.
+   - **Input**: DataFrame, representative profile physics metrics, spec, index.
+   - **Behavior**:
+     - Full runs: Standard figures (`profile`, `map`, and `ts` when temperature and salinity are present) are generated. Physics plots are strictly generated on-demand only for physics intents.
+     - Sample runs: Renders the regional overview map (`render_index_overview_map`) showing all float locations and tracks, alongside depth profile curves for the sampled profiles.
    - **Output**: Dictionary of Plotly Figure objects (`dict[str, go.Figure]`).
 
 9. **Query Card Creation, Persistence & History Reload**
    - **File**: `src/siqva/card.py` -> `build_card(spec, fetch_res, analysis)`, `save_card(card)`, and `restore_card_result(card)`
    - **Input**: Spec, fetch result, analysis result, optional `session_id`.
-   - **Action**: Constructs immutable `QueryCard`, writes record to SQLite database (`data/cards.sqlite`), and generates a standalone, runnable Python script (`generate_script`). Supports multi-session isolation via `session_id` when `SIQVA_SHARED_HISTORY=0`.
+   - **Action**:
+     - Constructs immutable `QueryCard` recording `plan_decision`, and for samples: `sample_picks`, `sample_method`, `sample_seed`, and `sample_index_build_date`.
+     - Writes record to SQLite database (`data/cards.sqlite`).
+     - Generates a standalone, runnable Python script (`generate_script`): for samples, the script reproduces exactly the sampled profiles without requiring the float index and explicitly states in its header that it reproduces the sample, not the region.
+     - Re-run reproduces the exact sample picks and diffs data hashes.
    - **Reload**: When history card is clicked, `restore_card_result` reloads cached Parquet data from disk and reconstructs plots and analysis without hitting remote servers.
    - **Output**: `QueryCard` and Python script string.
 

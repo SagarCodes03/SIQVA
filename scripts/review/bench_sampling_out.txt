@@ -1,0 +1,16 @@
+SIQVA FloatIndex & Sampling Performance Benchmark (3,000,000 rows)
+======================================================================
+Generated Index Rows: 3,000,000 | RAM: 452.0 MB
+Index Init: 0.02 ms
+----------------------------------------------------------------------
+Operation                           | Median Time     | Details
+----------------------------------------------------------------------
+query_profiles (Bbox, 1 year)       | 31.21 ms        | 2,031 matches
+query_profiles (Basin, 1 year)      | 112.60 ms       | 72,989 matches
+count_profiles (Bbox)               | 33.02 ms        | 2,031
+count_profiles (Basin)              | 107.35 ms       | 72,989
+select_sample (N=12, Basin)         | 1418.70 ms      | 12 picks
+select_sample (N=24, Basin)         | 1306.62 ms      | 24 picks
+select_sample (N=48, Basin)         | 1300.49 ms      | 48 picks
+render_index_overview_map           | 271.15 ms       | 1 traces
+======================================================================
