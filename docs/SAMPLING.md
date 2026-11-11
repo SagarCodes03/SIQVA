@@ -165,3 +165,4 @@ When the planner decides `PlanDecision(decision="sample", sample_size=N)`:
   - Compares only complete runs (`FULL` or `CHUNKED`). If a user attempts to compare a sample run, the page refuses with an explanation that sparse samples cannot serve as regional baselines and offers options.
 - **Plot Graph Page**:
   - Each plot configuration card displays its capability tier badge (`Metadata`, `Sample allowed`, or `Full data required`) and enforces planner rules before submission.
+

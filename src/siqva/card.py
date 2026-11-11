@@ -77,6 +77,8 @@ class QueryCard(BaseModel):
     sample_index_build_date: Optional[str] = None
     sample_n_available: Optional[int] = None
     sample_n_selected: Optional[int] = None
+    sample_failure_counts: Optional[dict[str, int]] = None
+    sample_replacements: int = 0
 
     @property
     def region_name(self) -> str:
@@ -171,6 +173,8 @@ def build_card(
         sample_index_build_date = getattr(fetch_result, "index_build_date", None)
         sample_n_available = getattr(fetch_result, "n_available", None)
         sample_n_selected = getattr(fetch_result, "n_selected", None) or (len(picks) if picks else p_count)
+        sample_failure_counts = getattr(fetch_result, "failure_counts", None)
+        sample_replacements = int(getattr(fetch_result, "n_replacements", 0))
     else:
         sample_picks = None
         sample_method = None
@@ -178,6 +182,8 @@ def build_card(
         sample_index_build_date = None
         sample_n_available = None
         sample_n_selected = None
+        sample_failure_counts = None
+        sample_replacements = 0
         if chunks and len(chunks) > 1:
             plan_kind = "chunked"
         elif spec.intent == Intent.MAP:
@@ -217,6 +223,8 @@ def build_card(
         sample_index_build_date=sample_index_build_date,
         sample_n_available=sample_n_available,
         sample_n_selected=sample_n_selected,
+        sample_failure_counts=sample_failure_counts,
+        sample_replacements=sample_replacements,
     )
 
 

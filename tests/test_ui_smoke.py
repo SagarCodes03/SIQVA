@@ -297,7 +297,7 @@ def test_ui_s7_sample_partial_failure(tmp_path):
 
         # Notice about failed profiles in warning
         warning_texts = [w.value for w in at.warning]
-        assert any("Failures:" in text or "profiles fetched" in text for text in warning_texts)
+        assert any("could not be loaded" in text or "Failures:" in text or "profiles fetched" in text for text in warning_texts)
 
 
 def test_ui_s7_sample_budget_exceeded(tmp_path):

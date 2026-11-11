@@ -6,7 +6,7 @@ and sample selection using the local Parquet float index snapshot without touchi
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from enum import Enum
 from functools import lru_cache
@@ -43,6 +43,7 @@ class SamplePick:
     lon: float
     is_delayed: bool = False
     institution: str = ""
+    bin_id: Optional[tuple[int, int]] = None
 
     def __getitem__(self, item: str | int) -> Any:
         """Allow dict-like or tuple-like indexing."""
@@ -61,6 +62,21 @@ class SampleSelection:
     n_available: int
     n_requested: int
     warning: Optional[str] = None
+    bin_candidates: dict[tuple[int, int], list[SamplePick]] = field(default_factory=dict)
+
+    def get_next_candidate(
+        self,
+        pick: SamplePick,
+        attempted: set[tuple[int, int]],
+    ) -> Optional[SamplePick]:
+        """Find the next untried candidate from the same space-time bin."""
+        bid = getattr(pick, "bin_id", None)
+        if bid is None or bid not in self.bin_candidates:
+            return None
+        for cand in self.bin_candidates[bid]:
+            if (int(cand.wmo), int(cand.cycle)) not in attempted:
+                return cand
+        return None
 
     def __iter__(self):
         """Allows unpacking: picks, method = index.select_sample(...)"""
@@ -375,7 +391,7 @@ class FloatIndex:
             )
 
         # Helper to build SamplePick
-        def _to_pick(row: pd.Series) -> SamplePick:
+        def _to_pick(row: pd.Series, bin_id: Optional[tuple[int, int]] = None) -> SamplePick:
             wmo_val = int(row["wmo"])
             cyc_val = int(row["cycle"] if "cycle" in row else row["cycle_number"])
             date_str = str(pd.to_datetime(row["date"]).date()) if pd.notnull(row["date"]) else ""
@@ -391,6 +407,7 @@ class FloatIndex:
                 lon=lon_val,
                 is_delayed=is_del,
                 institution=inst,
+                bin_id=bin_id if bin_id is not None else row.get("_bin_id"),
             )
 
         # If available profiles are fewer than or equal to n_target, return all
@@ -496,7 +513,13 @@ class FloatIndex:
                 break
 
         picked_rows.sort(key=lambda r: (r["date"], r["wmo"], r.get("cycle", 0)))
-        picks = [_to_pick(r) for r in picked_rows]
+        picks = [_to_pick(r, r.get("_bin_id")) for r in picked_rows]
+
+        # Build candidate pools per bin for backfill replacement
+        bin_candidates: dict[tuple[int, int], list[SamplePick]] = {}
+        for bid, rows_list in bins_dict.items():
+            sorted_candidates = sorted(rows_list, key=lambda r: (r["date"], r["wmo"], r.get("cycle", 0)))
+            bin_candidates[bid] = [_to_pick(r, bid) for r in sorted_candidates]
 
         distinct_wmo_count = len(wmo_pick_counts)
         method_desc = (
@@ -512,6 +535,7 @@ class FloatIndex:
             n_available=n_avail,
             n_requested=n_requested,
             warning=warning,
+            bin_candidates=bin_candidates,
         )
 
 

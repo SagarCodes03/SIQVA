@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import time
 from datetime import date, datetime, timezone
 from enum import Enum
@@ -139,6 +140,10 @@ class FetchResult(BaseModel):
     seed: Optional[int] = None
     index_build_date: Optional[str] = None
     sample_picks: Optional[list[tuple[int, int]]] = None
+    n_requested: Optional[int] = None
+    n_replacements: int = 0
+    failure_counts: Optional[dict[str, int]] = None
+    sample_technical_details: Optional[list[str]] = None
 
 
 def count_unique_profiles(df: pd.DataFrame) -> int:
@@ -966,6 +971,141 @@ def fetch(
     )
 
 
+class ProfileFailureReason(str, Enum):
+    """Categorized failure reason for an individual Argo profile fetch."""
+
+    EMPTY = "EMPTY"                  # No matching data
+    TIMEOUT = "TIMEOUT"              # Timed out
+    RATE_LIMITED = "RATE_LIMITED"    # 429 Too many requests
+    HTTP_ERROR = "HTTP_ERROR"        # 4xx (except 404/429) or 5xx server error
+    OTHER = "OTHER"                  # Any other unclassified failure
+
+
+def shorten_url(url: str, max_len: int = 80) -> str:
+    """Shorten URL for logging and technical details without exposing credentials or secrets."""
+    clean = str(url).strip()
+    if not clean:
+        return ""
+    # Strip basic auth / secrets if present
+    clean = re.sub(r"://[^@]+@", "://", clean)
+    if len(clean) > max_len:
+        prefix_len = (max_len - 5) // 2
+        suffix_len = max_len - 5 - prefix_len
+        return clean[:prefix_len] + "..." + clean[-suffix_len:]
+    return clean
+
+
+def classify_profile_failure(
+    err: Optional[Any] = None,
+    df: Optional[pd.DataFrame] = None,
+) -> tuple[str, str]:
+    """Classify per-profile fetch failure into (reason_code, detail_message).
+
+    Returns one of:
+      - ("EMPTY", detail)
+      - ("TIMEOUT", detail)
+      - ("RATE_LIMITED", detail)
+      - ("HTTP_ERROR (status)", detail)
+      - ("OTHER", detail)
+    """
+    if df is not None and df.empty:
+        return "EMPTY", "No matching data returned"
+
+    if err is None:
+        return "EMPTY", "No data returned"
+
+    err_str = str(err).lower()
+    err_cls_name = err.__class__.__name__
+
+    # 1. Check for rate limiting (429)
+    if hasattr(err, "status") and getattr(err, "status") == 429:
+        return "RATE_LIMITED", "Rate limited (HTTP 429)"
+    if "429" in err_str or "too many requests" in err_str or "rate limit" in err_str:
+        return "RATE_LIMITED", "Rate limited (HTTP 429)"
+
+    # 2. Check for empty / no matching data
+    if err_cls_name in ("DataNotFound", "NoData", "NoDataLeft", "FileNotFoundError"):
+        return "EMPTY", f"No matching data ({err_cls_name})"
+    if hasattr(err, "status") and getattr(err, "status") == 404:
+        return "EMPTY", "No matching data (HTTP 404)"
+    if any(phrase in err_str for phrase in [
+        "no matching results",
+        "nrows = 0",
+        "not found",
+        "nodataleft",
+        "nodata",
+        "no data",
+        "empty data",
+        "not in delayed mode",
+        "no observations within depth range",
+        "no observations within requested depth range",
+    ]):
+        return "EMPTY", "No matching data"
+
+    # 3. Check for timeout
+    if isinstance(err, (TimeoutError,)):
+        return "TIMEOUT", "Request timed out"
+    if hasattr(err, "status") and getattr(err, "status") in (408, 504):
+        return "TIMEOUT", f"Timed out (HTTP {getattr(err, 'status')})"
+    if "timeout" in err_str or "timed out" in err_str:
+        return "TIMEOUT", "Request timed out"
+
+    # 4. Check for HTTP status codes (5xx, 4xx)
+    status_code: Optional[int] = None
+    if hasattr(err, "status"):
+        try:
+            status_code = int(getattr(err, "status"))
+        except (ValueError, TypeError):
+            pass
+    elif hasattr(err, "status_code"):
+        try:
+            status_code = int(getattr(err, "status_code"))
+        except (ValueError, TypeError):
+            pass
+    else:
+        m = re.search(r"\b([45]\d{2})\b", str(err))
+        if m:
+            status_code = int(m.group(1))
+
+    if status_code is not None:
+        if status_code == 404:
+            return "EMPTY", "No matching data (HTTP 404)"
+        if status_code == 429:
+            return "RATE_LIMITED", "Rate limited (HTTP 429)"
+        if status_code in (408, 504):
+            return "TIMEOUT", f"Timed out (HTTP {status_code})"
+        return f"HTTP_ERROR ({status_code})", f"HTTP {status_code} error"
+
+    return "OTHER", f"Failed: {err}"
+
+
+def format_sample_failure_sentence(
+    n_failed: int,
+    n_requested: int,
+    counts_by_reason: dict[str, int],
+) -> str:
+    """Format plain sentence: e.g. '8 of 12 selected profiles could not be loaded (5 had no matching data, 3 timed out)'"""
+    parts = []
+    empty_cnt = counts_by_reason.get("EMPTY", 0) + counts_by_reason.get("no matching data", 0)
+    if empty_cnt > 0:
+        parts.append(f"{empty_cnt} had no matching data")
+    timeout_cnt = counts_by_reason.get("TIMEOUT", 0) + counts_by_reason.get("timed out", 0)
+    if timeout_cnt > 0:
+        parts.append(f"{timeout_cnt} timed out")
+    rate_cnt = counts_by_reason.get("RATE_LIMITED", 0) + counts_by_reason.get("rate limited", 0)
+    if rate_cnt > 0:
+        parts.append(f"{rate_cnt} rate limited")
+    http_cnt = sum(cnt for r, cnt in counts_by_reason.items() if r.startswith("HTTP_ERROR") or "server error" in r.lower())
+    if http_cnt > 0:
+        parts.append(f"{http_cnt} server error" if http_cnt == 1 else f"{http_cnt} server errors")
+    other_cnt = counts_by_reason.get("OTHER", 0) + counts_by_reason.get("failed", 0)
+    if other_cnt > 0:
+        parts.append(f"{other_cnt} failed" if other_cnt == 1 else f"{other_cnt} failed")
+
+    breakdown = ", ".join(parts) if parts else "all failed"
+    return f"{n_failed} of {n_requested} selected profiles could not be loaded ({breakdown})"
+
+
 def compute_profile_cache_key(
     mode: Union[str, DataMode],
     variables: list[Union[str, Variable]],
@@ -998,9 +1138,12 @@ def fetch_sample(
 ) -> FetchResult:
     """Fetch profile data for a deterministic sample sequentially with per-profile caching.
 
-    Check installed argopy for profile access point (argopy 1.5.0 DataFetcher.profile(wmo, cyc)).
-    If profile() raises an exception, falls back to a tiny geographic box (+-0.05 deg, +-1 day)
-    filtering to the picked cycle, logging the fallback decision.
+    Uses argopy DataFetcher.profile(wmo, cyc) as the primary method.
+    If profile() raises an exception, falls back to a tiny geographic box (+-0.05 deg, +-1 day),
+    and if that returns empty, tries one wider window (+-0.25 deg, +-3 days) before giving up.
+    Retries TIMEOUT and 5xx errors once with a short backoff (0.2s).
+    When a pick fails with EMPTY, backfills with the next candidate from the same space-time bin
+    (up to 2 * n attempts total across the process).
     Enforces S0 wall-clock budget, single-profile Parquet caching, QC filtering, and depth clipping.
     """
     from .floatindex import SamplePick, SampleSelection, load_float_index
@@ -1040,6 +1183,7 @@ def fetch_sample(
             effective_depth_range=effective_depth_range,
             is_sample=True,
             n_selected=0,
+            n_requested=0,
             n_available=getattr(selection, "n_available", getattr(selection, "profile_count", 0)),
             method=getattr(selection, "method", "No sample profiles"),
             seed=getattr(selection, "seed", None),
@@ -1050,26 +1194,52 @@ def fetch_sample(
     fetcher_cls = fetcher_engine if fetcher_engine is not None else argopy.DataFetcher
 
     successful_dfs: list[pd.DataFrame] = []
-    failed_picks: list[tuple[int, int, str]] = []
+    attempted_picks: set[tuple[int, int]] = set()
+    work_queue: list[Any] = list(picks)
+    failure_counts: dict[str, int] = {}
+    sample_technical_details: list[str] = []
+
+    n_requested = len(picks)
+    max_attempts = 2 * n_requested
+    total_attempts = 0
+    n_replacements = 0
     budget_exceeded = False
     cached_hits = 0
 
-    for i, pick in enumerate(picks):
-        wmo = pick[0] if isinstance(pick, (tuple, list)) else pick.wmo
-        cyc = pick[1] if isinstance(pick, (tuple, list)) else pick.cycle
+    while work_queue and total_attempts < max_attempts:
+        elapsed = time.monotonic() - start_time
+        remaining_budget = wall_clock_budget - elapsed
+        if remaining_budget <= 0:
+            logger.warning(
+                "Foreground wall-clock budget exceeded during sample fetch (elapsed: %.1fs, budget: %.1fs)",
+                elapsed,
+                wall_clock_budget,
+            )
+            budget_exceeded = True
+            break
+
+        pick = work_queue.pop(0)
+        wmo = int(pick[0] if isinstance(pick, (tuple, list)) else pick.wmo)
+        cyc = int(pick[1] if isinstance(pick, (tuple, list)) else pick.cycle)
+
+        if (wmo, cyc) in attempted_picks:
+            continue
+
+        attempted_picks.add((wmo, cyc))
+        total_attempts += 1
+
         p_date = getattr(pick, "date", None)
         p_lat = getattr(pick, "lat", None)
         p_lon = getattr(pick, "lon", None)
 
         if progress_callback:
             try:
-                progress_callback(i + 1, len(picks), wmo, cyc)
+                progress_callback(len(successful_dfs) + 1, n_requested, wmo, cyc)
             except Exception:
                 pass
 
         prof_key = compute_profile_cache_key(spec.mode, spec.variables, wmo, cyc)
         prof_parquet = cache_dir / f"{prof_key}.parquet"
-
         p_df: Optional[pd.DataFrame] = None
 
         # Check cache
@@ -1081,79 +1251,137 @@ def fetch_sample(
                 logger.warning("Failed reading cached profile %s: %s", prof_parquet, read_err)
                 p_df = None
 
+        last_err: Optional[Any] = None
+        last_url: str = ""
+
         # Remote fetch if not in cache
         if p_df is None:
-            elapsed = time.monotonic() - start_time
-            remaining_budget = wall_clock_budget - elapsed
-            if remaining_budget <= 0:
-                logger.warning("Foreground wall-clock budget exceeded during sample fetch (elapsed: %.1fs, budget: %.1fs)", elapsed, wall_clock_budget)
-                budget_exceeded = True
-                failed_picks.append((wmo, cyc, "wall-clock budget exceeded"))
-                break
-
             effective_timeout = min(timeout, max(1, int(remaining_budget)))
             engine = fetcher_cls(mode=mode_str, src=src, api_timeout=effective_timeout)
 
-            # Try direct argopy.DataFetcher.profile(wmo, cyc)
+            # 1. Primary method: DataFetcher.profile(wmo, cyc)
+            fetcher_obj = None
             try:
                 fetcher_obj = engine.profile(wmo, cyc)
+                last_url = str(getattr(fetcher_obj, "uri", getattr(engine, "uri", "")))
                 raw_df = fetcher_obj.to_dataframe()
                 if raw_df is not None and not raw_df.empty:
-                    p_df = raw_df
-            except Exception as prof_err:
-                # Log fallback decision
-                logger.info("argopy.profile() call failed (%s); falling back to tiny box for WMO %s cycle %s", prof_err, wmo, cyc)
-                try:
-                    if p_date and p_lat is not None and p_lon is not None:
-                        dt = pd.to_datetime(p_date)
-                        start_d = (dt - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-                        end_d = (dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-                        box = [
-                            p_lon - 0.05,
-                            p_lon + 0.05,
-                            p_lat - 0.05,
-                            p_lat + 0.05,
-                            0.0,
-                            2000.0,
-                            start_d,
-                            end_d,
+                    plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in raw_df.columns else None
+                    cyc_col = "CYCLE_NUMBER" if "CYCLE_NUMBER" in raw_df.columns else None
+                    if plat_col and cyc_col:
+                        matched = raw_df[
+                            (raw_df[plat_col].astype(int) == wmo)
+                            & (raw_df[cyc_col].astype(int) == cyc)
                         ]
-                        fetcher_obj = engine.region(box)
-                        box_df = fetcher_obj.to_dataframe()
-                        if box_df is not None and not box_df.empty:
+                        if not matched.empty:
+                            p_df = matched
+                    else:
+                        p_df = raw_df
+            except Exception as prof_err:
+                last_err = prof_err
+                code_name, _ = classify_profile_failure(prof_err)
+                # Retry TIMEOUT or 5xx once with short backoff
+                if code_name == "TIMEOUT" or code_name.startswith("HTTP_ERROR (5"):
+                    time.sleep(0.2)
+                    try:
+                        raw_df = engine.profile(wmo, cyc).to_dataframe()
+                        if raw_df is not None and not raw_df.empty:
+                            plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in raw_df.columns else None
+                            cyc_col = "CYCLE_NUMBER" if "CYCLE_NUMBER" in raw_df.columns else None
+                            if plat_col and cyc_col:
+                                matched = raw_df[
+                                    (raw_df[plat_col].astype(int) == wmo)
+                                    & (raw_df[cyc_col].astype(int) == cyc)
+                                ]
+                                if not matched.empty:
+                                    p_df = matched
+                            else:
+                                p_df = raw_df
+                    except Exception as retry_err:
+                        last_err = retry_err
+
+            # 2. Fallback: box + window if primary failed
+            if p_df is None and p_date and p_lat is not None and p_lon is not None:
+                logger.info("Falling back to box+window fetch for WMO %s cycle %s", wmo, cyc)
+                try:
+                    dt = pd.to_datetime(p_date)
+                    # Window 1: standard +-0.05 deg, +-1 day
+                    start_d = (dt - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    end_d = (dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    box = [p_lon - 0.05, p_lon + 0.05, p_lat - 0.05, p_lat + 0.05, 0.0, 2000.0, start_d, end_d]
+                    fetcher_obj = engine.region(box)
+                    last_url = str(getattr(fetcher_obj, "uri", getattr(engine, "uri", "")))
+                    box_df = fetcher_obj.to_dataframe()
+                    if box_df is not None and not box_df.empty:
+                        plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in box_df.columns else None
+                        cyc_col = "CYCLE_NUMBER" if "CYCLE_NUMBER" in box_df.columns else None
+                        if plat_col and cyc_col:
                             matched = box_df[
-                                (box_df["PLATFORM_NUMBER"].astype(int) == int(wmo))
-                                & (box_df["CYCLE_NUMBER"].astype(int) == int(cyc))
+                                (box_df[plat_col].astype(int) == wmo)
+                                & (box_df[cyc_col].astype(int) == cyc)
                             ]
                             if not matched.empty:
                                 p_df = matched
-                    else:
-                        box_df = engine.region([0, 0, 0, 0, 0, 0, "", ""]).to_dataframe()
-                except Exception as fallback_err:
-                    failed_picks.append((wmo, cyc, str(fallback_err)))
-                    continue
+                        else:
+                            p_df = box_df
 
-            if p_df is None or p_df.empty:
-                failed_picks.append((wmo, cyc, "empty data returned"))
-                continue
+                    # Window 2: wider +-0.25 deg, +-3 days if window 1 was empty
+                    if p_df is None or p_df.empty:
+                        start_d_wide = (dt - pd.Timedelta(days=3)).strftime("%Y-%m-%d")
+                        end_d_wide = (dt + pd.Timedelta(days=3)).strftime("%Y-%m-%d")
+                        wider_box = [p_lon - 0.25, p_lon + 0.25, p_lat - 0.25, p_lat + 0.25, 0.0, 2000.0, start_d_wide, end_d_wide]
+                        fetcher_obj = engine.region(wider_box)
+                        last_url = str(getattr(fetcher_obj, "uri", getattr(engine, "uri", "")))
+                        box_df2 = fetcher_obj.to_dataframe()
+                        if box_df2 is not None and not box_df2.empty:
+                            plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in box_df2.columns else None
+                            cyc_col = "CYCLE_NUMBER" if "CYCLE_NUMBER" in box_df2.columns else None
+                            if plat_col and cyc_col:
+                                matched2 = box_df2[
+                                    (box_df2[plat_col].astype(int) == wmo)
+                                    & (box_df2[cyc_col].astype(int) == cyc)
+                                ]
+                                if not matched2.empty:
+                                    p_df = matched2
+                            else:
+                                p_df = box_df2
+                except Exception as fb_err:
+                    last_err = fb_err
+                    code_name, _ = classify_profile_failure(fb_err)
+                    if code_name == "TIMEOUT" or code_name.startswith("HTTP_ERROR (5"):
+                        time.sleep(0.2)
+                        try:
+                            box_df = engine.region(box).to_dataframe()
+                            if box_df is not None and not box_df.empty:
+                                plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in box_df.columns else None
+                                cyc_col = "CYCLE_NUMBER" if "CYCLE_NUMBER" in box_df.columns else None
+                                if plat_col and cyc_col:
+                                    matched = box_df[
+                                        (box_df[plat_col].astype(int) == wmo)
+                                        & (box_df[cyc_col].astype(int) == cyc)
+                                    ]
+                                    if not matched.empty:
+                                        p_df = matched
+                                else:
+                                    p_df = box_df
+                        except Exception as retry_err2:
+                            last_err = retry_err2
 
-            # In research mode, enforce delayed mode if DATA_MODE column is present
-            if mode_str == "research" and "DATA_MODE" in p_df.columns:
-                p_df = p_df[p_df["DATA_MODE"].astype(str).str.strip().str.upper() == "D"]
-                if p_df.empty:
-                    failed_picks.append((wmo, cyc, "not in delayed mode"))
-                    continue
+            # 3. Enforce delayed-mode if in research mode
+            if p_df is not None and not p_df.empty:
+                if mode_str == "research" and "DATA_MODE" in p_df.columns:
+                    p_df = p_df[p_df["DATA_MODE"].astype(str).str.strip().str.upper() == "D"]
+                    if p_df.empty:
+                        last_err = "Profile observations are not in delayed mode ('D')"
 
-            # Save full unclipped profile to cache
-            try:
-                p_df.to_parquet(prof_parquet, index=False)
-            except Exception as save_err:
-                logger.warning("Failed saving cached profile %s: %s", prof_parquet, save_err)
+            # 4. Save full unclipped profile to cache
+            if p_df is not None and not p_df.empty:
+                try:
+                    p_df.to_parquet(prof_parquet, index=False)
+                except Exception as save_err:
+                    logger.warning("Failed saving cached profile %s: %s", prof_parquet, save_err)
 
-            if pause_s > 0 and i < len(picks) - 1:
-                time.sleep(pause_s)
-
-        # Clip to requested / effective depth range on load
+        # 5. Process result or record failure & backfill
         if p_df is not None and not p_df.empty:
             if "PRES" in p_df.columns:
                 p_clipped = p_df[
@@ -1166,21 +1394,71 @@ def fetch_sample(
             if not p_clipped.empty:
                 successful_dfs.append(p_clipped)
             else:
-                failed_picks.append((pick.wmo, pick.cycle, "no observations within depth range"))
+                reason_code = "EMPTY"
+                detail_msg = "No observations within requested depth range"
+                failure_counts[reason_code] = failure_counts.get(reason_code, 0) + 1
+                short_u = shorten_url(last_url)
+                logger.warning(
+                    "Sample profile fetch failed for WMO %s cycle %s: %s (URL: %s)",
+                    wmo,
+                    cyc,
+                    reason_code,
+                    short_u,
+                )
+                tech_str = f"WMO {wmo} #{cyc}: {reason_code} - {detail_msg}"
+                if short_u:
+                    tech_str += f" (URL: {short_u})"
+                sample_technical_details.append(tech_str)
+        else:
+            reason_code, detail_msg = classify_profile_failure(last_err, p_df)
+            failure_counts[reason_code] = failure_counts.get(reason_code, 0) + 1
+            short_u = shorten_url(last_url)
+            logger.warning(
+                "Sample profile fetch failed for WMO %s cycle %s: %s (URL: %s)",
+                wmo,
+                cyc,
+                reason_code,
+                short_u,
+            )
+            tech_str = f"WMO {wmo} #{cyc}: {reason_code} - {detail_msg}"
+            if short_u:
+                tech_str += f" (URL: {short_u})"
+            sample_technical_details.append(tech_str)
+
+            # Backfill replacement on EMPTY
+            if reason_code == "EMPTY" and selection is not None and hasattr(selection, "get_next_candidate"):
+                next_cand = selection.get_next_candidate(pick, attempted_picks)
+                if next_cand is not None and total_attempts < max_attempts:
+                    n_replacements += 1
+                    work_queue.append(next_cand)
+                    logger.info(
+                        "Backfilled empty profile WMO %s #%s with WMO %s #%s",
+                        wmo,
+                        cyc,
+                        next_cand.wmo,
+                        next_cand.cycle,
+                    )
+
+        if pause_s > 0 and work_queue:
+            time.sleep(pause_s)
 
     # Assemble combined dataset
     k_fetched = len(successful_dfs)
-    n_requested = len(picks)
+    n_failed = n_requested - k_fetched
+
+    warning_sentence: Optional[str] = None
+    if n_failed > 0 or failure_counts or budget_exceeded:
+        display_failed = max(n_failed, sum(failure_counts.values()))
+        if budget_exceeded and display_failed < n_requested:
+            display_failed = n_requested - k_fetched
+        warning_sentence = format_sample_failure_sentence(display_failed, n_requested, failure_counts)
+        if budget_exceeded:
+            warning_sentence += " (wall-clock budget exceeded)"
 
     if k_fetched > 0:
         combined_df = pd.concat(successful_dfs, ignore_index=True)
         qc_report = audit_qc(combined_df, spec.variables, spec.mode)
         status = FetchStatus.SUCCESS
-
-        warning_msg: Optional[str] = None
-        if failed_picks:
-            fail_items = ", ".join(f"WMO {w} #{c} ({r})" for w, c, r in failed_picks)
-            warning_msg = f"{k_fetched} of {n_requested} profiles fetched. Failures: {fail_items}."
 
         data_hash = _compute_data_hash(combined_df)
         metadata = FetchMetadata(
@@ -1205,9 +1483,13 @@ def fetch_sample(
             effective_depth_range=effective_depth_range,
             profile_count_verified=True,
             profile_count=k_fetched,
-            suggestion=warning_msg,
+            suggestion=warning_sentence,
             is_sample=True,
             n_selected=k_fetched,
+            n_requested=n_requested,
+            n_replacements=n_replacements,
+            failure_counts=failure_counts,
+            sample_technical_details=sample_technical_details,
             n_available=getattr(selection, "n_available", getattr(selection, "profile_count", n_requested)),
             method=getattr(selection, "method", f"Sample of {k_fetched} profiles"),
             seed=getattr(selection, "seed", None),
@@ -1220,7 +1502,7 @@ def fetch_sample(
         err_msg = (
             f"Foreground wall-clock budget ({wall_clock_budget:.0f}s) exceeded before any sample profiles could be fetched."
             if budget_exceeded
-            else f"Failed to fetch any of the {n_requested} sample profiles."
+            else (warning_sentence or f"0 of {n_requested} selected profiles could be loaded.")
         )
         return FetchResult(
             status=status,
@@ -1231,9 +1513,13 @@ def fetch_sample(
             effective_depth_range=effective_depth_range,
             is_sample=True,
             n_selected=0,
-            n_available=selection.n_available if selection else n_requested,
-            method=selection.method if selection else "Sample fetch failed",
-            seed=selection.seed if selection else None,
+            n_requested=n_requested,
+            n_replacements=n_replacements,
+            failure_counts=failure_counts,
+            sample_technical_details=sample_technical_details,
+            n_available=getattr(selection, "n_available", n_requested) if selection else n_requested,
+            method=getattr(selection, "method", "Sample fetch failed") if selection else "Sample fetch failed",
+            seed=getattr(selection, "seed", None) if selection else None,
             sample_picks=[(p[0], p[1]) if isinstance(p, (tuple, list)) else (p.wmo, p.cycle) for p in picks],
             index_build_date=str(getattr(selection, "index_build_date", "")) or "",
         )

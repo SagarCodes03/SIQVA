@@ -945,7 +945,11 @@ def _render_pipeline_result(res: PipelineResult) -> None:
 
     if res.status in (PipelineStatus.EMPTY, PipelineStatus.OVERSIZED, PipelineStatus.TIMEOUT, PipelineStatus.ERROR, PipelineStatus.INTERNAL_ERROR):
         tag = f"[{res.status.value.upper()}]"
-        st.error(f"{tag} Execution halted: {res.error_message}")
+        st.error(f"{tag} Execution halted: {html.escape(res.error_message or '')}")
+        if res.fetch_result and getattr(res.fetch_result, "sample_technical_details", None):
+            with st.expander("Technical details"):
+                for line in res.fetch_result.sample_technical_details:
+                    st.text(line)
 
         # Structured options for OVERSIZED queries (replaces mechanical auto-shrink)
         if res.status == PipelineStatus.OVERSIZED and res.spec is not None:
@@ -1039,6 +1043,18 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                             st.session_state["active_plot_res"] = new_res
                         st.rerun()
 
+    # Warning Notice (if partial failures or suggestions occurred)
+    if res.warnings:
+        for w in res.warnings:
+            st.warning(html.escape(w))
+    elif res.fetch_result and res.fetch_result.suggestion and res.fetch_result.is_sample:
+        st.warning(html.escape(res.fetch_result.suggestion))
+
+    if res.fetch_result and getattr(res.fetch_result, "sample_technical_details", None):
+        with st.expander("Technical details"):
+            for line in res.fetch_result.sample_technical_details:
+                st.text(line)
+
     # Summary Metrics Bar
     c1, c2, c3, c4, c5 = st.columns(5)
     with c1:
@@ -1046,10 +1062,12 @@ def _render_pipeline_result(res: PipelineResult) -> None:
     with c2:
         if res.fetch_result and res.fetch_result.is_sample:
             n_avail = getattr(res.fetch_result, "n_available", None)
+            k_loaded = res.card.profile_count
+            n_req = getattr(res.fetch_result, "n_requested", None) or (len(res.card.sample_picks) if res.card.sample_picks else k_loaded)
             if n_avail:
-                st.metric("Float Profiles", f"Sample: {res.card.profile_count} of {n_avail:,}")
+                st.metric("Float Profiles", f"Sample: {k_loaded} of {n_avail:,} ({n_req} requested)")
             else:
-                st.metric("Float Profiles", f"Sample: {res.card.profile_count}")
+                st.metric("Float Profiles", f"Sample: {k_loaded} ({n_req} requested)")
         else:
             st.metric("Float Profiles", f"Full: all {res.card.profile_count:,} profiles")
     with c3:
@@ -1083,13 +1101,29 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                 st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
 
             n_avail = getattr(res.fetch_result, "n_available", None) or res.card.profile_count
+            k_loaded = res.card.profile_count
+            n_req = getattr(res.fetch_result, "n_requested", None) or (len(res.card.sample_picks) if res.card.sample_picks else k_loaded)
+            n_reps = getattr(res.fetch_result, "n_replacements", getattr(res.card, "sample_replacements", 0))
+
             st.info(
-                f"Sample: {res.card.profile_count} of {n_avail:,} profiles in this region and period, "
+                f"Sample: {k_loaded} of {n_avail:,} profiles in this region and period ({n_req} requested), "
                 "selected evenly across space and time. Not representative of the whole region."
             )
+            if n_reps > 0:
+                rep_word = "replaced" if n_reps > 1 else "replaced"
+                st.caption(f"{n_reps} {rep_word} after empty results")
 
-            for key in all_analytical:
-                st.plotly_chart(_style_fig(res.figures[key], is_map=False), use_container_width=True, theme=None)
+            if k_loaded == 0:
+                st.warning("No profiles could be loaded from the sample.")
+                st.markdown(
+                    "**Alternative options:**\n"
+                    "- **Try standard mode**: Near real-time data includes recent floats without delayed-mode QC delays.\n"
+                    "- **Try a different period**: Query a time window with confirmed float coverage.\n"
+                    "- **Try a smaller region**: Focus on subregions or custom coordinates."
+                )
+            else:
+                for key in all_analytical:
+                    st.plotly_chart(_style_fig(res.figures[key], is_map=False), use_container_width=True, theme=None)
 
             # Interactive Action Buttons
             st.markdown("**Sample Actions & Alternatives**")

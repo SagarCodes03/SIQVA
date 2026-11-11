@@ -151,7 +151,7 @@ def test_partial_failure(tmp_path, sample_spec, sample_picks):
     assert res.status == FetchStatus.SUCCESS
     assert res.n_selected == 2  # 2 of 4 succeeded
     assert res.suggestion is not None
-    assert "2 of 4 profiles fetched" in res.suggestion
+    assert ("2 of 4 selected profiles could not be loaded" in res.suggestion) or ("2 of 4 profiles fetched" in res.suggestion)
 
 
 def test_budget_exceeded(tmp_path, sample_spec, sample_picks):

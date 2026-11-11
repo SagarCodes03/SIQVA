@@ -83,8 +83,19 @@ def build_understood_from_spec(spec: QuerySpec) -> tuple[UnderstoodQuery, dict[s
         provenance["date_range"] = "rules"
     if spec.variables:
         provenance["variables"] = "rules"
+    effective_depth = spec.depth_range
     if spec.depth_range is not None:
-        provenance["depth_range"] = "rules"
+        from .capabilities import get_capability_profile
+        cap = get_capability_profile(spec.intent)
+        if cap.default_depth is not None and spec.depth_range == cap.default_depth:
+            provenance["depth_range"] = "default"
+        else:
+            provenance["depth_range"] = "rules"
+    else:
+        from .capabilities import resolve_effective_depth
+        eff, is_def = resolve_effective_depth(spec)
+        effective_depth = eff
+        provenance["depth_range"] = "default" if is_def else "rules"
     if spec.mode is not None:
         provenance["mode"] = "rules"
     if spec.intent is not None:
@@ -96,7 +107,7 @@ def build_understood_from_spec(spec: QuerySpec) -> tuple[UnderstoodQuery, dict[s
         region_name=region_name,
         date_range=spec.date_range,
         variables=spec.variables,
-        depth_range=spec.depth_range,
+        depth_range=effective_depth,
         mode=spec.mode,
         intent=spec.intent,
     )
