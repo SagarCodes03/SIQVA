@@ -132,6 +132,12 @@ class FetchResult(BaseModel):
     profile_count_verified: bool = False
     profile_count: Optional[int] = None
     coverage_status: Optional[CoverageStatus] = None
+    is_sample: bool = False
+    n_selected: Optional[int] = None
+    n_available: Optional[int] = None
+    method: Optional[str] = None
+    seed: Optional[int] = None
+    index_build_date: Optional[str] = None
 
 
 def count_unique_profiles(df: pd.DataFrame) -> int:
@@ -940,3 +946,263 @@ def fetch(
         profile_count=estimated_profile_count,
         coverage_status=coverage_status,
     )
+
+
+def compute_profile_cache_key(
+    mode: Union[str, DataMode],
+    variables: list[Union[str, Variable]],
+    wmo: int,
+    cycle: int,
+) -> str:
+    """Generate unique deterministic cache key for a single Argo profile."""
+    mode_str = getattr(mode, "value", str(mode)).lower()
+    var_strs = sorted([getattr(v, "value", str(v)).upper() for v in variables])
+    var_key = "_".join(var_strs) if var_strs else "ALL"
+    raw = f"profile_{mode_str}_{var_key}_{wmo}_{cycle}"
+    h = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+    return f"prof_{wmo}_{cycle}_{mode_str}_{h}"
+
+
+def fetch_sample(
+    spec: QuerySpec,
+    picks: Optional[list[Any]] = None,
+    selection: Optional[Any] = None,
+    cache_dir: Optional[Path] = None,
+    force_refresh: bool = False,
+    timeout: int = DEFAULT_PER_REQUEST_TIMEOUT,
+    wall_clock_budget: Optional[float] = None,
+    src: str = "erddap",
+    fetcher_engine: Any = None,
+    pause_s: float = 0.05,
+    progress_callback: Optional[Any] = None,
+    float_index: Optional[Any] = None,
+) -> FetchResult:
+    """Fetch profile data for a deterministic sample sequentially with per-profile caching.
+
+    Check installed argopy for profile access point (argopy 1.5.0 DataFetcher.profile(wmo, cyc)).
+    If profile() raises an exception, falls back to a tiny geographic box (+-0.05 deg, +-1 day)
+    filtering to the picked cycle, logging the fallback decision.
+    Enforces S0 wall-clock budget, single-profile Parquet caching, QC filtering, and depth clipping.
+    """
+    from .floatindex import SamplePick, SampleSelection, load_float_index
+
+    start_time = time.monotonic()
+    if wall_clock_budget is None:
+        wall_clock_budget = get_wall_clock_budget()
+
+    eff_depth, is_default_depth = resolve_effective_depth(spec)
+    effective_depth_range = eff_depth or DepthRange(min_depth=0.0, max_depth=500.0)
+
+    if cache_dir is None:
+        cache_dir = DEFAULT_CACHE_DIR
+    cache_dir = Path(cache_dir)
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # 1. Resolve picks and selection if not provided
+    if picks is None or selection is None:
+        idx = float_index or load_float_index()
+        if idx is not None and idx.is_available:
+            sel = idx.select_sample(spec)
+            if selection is None:
+                selection = sel
+            if picks is None:
+                picks = sel.picks
+        else:
+            picks = picks or []
+
+    if not picks:
+        return FetchResult(
+            status=FetchStatus.EMPTY,
+            data=None,
+            is_cached=False,
+            cache_key=spec.fetch_key(),
+            error_message="No sample profiles to fetch.",
+            effective_depth_range=effective_depth_range,
+            is_sample=True,
+            n_selected=0,
+            n_available=selection.n_available if selection else 0,
+            method=selection.method if selection else "No sample profiles",
+            seed=selection.seed if selection else None,
+            index_build_date=str(getattr(selection, "index_build_date", "")) or "",
+        )
+
+    mode_str = getattr(spec.mode, "value", str(spec.mode)).lower()
+    fetcher_cls = fetcher_engine if fetcher_engine is not None else argopy.DataFetcher
+
+    successful_dfs: list[pd.DataFrame] = []
+    failed_picks: list[tuple[int, int, str]] = []
+    budget_exceeded = False
+    cached_hits = 0
+
+    for i, pick in enumerate(picks):
+        if progress_callback:
+            try:
+                progress_callback(i + 1, len(picks), pick.wmo, pick.cycle)
+            except Exception:
+                pass
+
+        prof_key = compute_profile_cache_key(spec.mode, spec.variables, pick.wmo, pick.cycle)
+        prof_parquet = cache_dir / f"{prof_key}.parquet"
+
+        p_df: Optional[pd.DataFrame] = None
+
+        # Check cache
+        if not force_refresh and prof_parquet.exists():
+            try:
+                p_df = pd.read_parquet(prof_parquet)
+                cached_hits += 1
+            except Exception as read_err:
+                logger.warning("Failed reading cached profile %s: %s", prof_parquet, read_err)
+                p_df = None
+
+        # Remote fetch if not in cache
+        if p_df is None:
+            elapsed = time.monotonic() - start_time
+            remaining_budget = wall_clock_budget - elapsed
+            if remaining_budget <= 0:
+                logger.warning("Foreground wall-clock budget exceeded during sample fetch (elapsed: %.1fs, budget: %.1fs)", elapsed, wall_clock_budget)
+                budget_exceeded = True
+                failed_picks.append((pick.wmo, pick.cycle, "wall-clock budget exceeded"))
+                break
+
+            effective_timeout = min(timeout, max(1, int(remaining_budget)))
+            engine = fetcher_cls(mode=mode_str, src=src, api_timeout=effective_timeout)
+
+            # Try direct argopy.DataFetcher.profile(wmo, cyc)
+            try:
+                fetcher_obj = engine.profile(pick.wmo, pick.cycle)
+                raw_df = fetcher_obj.to_dataframe()
+                if raw_df is not None and not raw_df.empty:
+                    p_df = raw_df
+            except Exception as prof_err:
+                # Log fallback decision
+                logger.info("argopy.profile() call failed (%s); falling back to tiny box for WMO %s cycle %s", prof_err, pick.wmo, pick.cycle)
+                try:
+                    dt = pd.to_datetime(pick.date)
+                    start_d = (dt - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    end_d = (dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                    box = [
+                        pick.lon - 0.05,
+                        pick.lon + 0.05,
+                        pick.lat - 0.05,
+                        pick.lat + 0.05,
+                        0.0,
+                        2000.0,
+                        start_d,
+                        end_d,
+                    ]
+                    fetcher_obj = engine.region(box)
+                    box_df = fetcher_obj.to_dataframe()
+                    if box_df is not None and not box_df.empty:
+                        matched = box_df[
+                            (box_df["PLATFORM_NUMBER"].astype(int) == int(pick.wmo))
+                            & (box_df["CYCLE_NUMBER"].astype(int) == int(pick.cycle))
+                        ]
+                        if not matched.empty:
+                            p_df = matched
+                except Exception as fallback_err:
+                    failed_picks.append((pick.wmo, pick.cycle, str(fallback_err)))
+                    continue
+
+            if p_df is None or p_df.empty:
+                failed_picks.append((pick.wmo, pick.cycle, "empty data returned"))
+                continue
+
+            # In research mode, enforce delayed mode if DATA_MODE column is present
+            if mode_str == "research" and "DATA_MODE" in p_df.columns:
+                p_df = p_df[p_df["DATA_MODE"].astype(str).str.strip().str.upper() == "D"]
+                if p_df.empty:
+                    failed_picks.append((pick.wmo, pick.cycle, "not in delayed mode"))
+                    continue
+
+            # Save full unclipped profile to cache
+            try:
+                p_df.to_parquet(prof_parquet, index=False)
+            except Exception as save_err:
+                logger.warning("Failed saving cached profile %s: %s", prof_parquet, save_err)
+
+            if pause_s > 0 and i < len(picks) - 1:
+                time.sleep(pause_s)
+
+        # Clip to requested / effective depth range on load
+        if p_df is not None and not p_df.empty:
+            if "PRES" in p_df.columns:
+                p_clipped = p_df[
+                    (p_df["PRES"] >= effective_depth_range.min_depth)
+                    & (p_df["PRES"] <= effective_depth_range.max_depth)
+                ].copy()
+            else:
+                p_clipped = p_df.copy()
+
+            if not p_clipped.empty:
+                successful_dfs.append(p_clipped)
+            else:
+                failed_picks.append((pick.wmo, pick.cycle, "no observations within depth range"))
+
+    # Assemble combined dataset
+    k_fetched = len(successful_dfs)
+    n_requested = len(picks)
+
+    if k_fetched > 0:
+        combined_df = pd.concat(successful_dfs, ignore_index=True)
+        qc_report = audit_qc(combined_df, spec.variables, spec.mode)
+        status = FetchStatus.SUCCESS
+
+        warning_msg: Optional[str] = None
+        if failed_picks:
+            fail_items = ", ".join(f"WMO {w} #{c} ({r})" for w, c, r in failed_picks)
+            warning_msg = f"{k_fetched} of {n_requested} profiles fetched. Failures: {fail_items}."
+
+        data_hash = _compute_data_hash(combined_df)
+        metadata = FetchMetadata(
+            src=src,
+            source=src,
+            argopy_version=str(getattr(argopy, "__version__", "1.5.0")),
+            xarray_version=str(getattr(xr, "__version__", "2026.9.0")),
+            fetch_timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            row_count=len(combined_df),
+            profile_count=count_unique_profiles(combined_df),
+            data_hash=data_hash,
+            fetch_key=spec.fetch_key(),
+        )
+
+        return FetchResult(
+            status=status,
+            data=combined_df,
+            is_cached=(cached_hits == k_fetched),
+            cache_key=spec.fetch_key(),
+            metadata=metadata,
+            qc_report=qc_report,
+            effective_depth_range=effective_depth_range,
+            profile_count_verified=True,
+            profile_count=k_fetched,
+            suggestion=warning_msg,
+            is_sample=True,
+            n_selected=k_fetched,
+            n_available=selection.n_available if selection else n_requested,
+            method=selection.method if selection else f"Sample of {k_fetched} profiles",
+            seed=selection.seed if selection else None,
+            index_build_date=str(getattr(selection, "index_build_date", "")) or "",
+        )
+    else:
+        # All failed or budget exceeded with 0 fetched
+        status = FetchStatus.TIMEOUT if budget_exceeded else FetchStatus.EMPTY
+        err_msg = (
+            f"Foreground wall-clock budget ({wall_clock_budget:.0f}s) exceeded before any sample profiles could be fetched."
+            if budget_exceeded
+            else f"Failed to fetch any of the {n_requested} sample profiles."
+        )
+        return FetchResult(
+            status=status,
+            data=None,
+            is_cached=False,
+            cache_key=spec.fetch_key(),
+            error_message=err_msg,
+            effective_depth_range=effective_depth_range,
+            is_sample=True,
+            n_selected=0,
+            n_available=selection.n_available if selection else n_requested,
+            method=selection.method if selection else "Sample fetch failed",
+            seed=selection.seed if selection else None,
+            index_build_date=str(getattr(selection, "index_build_date", "")) or "",
+        )
