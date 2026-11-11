@@ -920,12 +920,12 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                             st.rerun()
         return
 
-    if res.status in (PipelineStatus.EMPTY, PipelineStatus.OVERSIZED, PipelineStatus.TIMEOUT, PipelineStatus.ERROR):
+    if res.status in (PipelineStatus.EMPTY, PipelineStatus.OVERSIZED, PipelineStatus.TIMEOUT, PipelineStatus.ERROR, PipelineStatus.INTERNAL_ERROR):
         tag = f"[{res.status.value.upper()}]"
         st.error(f"{tag} Execution halted: {res.error_message}")
 
-        # Auto-clamp button for OVERSIZED queries
-        if res.status == PipelineStatus.OVERSIZED and res.spec is not None:
+        # Auto-clamp button for OVERSIZED queries with a bounding box
+        if res.status == PipelineStatus.OVERSIZED and res.spec is not None and res.spec.region is not None:
             if st.button("Auto-shrink Query to Fit Cost Limit & Re-run", type="primary", key="auto_clamp_btn"):
                 # If it's a Map or Drift plot, clamp depth to 0-20 dbar; otherwise clamp date window to fit cost cap
                 if res.spec.intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):

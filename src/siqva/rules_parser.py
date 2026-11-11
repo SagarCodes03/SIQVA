@@ -14,6 +14,7 @@ from .gazetteer import (
     _ALL_DIRECTION_WORDS,
     _GENERIC_BODY_WORDS,
     _OCEAN_WORDS,
+    KNOWN_REGIONS,
     RegionResolution,
     RegionStatus,
     resolve_region,
@@ -381,7 +382,8 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
         matched_intents.add(Intent.MAP)
 
     # 4. Profile
-    if any(
+    is_profile_count_q = bool(re.search(r"\b(how many|count of|number of|count)\s+profiles\b", lower))
+    if not is_profile_count_q and any(
         re.search(rf"\b{re.escape(k)}\b", lower)
         for k in (
             "profile",
@@ -712,23 +714,40 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
         if "variables" in missing:
             missing.remove("variables")
 
-    # If intent is MAP / metadata, handle basin queries and exempt dates / variables
+    # Basin queries (Pacific, Indian, Atlantic Ocean) use the index ocean column; never invent a bounding box
     basin = None
-    if intent == Intent.MAP:
-        lower_q = question.lower()
-        if re.search(r"\b(pacific|pacific ocean)\b", lower_q):
-            basin = "Pacific Ocean"
-            region_name = "Pacific Ocean"
-            if "region" in missing:
-                missing.remove("region")
-        elif re.search(r"\b(indian ocean)\b", lower_q):
-            basin = "Indian Ocean"
-            region_name = "Indian Ocean"
-            if "region" in missing:
-                missing.remove("region")
-        elif re.search(r"\b(atlantic|atlantic ocean)\b", lower_q) and not re.search(r"\bnorth atlantic\b", lower_q):
+    lower_q = question.lower()
+    is_basin_obs = (
+        intent in (Intent.MAP, Intent.HOVMOLLER)
+        or bool(re.search(r"\b(profiles?|floats?)\b", lower_q))
+    )
+
+    if re.search(r"\b(pacific\s+ocean|pacific)\b", lower_q):
+        if not any(sub in lower_q for sub in ("eastern equatorial pacific", "nino 1+2", "nino 3.4", "nino 3")):
+            if is_basin_obs:
+                basin = "Pacific Ocean"
+                region_name = "Pacific Ocean"
+                bbox = None
+                if "region" in missing:
+                    missing.remove("region")
+                ambiguous = [a for a in ambiguous if "Pacific Ocean" not in a and "crosses the 180" not in a]
+    elif re.search(r"\b(indian\s+ocean)\b", lower_q):
+        if not any(sub in lower_q for sub in ("arabian sea", "bay of bengal")):
+            if is_basin_obs:
+                basin = "Indian Ocean"
+                region_name = "Indian Ocean"
+                bbox = None
+                if "region" in missing:
+                    missing.remove("region")
+            else:
+                bbox = KNOWN_REGIONS["Indian Ocean"]
+                region_name = "Indian Ocean"
+                basin = None
+    elif re.search(r"\b(atlantic\s+ocean|atlantic)\b", lower_q) and not any(sub in lower_q for sub in ("north atlantic", "south atlantic")):
+        if is_basin_obs:
             basin = "Atlantic Ocean"
             region_name = "Atlantic Ocean"
+            bbox = None
             if "region" in missing:
                 missing.remove("region")
 

@@ -63,8 +63,20 @@ from .plots import (
 )
 from .spec import DepthRange, Intent, QuerySpec, Variable
 from .validator import DEFAULT_MAX_REQUEST_SIZE
+import traceback
+import uuid
 
 logger = logging.getLogger(__name__)
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+_log_file = LOGS_DIR / "siqva.log"
+_file_handler = logging.FileHandler(_log_file, encoding="utf-8")
+_file_handler.setLevel(logging.ERROR)
+_file_handler.setFormatter(logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s"))
+if not any(isinstance(h, logging.FileHandler) and getattr(h, "baseFilename", None) == str(_log_file.resolve()) for h in logger.handlers):
+    logger.addHandler(_file_handler)
 
 
 class PipelineStatus(str, Enum):
@@ -76,6 +88,7 @@ class PipelineStatus(str, Enum):
     OVERSIZED = "oversized"
     TIMEOUT = "timeout"
     ERROR = "error"
+    INTERNAL_ERROR = "internal_error"
 
 
 @dataclass
@@ -102,7 +115,7 @@ class PipelineResult:
         return self.status == PipelineStatus.SUCCESS
 
 
-def run_spec(
+def _run_spec_impl(
     spec: QuerySpec,
     cache_dir: Optional[Path] = None,
     force_refresh: bool = False,
@@ -207,7 +220,36 @@ def run_spec(
 
     resolved_fetcher = _resolve_fetcher(fetcher_fn)
 
-    if is_chunked_spec(spec, max_request_size=max_request_size):
+    from .planner import plan_request, PlanKind
+    index = load_float_index()
+    plan_decision = plan_request(spec, index=index)
+
+    if plan_decision.plan == PlanKind.REFUSE:
+        error_msg = plan_decision.reasons[0] if plan_decision.reasons else "Query exceeds allowable regional bounds."
+        option_labels = [opt.label for opt in plan_decision.options]
+        warning_text = "\n".join(f"- {lbl}" for lbl in option_labels) if option_labels else None
+        return PipelineResult(
+            status=PipelineStatus.OVERSIZED,
+            spec=spec,
+            error_message=error_msg,
+            warning=warning_text,
+            warnings=option_labels,
+        )
+    elif plan_decision.plan == PlanKind.SAMPLE:
+        from .fetcher import fetch_sample
+        sample_engine = fetch_kwargs.pop("fetcher_engine", None)
+        if sample_engine is None and isinstance(fetcher_fn, type):
+            sample_engine = fetcher_fn
+        fetch_res: FetchResult = fetch_sample(
+            spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            wall_clock_budget=wall_clock_budget,
+            fetcher_engine=sample_engine,
+            float_index=index,
+            **fetch_kwargs,
+        )
+    elif plan_decision.plan == PlanKind.CHUNKED or is_chunked_spec(spec, max_request_size=max_request_size):
         fetch_res: FetchResult = fetch_chunked(
             spec,
             cache_dir=cache_dir,
@@ -315,19 +357,23 @@ def run_spec(
             pass
     elif spec.intent == Intent.BUOYANCY:
         try:
+            mid_lat = (spec.region.lat_min + spec.region.lat_max) / 2.0 if spec.region else (float(fetch_res.data["LATITUDE"].mean()) if (fetch_res.data is not None and "LATITUDE" in fetch_res.data) else 0.0)
+            mid_lon = (spec.region.lon_min + spec.region.lon_max) / 2.0 if spec.region else (float(fetch_res.data["LONGITUDE"].mean()) if (fetch_res.data is not None and "LONGITUDE" in fetch_res.data) else 0.0)
             figures["buoyancy"] = plot_stability_buoyancy(
                 fetch_res.data,
-                lat=(spec.region.lat_min + spec.region.lat_max) / 2.0,
-                lon=(spec.region.lon_min + spec.region.lon_max) / 2.0,
+                lat=mid_lat,
+                lon=mid_lon,
             )
         except Exception:
             pass
     elif spec.intent == Intent.TS_ISOPYCNAL:
         try:
+            mid_lat = (spec.region.lat_min + spec.region.lat_max) / 2.0 if spec.region else (float(fetch_res.data["LATITUDE"].mean()) if (fetch_res.data is not None and "LATITUDE" in fetch_res.data) else 0.0)
+            mid_lon = (spec.region.lon_min + spec.region.lon_max) / 2.0 if spec.region else (float(fetch_res.data["LONGITUDE"].mean()) if (fetch_res.data is not None and "LONGITUDE" in fetch_res.data) else 0.0)
             figures["ts_isopycnal"] = plot_ts_with_isopycnals(
                 fetch_res.data,
-                lon=(spec.region.lon_min + spec.region.lon_max) / 2.0,
-                lat=(spec.region.lat_min + spec.region.lat_max) / 2.0,
+                lon=mid_lon,
+                lat=mid_lat,
             )
         except Exception:
             pass
@@ -375,6 +421,52 @@ def run_spec(
     )
 
 
+def run_spec(
+    spec: QuerySpec,
+    cache_dir: Optional[Path] = None,
+    force_refresh: bool = False,
+    db_path: Optional[Path] = None,
+    fetcher_fn: Any = None,
+    question: Optional[str] = None,
+    session_id: Optional[str] = None,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
+    wall_clock_budget: Optional[float] = None,
+    **fetch_kwargs: Any,
+) -> PipelineResult:
+    """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
+    try:
+        return _run_spec_impl(
+            spec=spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            db_path=db_path,
+            fetcher_fn=fetcher_fn,
+            question=question,
+            session_id=session_id,
+            max_request_size=max_request_size,
+            wall_clock_budget=wall_clock_budget,
+            **fetch_kwargs,
+        )
+    except Exception as exc:
+        ref_id = uuid.uuid4().hex[:8]
+        logger.error(
+            "Internal run_spec error (ref: %s) on spec %r: %s\n%s",
+            ref_id,
+            spec,
+            exc,
+            traceback.format_exc(),
+        )
+        return PipelineResult(
+            status=PipelineStatus.INTERNAL_ERROR,
+            spec=spec,
+            question=question,
+            error_message=(
+                f"An unexpected internal error occurred (Reference ID: {ref_id}). "
+                "Our team has logged the details. Please try rephrasing your request."
+            ),
+        )
+
+
 def run(
     question: str,
     today: Optional[date] = None,
@@ -389,34 +481,52 @@ def run(
     **kwargs: Any,
 ) -> PipelineResult:
     """Execute end-to-end question processing: parse -> validate -> fetch -> analyze -> card."""
-    outcome: ParseOutcome = parse_detailed(
-        question,
-        today=today,
-        llm_client=llm_client,
-        allow_llm=allow_llm,
-        max_request_size=max_request_size,
-    )
-
-    if outcome.clarification is not None or outcome.spec is None:
-        return PipelineResult(
-            status=PipelineStatus.CLARIFICATION_NEEDED,
-            question=question,
-            parse_outcome=outcome,
-            clarification=outcome.clarification,
-            error_message=outcome.clarification.message if outcome.clarification else "Clarification required.",
+    try:
+        outcome: ParseOutcome = parse_detailed(
+            question,
+            today=today,
+            llm_client=llm_client,
+            allow_llm=allow_llm,
+            max_request_size=max_request_size,
         )
 
-    res = run_spec(
-        outcome.spec,
-        cache_dir=cache_dir,
-        force_refresh=force_refresh,
-        db_path=db_path,
-        fetcher_fn=fetcher_fn,
-        question=question,
-        max_request_size=max_request_size,
-        wall_clock_budget=wall_clock_budget,
-        **kwargs,
-    )
-    res.question = question
-    res.parse_outcome = outcome
-    return res
+        if outcome.clarification is not None or outcome.spec is None:
+            return PipelineResult(
+                status=PipelineStatus.CLARIFICATION_NEEDED,
+                question=question,
+                parse_outcome=outcome,
+                clarification=outcome.clarification,
+                error_message=outcome.clarification.message if outcome.clarification else "Clarification required.",
+            )
+
+        res = run_spec(
+            outcome.spec,
+            cache_dir=cache_dir,
+            force_refresh=force_refresh,
+            db_path=db_path,
+            fetcher_fn=fetcher_fn,
+            question=question,
+            max_request_size=max_request_size,
+            wall_clock_budget=wall_clock_budget,
+            **kwargs,
+        )
+        res.question = question
+        res.parse_outcome = outcome
+        return res
+    except Exception as exc:
+        ref_id = uuid.uuid4().hex[:8]
+        logger.error(
+            "Internal pipeline error (ref: %s) on question %r: %s\n%s",
+            ref_id,
+            question,
+            exc,
+            traceback.format_exc(),
+        )
+        return PipelineResult(
+            status=PipelineStatus.INTERNAL_ERROR,
+            question=question,
+            error_message=(
+                f"An unexpected internal error occurred (Reference ID: {ref_id}). "
+                "Our team has logged the details. Please try rephrasing your request."
+            ),
+        )

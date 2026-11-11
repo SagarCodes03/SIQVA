@@ -92,3 +92,24 @@ def test_ui_indian_ocean_question_does_not_start_region_fetch():
         spy_pipe_fetch.assert_not_called()
         spy_mod_fetch.assert_not_called()
 
+
+@pytest.mark.parametrize(
+    "question",
+    [
+        "show floats in the Pacific Ocean",
+        "how many profiles in the Pacific Ocean in 2023",
+        "show floats in the Indian Ocean in January 2023",
+    ],
+)
+def test_ui_basin_and_metadata_queries_no_exceptions(question: str):
+    """Proves basin metadata questions render in Streamlit UI without any exception element."""
+    at = AppTest.from_file(UI_PATH)
+    at.run(timeout=30)
+    assert len(at.exception) == 0
+
+    at.text_area[0].input(question)
+    at.button(key="send_query_btn").click().run(timeout=30)
+
+    # Confirm there is NO exception element on the page
+    assert len(at.exception) == 0
+

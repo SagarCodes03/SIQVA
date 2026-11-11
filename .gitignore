@@ -15,6 +15,7 @@ __pycache__/
 
 # SIQVA Data Cache
 cache/
+logs/
 data/*.parquet
 *.sqlite
 *.sqlite-journal
