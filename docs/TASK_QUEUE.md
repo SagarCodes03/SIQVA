@@ -31,7 +31,7 @@ Resume instruction for future sessions:
 | [x] **S0** | Find and close the bypass; wall-clock budget (trace real UI path, enforce guard on all UI paths, foreground wall-clock budget 90s, AppTest fetch spy) | DONE (tag `done-S0`, 371 passed) |
 | [x] **S1** | Local float index (src/siqva/floatindex.py, scripts/build_float_index.py, load once, query_profiles, count_profiles, last_positions, tracks, coverage_status, tests) | DONE (tag `done-S1`, 381 passed) |
 | [x] **S2** | Capability profiles (src/siqva/capabilities.py table mapping intent -> METADATA / SAMPLE_OK / FULL_REQUIRED, default depths, 2000 dbar cap, tests) | DONE (tag `done-S2`, 385 passed) |
-| [ ] **S3** | Layered validation and planner (validator.py, planner.py, PlanDecision, basin support, antimeridian, structured options, tests) | PENDING |
+| [x] **S3** | Layered validation and planner (validator.py, planner.py, PlanDecision, basin support, antimeridian, structured options, tests) | DONE (tag `done-S3`, 400 passed) |
 | [ ] **S4** | Metadata and overview (router/rules parser, pipeline, plots, float-location queries, index overview map, Scattergeo, tests) | PENDING |
 | [ ] **S5** | Deterministic sample selection (floatindex.select_sample, WMO+cycle, grid x time slices, distinct floats, seed from fetch_key + build_date, tests) | PENDING |
 | [ ] **S6** | Fetch the sample (fetcher.py per-profile fetch, caching, progress, partial failure handling, FetchResult/AnalysisResult metadata, tests) | PENDING |
