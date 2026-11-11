@@ -22,6 +22,7 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from siqva.analyzer import AnalysisResult
+from siqva.capabilities import get_capability_profile, resolve_effective_depth
 from siqva.validator import DEFAULT_MAX_REQUEST_SIZE, is_size_guardrail_enabled
 from siqva.card import (
     DiffSummary,
@@ -1356,7 +1357,8 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
                 )
             c3, c4 = st.columns(2)
             with c3:
-                default_max_z = 20.0 if gt_def["intent"] in (Intent.MAP, getattr(Intent, "DRIFT", None)) else 500.0
+                cap_prof = get_capability_profile(gt_def["intent"])
+                default_max_z = cap_prof.default_depth.max_depth if cap_prof.default_depth else 500.0
                 max_z = st.number_input(
                     "Max Depth (dbar)",
                     value=float(default_max_z),

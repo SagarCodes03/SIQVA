@@ -17,6 +17,7 @@ import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field
 
+from .capabilities import resolve_effective_depth
 from .qc import QCReport, audit_qc
 from .spec import DataMode, DepthRange, QuerySpec
 from .validator import (
@@ -651,8 +652,9 @@ def fetch(
     if today is None:
         today = date.today()
 
-    # Default depth range to 0-500 dbar when spec has none
-    effective_depth_range = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
+    # Default depth range via capability profile resolution when spec has none
+    eff_depth, _ = resolve_effective_depth(spec)
+    effective_depth_range = eff_depth or DepthRange(min_depth=0.0, max_depth=500.0)
 
     # 1. Spec validation & size cap enforcement (active by default with max_request_size = 15,000)
     try:

@@ -160,6 +160,10 @@ def validate_spec(
         raise SpecValidationError(
             f"min_depth ({depth.min_depth}) cannot exceed max_depth ({depth.max_depth})"
         )
+    if depth.max_depth > 2000.0:
+        raise SpecValidationError(
+            f"max_depth ({depth.max_depth} dbar) cannot exceed 2000.0 dbar (core Argo profiling limit)."
+        )
 
     # 5. Cost estimate validation incorporating depth range
     area = (bbox.lon_max - bbox.lon_min) * (bbox.lat_max - bbox.lat_min)
