@@ -120,6 +120,7 @@ def parse_detailed(
 
     # 2. Region resolution
     region: Optional[BoundingBox] = rules_res.region
+    basin: Optional[str] = getattr(rules_res, "basin", None)
     region_name: Optional[str] = rules_res.region_name
     region_issue = rules_res.region_resolution
     if region is not None:
@@ -152,8 +153,13 @@ def parse_detailed(
                 f"Supported regions: {supported}. Or provide coordinates."
             )
     else:
-        # Check if rules captured a candidate name
-        if rules_res.region_name:
+        # Check if rules captured a basin or candidate name
+        if getattr(rules_res, "basin", None):
+            basin = rules_res.basin
+            region = None
+            region_name = rules_res.basin
+            provenance["region"] = "rules"
+        elif rules_res.region_name:
             res_reg = resolve_region(rules_res.region_name)
             if res_reg.status == RegionStatus.RESOLVED and res_reg.bbox is not None:
                 region = res_reg.bbox
@@ -161,7 +167,7 @@ def parse_detailed(
                 provenance["region"] = "rules"
 
         # Fallback to LLM for region name if still missing
-        if region is None and can_use_llm():
+        if region is None and basin is None and can_use_llm():
             llm_region_name = extract_region_name_llm(question, client=llm_client, model=model)
             if llm_region_name:
                 res_reg = resolve_region(llm_region_name)
@@ -170,7 +176,7 @@ def parse_detailed(
                     region_name = res_reg.region_name
                     provenance["region"] = "llm"
 
-        if region is None:
+        if region is None and basin is None:
             missing_fields.append("region")
             suggestions.append(
                 "No region was mentioned. Please specify an ocean region "
@@ -288,12 +294,21 @@ def parse_detailed(
             provenance["variables"] = "default"
             if "variables" in missing_fields:
                 missing_fields.remove("variables")
-        if region is None and basin:
-            region_name = basin
-            if "region" in missing_fields:
-                missing_fields.remove("region")
-            if ambiguous_fields:
-                ambiguous_fields = [f for f in ambiguous_fields if "Pacific Ocean" not in f and "crosses the 180" not in f]
+
+    # Hovmoller diagram defaults to TEMP if no variable is specified
+    if intent == Intent.HOVMOLLER and not variables:
+        variables = [Variable.TEMP]
+        provenance["variables"] = "default"
+        if "variables" in missing_fields:
+            missing_fields.remove("variables")
+
+    # If region is None and basin is set, resolve region_name and clear region missing/ambiguous
+    if region is None and basin:
+        region_name = basin
+        if "region" in missing_fields:
+            missing_fields.remove("region")
+        if ambiguous_fields:
+            ambiguous_fields = [f for f in ambiguous_fields if "Pacific Ocean" not in f and "crosses the 180" not in f]
 
     # Surface maps and drift velocity only require surface layer coordinates; default to 0-20 dbar
     if provenance.get("depth_range") == "default" and intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
@@ -348,7 +363,7 @@ def parse_detailed(
     )
 
     try:
-        if intent == Intent.MAP:
+        if intent == Intent.MAP or candidate_spec.region is None:
             validate_structure(candidate_spec, allow_antimeridian=True)
         else:
             validate_spec(candidate_spec, max_request_size=max_request_size, allow_chunking=True)

@@ -123,6 +123,28 @@ class QuerySpec(BaseModel):
     mode: DataMode = DataMode.RESEARCH
     intent: Intent
 
+    @property
+    def has_bbox(self) -> bool:
+        """Return True if spec defines a concrete geographic bounding box."""
+        return self.region is not None
+
+    @property
+    def location_target(self) -> Union[str, BoundingBox, None]:
+        """Return basin name if a basin request, otherwise region bounding box."""
+        return self.basin or self.region
+
+    def location_description(self, known_regions: Optional[dict[str, BoundingBox]] = None) -> str:
+        """Return human-readable region description: basin name, known region name, or bbox coordinates."""
+        if self.basin:
+            return self.basin
+        if self.region is not None:
+            if known_regions:
+                matched = next((name for name, b in known_regions.items() if b == self.region), None)
+                if matched:
+                    return matched
+            return f"[{self.region.lon_min:.2f}, {self.region.lon_max:.2f}, {self.region.lat_min:.2f}, {self.region.lat_max:.2f}]"
+        return "unspecified region"
+
     @model_validator(mode="after")
     def validate_region_or_basin(self) -> "QuerySpec":
         if self.region is None and not self.basin:
@@ -231,4 +253,18 @@ class QuerySpec(BaseModel):
     def fetch_key(self) -> str:
         """Calculate the SHA-256 hash of fetch parameters (region, date_range, depth_range, variables, mode)."""
         return hashlib.sha256(self.fetch_json().encode("utf-8")).hexdigest()
+
+
+def get_location_info(
+    spec: QuerySpec,
+    known_regions: Optional[dict[str, BoundingBox]] = None,
+) -> tuple[str, Optional[BoundingBox]]:
+    """Return a tuple of (description_string, optional_bbox) for any query spec.
+
+    If spec.basin is set, returns (spec.basin, None).
+    If spec.region is set, returns (region_name_or_coords, spec.region).
+    If neither is set, returns ('unspecified region', None).
+    """
+    desc = spec.location_description(known_regions=known_regions)
+    return desc, spec.region
 

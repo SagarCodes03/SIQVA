@@ -239,7 +239,7 @@ def count_profiles_in_snapshot(
 
     # 3. Assess spatial coverage
     spatial_status = "none"
-    if snap_bbox and len(snap_bbox) == 4:
+    if spec.region is not None and snap_bbox and len(snap_bbox) == 4:
         s_lon_min, s_lon_max, s_lat_min, s_lat_max = (
             float(snap_bbox[0]),
             float(snap_bbox[1]),
@@ -263,6 +263,8 @@ def count_profiles_in_snapshot(
             spatial_status = "full"
         else:
             spatial_status = "partial"
+    elif spec.basin:
+        spatial_status = "full"
     else:
         spatial_status = "none"
 
@@ -314,10 +316,11 @@ def count_profiles_in_snapshot(
     lat_col = "latitude" if "latitude" in df.columns else ("lat" if "lat" in df.columns else None)
     mask = pd.Series(True, index=df.index)
 
-    if lon_col:
-        mask = mask & (df[lon_col] >= spec.region.lon_min) & (df[lon_col] <= spec.region.lon_max)
-    if lat_col:
-        mask = mask & (df[lat_col] >= spec.region.lat_min) & (df[lat_col] <= spec.region.lat_max)
+    if spec.region is not None:
+        if lon_col:
+            mask = mask & (df[lon_col] >= spec.region.lon_min) & (df[lon_col] <= spec.region.lon_max)
+        if lat_col:
+            mask = mask & (df[lat_col] >= spec.region.lat_min) & (df[lat_col] <= spec.region.lat_max)
 
     if date_col_name:
         date_series = pd.to_datetime(df[date_col_name], errors="coerce")
@@ -471,6 +474,9 @@ def count_matching_profiles_via_index(
     Note: Network pre-fetch takes 40-50s on remote ERDDAP; use count_profiles_in_snapshot
     for standard offline pre-fetch guards.
     """
+    if spec.region is None:
+        return None
+
     box = [
         float(spec.region.lon_min),
         float(spec.region.lon_max),
@@ -799,6 +805,17 @@ def fetch(
 
     # 5. Remote fetch execution
     # Construct standard argopy region box: [lon_min, lon_max, lat_min, lat_max, dpt_min, dpt_max, date_min, date_max]
+    if spec.region is None:
+        return _build_empty_result(
+            spec,
+            fetch_key,
+            effective_depth_range,
+            today=today,
+            profile_count_verified=profile_count_verified,
+            profile_count=estimated_profile_count,
+            coverage_status=coverage_status,
+        )
+
     box = [
         float(spec.region.lon_min),
         float(spec.region.lon_max),
@@ -1020,9 +1037,9 @@ def fetch_sample(
             effective_depth_range=effective_depth_range,
             is_sample=True,
             n_selected=0,
-            n_available=selection.n_available if selection else 0,
-            method=selection.method if selection else "No sample profiles",
-            seed=selection.seed if selection else None,
+            n_available=getattr(selection, "n_available", getattr(selection, "profile_count", 0)),
+            method=getattr(selection, "method", "No sample profiles"),
+            seed=getattr(selection, "seed", None),
             index_build_date=str(getattr(selection, "index_build_date", "")) or "",
         )
 
@@ -1179,9 +1196,9 @@ def fetch_sample(
             suggestion=warning_msg,
             is_sample=True,
             n_selected=k_fetched,
-            n_available=selection.n_available if selection else n_requested,
-            method=selection.method if selection else f"Sample of {k_fetched} profiles",
-            seed=selection.seed if selection else None,
+            n_available=getattr(selection, "n_available", getattr(selection, "profile_count", n_requested)),
+            method=getattr(selection, "method", f"Sample of {k_fetched} profiles"),
+            seed=getattr(selection, "seed", None),
             index_build_date=str(getattr(selection, "index_build_date", "")) or "",
         )
     else:

@@ -91,6 +91,8 @@ def compute_spec_cost(spec: QuerySpec) -> tuple[float, float, int, float]:
         (area, days, depth_span, cost)
     """
     bbox = spec.region
+    if bbox is None:
+        return 0.0, 0, 0.0, 0.0
     area = (bbox.lon_max - bbox.lon_min) * (bbox.lat_max - bbox.lat_min)
     days = max(1, (spec.date_range.end - spec.date_range.start).days)
     depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
@@ -102,6 +104,9 @@ def compute_spec_cost(spec: QuerySpec) -> tuple[float, float, int, float]:
 
 def is_chunked_spec(spec: QuerySpec, max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE) -> bool:
     """Check whether a query spec exceeds the single-request cost cap and has multiple calendar months."""
+    # Basin queries or requests without a bounding box never chunk via geometric area cap
+    if spec.region is None:
+        return False
     chunks = split_date_range_into_months(spec.date_range)
     if len(chunks) <= 1:
         return False
@@ -126,6 +131,8 @@ def validate_chunkable_spec(
     Returns:
         True if the query can be split into valid chunks.
     """
+    if spec.region is None:
+        return False
     chunks = split_date_range_into_months(spec.date_range)
     if not chunks:
         return False
