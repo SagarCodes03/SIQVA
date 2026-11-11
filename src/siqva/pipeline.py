@@ -4,17 +4,21 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Optional
 import pandas as pd
 import plotly.graph_objects as go
+import argopy
+import xarray as xr
 
 from .analyzer import AnalysisResult, analyze
 from .card import QueryCard, build_card, generate_script, save_card
+from .floatindex import load_float_index
+from .gazetteer import KNOWN_REGIONS
 from . import fetcher
-from .fetcher import FetchResult, FetchStatus
+from .fetcher import FetchMetadata, FetchResult, FetchStatus
 
 # Module attribute so patch("siqva.pipeline.fetch") works at test time
 fetch = fetcher.fetch
@@ -55,8 +59,9 @@ from .plots import (
     plot_thermocline_and_barrier,
     plot_ts_diagram,
     plot_ts_with_isopycnals,
+    render_index_overview_map,
 )
-from .spec import Intent, QuerySpec, Variable
+from .spec import DepthRange, Intent, QuerySpec, Variable
 from .validator import DEFAULT_MAX_REQUEST_SIZE
 
 logger = logging.getLogger(__name__)
@@ -90,6 +95,7 @@ class PipelineResult:
     error_message: Optional[str] = None
     warning: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
+    render_time_s: Optional[float] = None
 
     @property
     def is_success(self) -> bool:
@@ -114,6 +120,90 @@ def run_spec(
 
     if wall_clock_budget is None:
         wall_clock_budget = get_wall_clock_budget()
+
+    # Metadata requests (Float Position Map) use local FloatIndex directly; no remote fetcher call
+    if spec.intent == Intent.MAP:
+        index = load_float_index()
+        if index is None or not index.is_available:
+            return PipelineResult(
+                status=PipelineStatus.ERROR,
+                spec=spec,
+                error_message="Local float index snapshot (data/float_index.parquet) is not available. Float position maps require the local float index.",
+            )
+
+        target_loc = spec.basin or spec.region
+        profile_count = index.count_profiles(target_loc, date_range=spec.date_range)
+        last_pos = index.last_positions(target_loc, date_range=spec.date_range)
+        float_count = len(last_pos)
+
+        fig, render_time_s, display_mode = render_index_overview_map(index, spec)
+        snapshot_date_str = str(index.metadata.get("build_date") or index.max_date or "unknown")[:10]
+        age_days = index.snapshot_age_days()
+
+        region_label = spec.basin or (next((name for name, b in KNOWN_REGIONS.items() if b == spec.region), None) or "custom coordinates")
+        summary = (
+            f"**Argo Float Position Map Overview**\n\n"
+            f"- **Region / Basin**: {region_label}\n"
+            f"- **Period**: {spec.date_range.start} to {spec.date_range.end}\n"
+            f"- **Active Floats**: {float_count:,}\n"
+            f"- **Total Profiles**: {profile_count:,}\n"
+            f"- **Index Snapshot**: {snapshot_date_str} ({age_days} days old)\n"
+            f"- **Map Render Time**: {render_time_s:.3f} s\n\n"
+            f"{display_mode}"
+        )
+
+        analysis = AnalysisResult(
+            profile_count=profile_count,
+            observation_count=0,
+            date_start=spec.date_range.start.isoformat(),
+            date_end=spec.date_range.end.isoformat(),
+            mode=spec.mode,
+            qc_filter_description="metadata snapshot (local float index)",
+            effective_depth_range=DepthRange(min_depth=0.0, max_depth=0.0),
+            is_default_depth=True,
+            is_cached=True,
+            profile_count_verified=True,
+            summary=summary,
+            summary_markdown=summary,
+            intent=spec.intent,
+        )
+
+        meta = FetchMetadata(
+            src="float_index",
+            source="local_float_index",
+            argopy_version=getattr(argopy, "__version__", "1.5.0"),
+            xarray_version=getattr(xr, "__version__", "2026.9.0"),
+            fetch_timestamp=datetime.now(timezone.utc).isoformat(),
+            row_count=0,
+            profile_count=profile_count,
+            data_hash="metadata_only",
+            fetch_key=spec.fetch_key(),
+        )
+
+        fetch_res = FetchResult(
+            status=FetchStatus.SUCCESS,
+            data=last_pos,
+            is_cached=True,
+            cache_key=spec.fetch_key(),
+            metadata=meta,
+            effective_depth_range=DepthRange(min_depth=0.0, max_depth=0.0),
+            profile_count_verified=True,
+            profile_count=profile_count,
+        )
+
+        card = build_card(spec, fetch_res, analysis, question=question, session_id=session_id)
+        script = generate_script(card)
+
+        return PipelineResult(
+            status=PipelineStatus.SUCCESS,
+            spec=spec,
+            fetch_result=fetch_res,
+            analysis=analysis,
+            figures={"map": fig},
+            card=card,
+            script=script,
+            render_time_s=render_time_s,
+        )
 
     resolved_fetcher = _resolve_fetcher(fetcher_fn)
 

@@ -107,6 +107,12 @@ class AnalysisResult(BaseModel):
     physics_summaries: list[ProfilePhysicsSummary] = Field(default_factory=list)
     skipped_physics_profiles: list[SkippedProfileInfo] = Field(default_factory=list)
     physics_skipped_reason: Optional[str] = None
+    is_sample: bool = False
+    n_selected: Optional[int] = None
+    n_available: Optional[int] = None
+    method: Optional[str] = None
+    seed: Optional[int] = None
+    index_build_date: Optional[str] = None
 
     @property
     def depth_bins(self) -> list[DepthBinStats]:
@@ -131,10 +137,19 @@ def summary_text(analysis: AnalysisResult) -> str:
       - observation mean explicitly labeled as 'observation mean (not depth-weighted)'
       - per-depth-bin statistics for bins within the effective depth range
     """
-    lines = [
+    lines = []
+    if analysis.is_sample:
+        n_sel = analysis.n_selected if analysis.n_selected is not None else analysis.profile_count
+        n_avail = analysis.n_available if analysis.n_available is not None else n_sel
+        lines.append(
+            f"**Sample**: {n_sel} of {n_avail} profiles in this region and period, "
+            "selected evenly across space and time. Not representative of the whole region."
+        )
+
+    lines.extend([
         f"**Mode**: `{analysis.mode.value}` ({get_mode_description(analysis.mode)})",
         f"**QC Filter in effect**: {analysis.qc_filter_description}",
-    ]
+    ])
 
     if analysis.is_default_depth:
         lines.append(
@@ -396,66 +411,69 @@ def analyze(
             bin_label = f"{actual_min:.0f}–{actual_max:.0f} dbar" if (actual_min != b_min or actual_max != b_max) else label
             applicable_bins.append((actual_min, actual_max, bin_label))
 
-    # Per-variable statistics
+    pres_col = "PRES" if "PRES" in df.columns else None
+
+    # Per-variable statistics (skipped for samples: no regional aggregate statistics)
     variable_stats: dict[str, VariableStats] = {}
     missing_notes: list[str] = []
 
-    vars_to_check = set(v.value for v in spec.variables)
-    for std_var in ["TEMP", "PSAL", "PRES"]:
-        if std_var in df.columns:
-            vars_to_check.add(std_var)
+    if fetch_result.is_sample:
+        missing_notes.append("Regional aggregate statistics are not computed for sample selections.")
+    else:
+        vars_to_check = set(v.value for v in spec.variables)
+        for std_var in ["TEMP", "PSAL", "PRES"]:
+            if std_var in df.columns:
+                vars_to_check.add(std_var)
 
-    pres_col = "PRES" if "PRES" in df.columns else None
+        for var in sorted(vars_to_check):
+            if var in df.columns:
+                series = pd.to_numeric(df[var], errors="coerce")
+                missing_cnt = int(series.isna().sum())
+                valid_series = series.dropna()
+                obs_cnt = int(len(valid_series))
 
-    for var in sorted(vars_to_check):
-        if var in df.columns:
-            series = pd.to_numeric(df[var], errors="coerce")
-            missing_cnt = int(series.isna().sum())
-            valid_series = series.dropna()
-            obs_cnt = int(len(valid_series))
+                if obs_cnt > 0:
+                    v_min = float(valid_series.min())
+                    v_mean = float(valid_series.mean())
+                    v_max = float(valid_series.max())
+                else:
+                    v_min, v_mean, v_max = None, None, None
 
-            if obs_cnt > 0:
-                v_min = float(valid_series.min())
-                v_mean = float(valid_series.mean())
-                v_max = float(valid_series.max())
-            else:
-                v_min, v_mean, v_max = None, None, None
-
-            # Calculate per-depth-bin statistics if pressure column is available
-            depth_bins_stats: list[DepthBinStats] = []
-            if pres_col and var != pres_col and obs_cnt > 0:
-                pres_series = pd.to_numeric(df[pres_col], errors="coerce")
-                for b_min, b_max, b_lbl in applicable_bins:
-                    in_bin_mask = (pres_series >= b_min) & (pres_series <= b_max) & series.notna()
-                    bin_vals = series[in_bin_mask]
-                    if len(bin_vals) > 0:
-                        depth_bins_stats.append(
-                            DepthBinStats(
-                                bin_label=b_lbl,
-                                min_depth=b_min,
-                                max_depth=b_max,
-                                min_value=float(bin_vals.min()),
-                                observation_mean=float(bin_vals.mean()),
-                                max_value=float(bin_vals.max()),
-                                observation_count=len(bin_vals),
+                # Calculate per-depth-bin statistics if pressure column is available
+                depth_bins_stats: list[DepthBinStats] = []
+                if pres_col and var != pres_col and obs_cnt > 0:
+                    pres_series = pd.to_numeric(df[pres_col], errors="coerce")
+                    for b_min, b_max, b_lbl in applicable_bins:
+                        in_bin_mask = (pres_series >= b_min) & (pres_series <= b_max) & series.notna()
+                        bin_vals = series[in_bin_mask]
+                        if len(bin_vals) > 0:
+                            depth_bins_stats.append(
+                                DepthBinStats(
+                                    bin_label=b_lbl,
+                                    min_depth=b_min,
+                                    max_depth=b_max,
+                                    min_value=float(bin_vals.min()),
+                                    observation_mean=float(bin_vals.mean()),
+                                    max_value=float(bin_vals.max()),
+                                    observation_count=len(bin_vals),
+                                )
                             )
-                        )
 
-            variable_stats[var] = VariableStats(
-                variable=var,
-                min_value=v_min,
-                mean_value=v_mean,
-                max_value=v_max,
-                observation_count=obs_cnt,
-                missing_count=missing_cnt,
-                depth_bins=depth_bins_stats,
-            )
+                variable_stats[var] = VariableStats(
+                    variable=var,
+                    min_value=v_min,
+                    mean_value=v_mean,
+                    max_value=v_max,
+                    observation_count=obs_cnt,
+                    missing_count=missing_cnt,
+                    depth_bins=depth_bins_stats,
+                )
 
-            if missing_cnt > 0:
-                pct = (missing_cnt / len(df)) * 100.0
-                missing_notes.append(f"{var}: {missing_cnt} missing values ({pct:.1f}%).")
-        else:
-            missing_notes.append(f"{var}: Requested variable column not found in returned dataset.")
+                if missing_cnt > 0:
+                    pct = (missing_cnt / len(df)) * 100.0
+                    missing_notes.append(f"{var}: {missing_cnt} missing values ({pct:.1f}%).")
+            else:
+                missing_notes.append(f"{var}: Requested variable column not found in returned dataset.")
 
     # Depth coverage per profile
     depth_coverage: list[ProfileDepthStats] = []
@@ -500,8 +518,8 @@ def analyze(
         float(reached_target_count / len(depth_coverage)) if depth_coverage else 0.0
     )
 
-    # Compute TEOS-10 Physics ONLY when explicitly requested by a physics intent
-    is_physics_intent = spec.intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC)
+    # Compute TEOS-10 Physics ONLY when explicitly requested by a physics intent AND not a sample
+    is_physics_intent = (not fetch_result.is_sample) and (spec.intent in (Intent.THERMOCLINE, Intent.TCHP, Intent.ACOUSTIC))
 
     physics_summaries: list[ProfilePhysicsSummary] = []
     skipped_physics_profiles: list[SkippedProfileInfo] = []
@@ -580,6 +598,12 @@ def analyze(
         physics_summaries=physics_summaries,
         skipped_physics_profiles=skipped_physics_profiles,
         physics_skipped_reason=physics_skipped_reason,
+        is_sample=fetch_result.is_sample,
+        n_selected=fetch_result.n_selected,
+        n_available=fetch_result.n_available,
+        method=fetch_result.method,
+        seed=fetch_result.seed,
+        index_build_date=fetch_result.index_build_date,
     )
 
     final_text = summary_text(base_res)

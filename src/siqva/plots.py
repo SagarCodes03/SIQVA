@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import time
 from typing import Any, Optional
 try:
     import gsw
@@ -443,6 +445,186 @@ def plot_position_map(
     )
 
     return apply_theme(fig, title=title or "Float Locations and Tracks")
+
+
+DEFAULT_MAX_TRACKS_FLOATS: int = 50
+DEFAULT_MAX_MARKER_FLOATS: int = 5_000
+
+
+def get_max_tracks_floats() -> int:
+    """Return maximum float count for full trajectory track display."""
+    val = os.getenv("SIQVA_MAX_TRACKS_FLOATS")
+    if val:
+        try:
+            return int(val)
+        except ValueError:
+            pass
+    return DEFAULT_MAX_TRACKS_FLOATS
+
+
+def get_max_marker_floats() -> int:
+    """Return maximum float count for marker display before switching to coarse density grid."""
+    val = os.getenv("SIQVA_MAX_MARKER_FLOATS")
+    if val:
+        try:
+            return int(val)
+        except ValueError:
+            pass
+    return DEFAULT_MAX_MARKER_FLOATS
+
+
+def render_index_overview_map(
+    index: Any,
+    spec: Any,
+    max_tracks: Optional[int] = None,
+    max_markers: Optional[int] = None,
+) -> tuple[go.Figure, float, str]:
+    """Render an overview map of Argo floats directly from the local float index.
+
+    Supports:
+        - Float trajectory tracks for up to max_tracks floats.
+        - Point markers at last observed position for up to max_markers floats.
+        - Coarse grid count aggregation with Scattergeo markers above max_markers floats.
+
+    Hover info:
+        Float WMO, last observation date, cycle, and institution.
+
+    Returns:
+        (fig, render_time_s, display_mode_description)
+    """
+    t0 = time.monotonic()
+    limit_tracks = max_tracks if max_tracks is not None else get_max_tracks_floats()
+    limit_markers = max_markers if max_markers is not None else get_max_marker_floats()
+
+    target_loc = getattr(spec, "basin", None) or getattr(spec, "region", None)
+    date_range = getattr(spec, "date_range", None)
+
+    fig = go.Figure()
+    last_pos = index.last_positions(bbox_or_basin=target_loc, date_range=date_range)
+    total_profiles = index.count_profiles(bbox_or_basin=target_loc, date_range=date_range)
+    float_count = len(last_pos)
+
+    if float_count == 0:
+        fig.add_annotation(
+            text="No active Argo floats found in this region and period.",
+            xref="paper",
+            yref="paper",
+            x=0.5,
+            y=0.5,
+            showarrow=False,
+            font=dict(color=THEME_TEXT, size=14),
+        )
+        display_mode = "No active floats matching query bounds."
+    elif float_count <= limit_tracks:
+        # 1. Trajectory tracks for small float counts
+        tracks_df = index.tracks(bbox_or_basin=target_loc, date_range=date_range)
+        for wmo, group in tracks_df.groupby("wmo"):
+            sorted_g = group.sort_values("date")
+            custom_data = sorted_g[["wmo", "date", "cycle", "institution"]].astype(str).values
+            fig.add_trace(
+                go.Scattergeo(
+                    lon=sorted_g["longitude"],
+                    lat=sorted_g["latitude"],
+                    mode="lines+markers",
+                    name=f"WMO {wmo}",
+                    line=dict(width=1.5, color=COLOR_PRIMARY_TEAL),
+                    marker=dict(size=5, color=COLOR_PRIMARY_TEAL),
+                    customdata=custom_data,
+                    hovertemplate=(
+                        "Float: %{customdata[0]}<br>"
+                        "Date: %{customdata[1]}<br>"
+                        "Cycle: %{customdata[2]}<br>"
+                        "Institution: %{customdata[3]}<extra></extra>"
+                    ),
+                    showlegend=float_count <= 15,
+                )
+            )
+        display_mode = f"Showing full trajectory tracks for {float_count} active floats."
+    elif float_count <= limit_markers:
+        # 2. Markers at last known position
+        custom_data = last_pos[["wmo", "date", "cycle", "institution"]].astype(str).values
+        fig.add_trace(
+            go.Scattergeo(
+                lon=last_pos["longitude"],
+                lat=last_pos["latitude"],
+                mode="markers",
+                name="Last Position",
+                marker=dict(size=6, color=COLOR_PRIMARY_TEAL, opacity=0.8),
+                customdata=custom_data,
+                hovertemplate=(
+                    "Float: %{customdata[0]}<br>"
+                    "Last Date: %{customdata[1]}<br>"
+                    "Cycle: %{customdata[2]}<br>"
+                    "Institution: %{customdata[3]}<extra></extra>"
+                ),
+                showlegend=False,
+            )
+        )
+        display_mode = f"Showing last observed positions for {float_count:,} active floats (tracks hidden above {limit_tracks} floats)."
+    else:
+        # 3. Coarse grid aggregation for > 5,000 floats
+        grid_deg = 5.0
+        lat_bin = ((last_pos["latitude"] + 90.0) // grid_deg) * grid_deg - 90.0 + (grid_deg / 2.0)
+        lon_bin = ((last_pos["longitude"] + 180.0) // grid_deg) * grid_deg - 180.0 + (grid_deg / 2.0)
+        grid_df = last_pos.copy()
+        grid_df["lat_bin"] = lat_bin
+        grid_df["lon_bin"] = lon_bin
+        aggregated = grid_df.groupby(["lat_bin", "lon_bin"]).agg(
+            float_count=("wmo", "nunique"),
+            cycle_max=("cycle", "max"),
+        ).reset_index()
+
+        max_bin_count = aggregated["float_count"].max() if not aggregated.empty else 1
+        sizes = 8 + (aggregated["float_count"] / max_bin_count) * 22
+        custom_data = aggregated[["float_count", "cycle_max"]].values
+
+        fig.add_trace(
+            go.Scattergeo(
+                lon=aggregated["lon_bin"],
+                lat=aggregated["lat_bin"],
+                mode="markers",
+                name="Float Density",
+                marker=dict(
+                    size=sizes,
+                    color=aggregated["float_count"],
+                    colorscale="Teal",
+                    colorbar=dict(title="Floats"),
+                    opacity=0.85,
+                    showscale=True,
+                ),
+                customdata=custom_data,
+                hovertemplate=(
+                    "Grid Cell: %{lat:.1f}°, %{lon:.1f}°<br>"
+                    "Active Floats: %{customdata[0]:,}<br>"
+                    "Max Cycle: %{customdata[1]}<extra></extra>"
+                ),
+                showlegend=False,
+            )
+        )
+        display_mode = f"Aggregated into 5° spatial density grid for {float_count:,} active floats (density grid active above {limit_markers:,} floats)."
+
+    fig.update_geos(
+        projection_type="natural earth",
+        showland=True,
+        landcolor="#12303F",
+        showocean=True,
+        oceancolor="#0B1F2A",
+        showcountries=True,
+        countrycolor="#1E4558",
+        coastlinecolor="#1E4558",
+        bgcolor=THEME_BG,
+    )
+
+    basin_name = getattr(spec, "basin", None)
+    region_bbox = getattr(spec, "region", None)
+    from .gazetteer import KNOWN_REGIONS
+    region_label = basin_name or (next((name for name, b in KNOWN_REGIONS.items() if b == region_bbox), None) or "Region")
+    fig_title = f"Argo Float Positions \u2014 {region_label} ({float_count:,} floats, {total_profiles:,} profiles)"
+    apply_theme(fig, title=fig_title)
+
+    t1 = time.monotonic()
+    render_time_s = t1 - t0
+    return fig, render_time_s, display_mode
 
 
 def _filter_profile(df: Optional[pd.DataFrame], summary: Any) -> pd.DataFrame:

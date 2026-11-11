@@ -32,6 +32,10 @@ def format_understood_as(understood: UnderstoodQuery, provenance: Mapping[str, s
             f"{box.lat_min:.2f}, {box.lat_max:.2f}]) "
             f"[{_source_label(provenance, 'region')}]"
         )
+    elif getattr(understood, "basin", None) is not None:
+        parts.append(
+            f"Basin: {understood.basin} [{_source_label(provenance, 'region')}]"
+        )
     if understood.date_range is not None:
         parts.append(
             f"Dates: {understood.date_range.start.isoformat()} to "

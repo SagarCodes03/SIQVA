@@ -6,12 +6,16 @@ and sample selection using the local Parquet float index snapshot without touchi
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from enum import Enum
 from functools import lru_cache
+import hashlib
 import json
 import logging
+import math
 from pathlib import Path
+import random
 from typing import Any, Optional, Union
 import pandas as pd
 
@@ -22,6 +26,56 @@ logger = logging.getLogger(__name__)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_FLOAT_INDEX_PATH = PROJECT_ROOT / "data" / "float_index.parquet"
 DEFAULT_FLOAT_INDEX_JSON = PROJECT_ROOT / "data" / "float_index.json"
+
+SAMPLE_DEFAULT: int = 12
+SAMPLE_STEPS: tuple[int, ...] = (12, 24, 48)
+SAMPLE_MAX: int = 50
+
+
+@dataclass(frozen=True)
+class SamplePick:
+    """A single selected Argo profile pick for sample-based visualization."""
+
+    wmo: int
+    cycle: int
+    date: str
+    lat: float
+    lon: float
+    is_delayed: bool = False
+    institution: str = ""
+
+    def __getitem__(self, item: str | int) -> Any:
+        """Allow dict-like or tuple-like indexing."""
+        if isinstance(item, int):
+            return (self.wmo, self.cycle, self.date, self.lat, self.lon)[item]
+        return getattr(self, item)
+
+
+@dataclass
+class SampleSelection:
+    """Result of deterministic sample selection over matching profiles."""
+
+    picks: list[SamplePick]
+    method: str
+    seed: int
+    n_available: int
+    n_requested: int
+    warning: Optional[str] = None
+
+    def __iter__(self):
+        """Allows unpacking: picks, method = index.select_sample(...)"""
+        return iter((self.picks, self.method))
+
+    def __len__(self) -> int:
+        return len(self.picks)
+
+
+def compute_sample_seed(fetch_key: str, build_date: Any) -> int:
+    """Compute a deterministic 32-bit integer seed from fetch key and index build date."""
+    b_str = str(build_date or "")
+    combined = f"{fetch_key}_{b_str}".encode("utf-8")
+    h = hashlib.sha256(combined).hexdigest()
+    return int(h[:8], 16)
 
 
 class CoverageStatus(str, Enum):
@@ -232,6 +286,234 @@ class FloatIndex:
             return max(0, (ref_today - self.max_date).days)
         return None
 
+    def select_sample(
+        self,
+        bbox_or_basin: Union[BoundingBox, tuple[float, float, float, float], list[float], str, Any, None] = None,
+        date_range: Optional[Union[DateRange, tuple[Any, Any]]] = None,
+        n: int = SAMPLE_DEFAULT,
+        mode: Union[str, Any] = "research",
+        fetch_key: str = "",
+        seed: Optional[int] = None,
+    ) -> SampleSelection:
+        """Deterministically select n profiles spread evenly across space and time.
+
+        Picks distinct floats when available and applies research/standard mode filtering.
+        """
+        # If a QuerySpec was passed directly
+        if hasattr(bbox_or_basin, "region") and hasattr(bbox_or_basin, "date_range"):
+            spec = bbox_or_basin
+            bbox_or_basin = spec.basin or spec.region
+            date_range = spec.date_range
+            mode = getattr(spec.mode, "value", spec.mode)
+            if not fetch_key and hasattr(spec, "fetch_key"):
+                fetch_key = spec.fetch_key()
+
+        # Handle DataMode enum or string
+        mode_str = str(getattr(mode, "value", mode)).lower()
+        is_research = "research" in mode_str
+
+        # Cap n
+        n_requested = n
+        if n <= 0:
+            return SampleSelection(
+                picks=[],
+                method="Requested 0 profiles",
+                seed=0,
+                n_available=0,
+                n_requested=0,
+            )
+        n_target = min(n, SAMPLE_MAX)
+
+        # Deterministic seed
+        if seed is None:
+            build_ref = self.metadata.get("build_date") or self.build_date or self.max_date
+            seed = compute_sample_seed(fetch_key, build_ref)
+
+        rng = random.Random(seed)
+
+        if not self.is_available or self.df.empty:
+            return SampleSelection(
+                picks=[],
+                method="Float index unavailable",
+                seed=seed,
+                n_available=0,
+                n_requested=n_requested,
+            )
+
+        # 1. Filter candidates by spatial/basin and date bounds
+        df_all = self.query_profiles(bbox_or_basin=bbox_or_basin, date_range=date_range, delayed_only=False)
+        n_total_avail = len(df_all)
+
+        warning: Optional[str] = None
+        if is_research:
+            # Research mode requires delayed-mode profiles
+            df_candidates = self.query_profiles(bbox_or_basin=bbox_or_basin, date_range=date_range, delayed_only=True)
+            n_delayed = len(df_candidates)
+            if n_delayed < n_target:
+                warning = (
+                    f"Only {n_delayed} delayed-mode profiles available in research mode "
+                    f"(requested {n_target} out of {n_total_avail} total profiles). "
+                    "For more recent observations, consider standard mode."
+                )
+        else:
+            df_candidates = df_all
+
+        n_avail = len(df_candidates)
+        if df_candidates.empty:
+            method_desc = (
+                f"0 delayed-mode profiles available in research mode (out of {n_total_avail} total). Suggest standard mode."
+                if (is_research and n_total_avail > 0)
+                else "No matching profiles found in region/period."
+            )
+            return SampleSelection(
+                picks=[],
+                method=method_desc,
+                seed=seed,
+                n_available=0,
+                n_requested=n_requested,
+                warning=warning,
+            )
+
+        # Helper to build SamplePick
+        def _to_pick(row: pd.Series) -> SamplePick:
+            wmo_val = int(row["wmo"])
+            cyc_val = int(row["cycle"] if "cycle" in row else row["cycle_number"])
+            date_str = str(pd.to_datetime(row["date"]).date()) if pd.notnull(row["date"]) else ""
+            lat_val = round(float(row["latitude"]), 4)
+            lon_val = round(float(row["longitude"]), 4)
+            is_del = bool(row.get("is_delayed", False))
+            inst = str(row.get("institution", ""))
+            return SamplePick(
+                wmo=wmo_val,
+                cycle=cyc_val,
+                date=date_str,
+                lat=lat_val,
+                lon=lon_val,
+                is_delayed=is_del,
+                institution=inst,
+            )
+
+        # If available profiles are fewer than or equal to n_target, return all
+        if n_avail <= n_target:
+            sorted_candidates = df_candidates.sort_values(by=["date", "wmo", "cycle"]).reset_index(drop=True)
+            picks = [_to_pick(row) for _, row in sorted_candidates.iterrows()]
+            method = f"Selected all {len(picks)} available profiles (requested {n_target})."
+            return SampleSelection(
+                picks=picks,
+                method=method,
+                seed=seed,
+                n_available=n_avail,
+                n_requested=n_requested,
+                warning=warning,
+            )
+
+        # 2. Divide space and time into grid cells and slices
+        n_t = max(1, round(math.sqrt(n_target)))
+        n_s = int(math.ceil(n_target / n_t))
+        n_lat = max(1, round(math.sqrt(n_s)))
+        n_lon = int(math.ceil(n_s / n_lat))
+
+        df_c = df_candidates.copy()
+        lons = df_c["longitude"].astype(float)
+        lats = df_c["latitude"].astype(float)
+        dates = pd.to_datetime(df_c["date"])
+
+        # Check if coordinates span antimeridian
+        is_antimeridian = False
+        if isinstance(bbox_or_basin, BoundingBox) and bbox_or_basin.lon_min > bbox_or_basin.lon_max:
+            is_antimeridian = True
+            lon_offset_min = float(bbox_or_basin.lon_min)
+            norm_lons = lons % 360
+            adj_lons = norm_lons.apply(lambda x: x if x >= lon_offset_min else x + 360)
+            lon_min_val, lon_max_val = lon_offset_min, float(bbox_or_basin.lon_max) + 360
+        else:
+            adj_lons = lons
+            lon_min_val, lon_max_val = float(lons.min()), float(lons.max())
+
+        lat_min_val, lat_max_val = float(lats.min()), float(lats.max())
+        date_min_val, date_max_val = dates.min(), dates.max()
+
+        time_span = max((date_max_val - date_min_val).total_seconds(), 1.0)
+        lat_span = max(lat_max_val - lat_min_val, 0.001)
+        lon_span = max(lon_max_val - lon_min_val, 0.001)
+
+        t_bins = ((dates - date_min_val).dt.total_seconds() / time_span * n_t).astype(int).clip(0, n_t - 1)
+        lat_bins = ((lats - lat_min_val) / lat_span * n_lat).astype(int).clip(0, n_lat - 1)
+        lon_bins = ((adj_lons - lon_min_val) / lon_span * n_lon).astype(int).clip(0, n_lon - 1)
+
+        df_c["_t_bin"] = t_bins
+        df_c["_space_bin"] = lat_bins * n_lon + lon_bins
+        df_c["_bin_id"] = list(zip(df_c["_t_bin"], df_c["_space_bin"]))
+
+        # Group by bin
+        bins_dict: dict[tuple[int, int], list[pd.Series]] = {}
+        for _, row in df_c.iterrows():
+            bid = row["_bin_id"]
+            bins_dict.setdefault(bid, []).append(row)
+
+        all_bin_ids = sorted(bins_dict.keys())
+        rng.shuffle(all_bin_ids)
+
+        picked_rows: list[pd.Series] = []
+        wmo_pick_counts: dict[int, int] = {}
+        used_indices: set[Any] = set()
+
+        def _pick_best_from_bin(candidate_rows: list[pd.Series]) -> Optional[pd.Series]:
+            avail = [r for r in candidate_rows if r.name not in used_indices]
+            if not avail:
+                return None
+            min_wmo_count = min(wmo_pick_counts.get(int(r["wmo"]), 0) for r in avail)
+            best_pool = [r for r in avail if wmo_pick_counts.get(int(r["wmo"]), 0) == min_wmo_count]
+            best_pool.sort(key=lambda r: (r["date"], r["wmo"], r.get("cycle", 0)))
+            chosen = rng.choice(best_pool)
+            return chosen
+
+        # Round 1: One profile per active space-time cell/slice
+        for bid in all_bin_ids:
+            if len(picked_rows) >= n_target:
+                break
+            chosen = _pick_best_from_bin(bins_dict[bid])
+            if chosen is not None:
+                picked_rows.append(chosen)
+                used_indices.add(chosen.name)
+                wmo_val = int(chosen["wmo"])
+                wmo_pick_counts[wmo_val] = wmo_pick_counts.get(wmo_val, 0) + 1
+
+        # Round 2: If we still need more picks to reach n_target
+        while len(picked_rows) < n_target:
+            progress_made = False
+            for bid in all_bin_ids:
+                if len(picked_rows) >= n_target:
+                    break
+                chosen = _pick_best_from_bin(bins_dict[bid])
+                if chosen is not None:
+                    picked_rows.append(chosen)
+                    used_indices.add(chosen.name)
+                    wmo_val = int(chosen["wmo"])
+                    wmo_pick_counts[wmo_val] = wmo_pick_counts.get(wmo_val, 0) + 1
+                    progress_made = True
+            if not progress_made:
+                break
+
+        picked_rows.sort(key=lambda r: (r["date"], r["wmo"], r.get("cycle", 0)))
+        picks = [_to_pick(r) for r in picked_rows]
+
+        distinct_wmo_count = len(wmo_pick_counts)
+        method_desc = (
+            f"Space-time stratified grid selection ({len(picks)} profiles across "
+            f"{n_t} time slices and {n_s} spatial cells, seed={seed}). "
+            f"{distinct_wmo_count} distinct floats."
+        )
+
+        return SampleSelection(
+            picks=picks,
+            method=method_desc,
+            seed=seed,
+            n_available=n_avail,
+            n_requested=n_requested,
+            warning=warning,
+        )
+
 
 @lru_cache(maxsize=4)
 def _load_float_index_from_disk(parquet_path_str: str) -> FloatIndex:
@@ -331,3 +613,24 @@ def snapshot_age_days(
     """Return age of float index in days."""
     idx = index or load_float_index()
     return idx.snapshot_age_days(today)
+
+
+def select_sample(
+    bbox_or_basin: Union[BoundingBox, tuple[float, float, float, float], list[float], str, Any, None] = None,
+    date_range: Optional[Union[DateRange, tuple[Any, Any]]] = None,
+    n: int = SAMPLE_DEFAULT,
+    mode: Union[str, Any] = "research",
+    fetch_key: str = "",
+    seed: Optional[int] = None,
+    index: Optional[FloatIndex] = None,
+) -> SampleSelection:
+    """Deterministically select n profiles spread evenly across space and time."""
+    idx = index or load_float_index()
+    return idx.select_sample(
+        bbox_or_basin=bbox_or_basin,
+        date_range=date_range,
+        n=n,
+        mode=mode,
+        fetch_key=fetch_key,
+        seed=seed,
+    )
