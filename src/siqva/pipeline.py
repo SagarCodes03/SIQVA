@@ -109,6 +109,7 @@ class PipelineResult:
     warning: Optional[str] = None
     warnings: list[str] = field(default_factory=list)
     render_time_s: Optional[float] = None
+    plan_decision: Optional[Any] = None
 
     @property
     def is_success(self) -> bool:
@@ -222,7 +223,8 @@ def _run_spec_impl(
 
     from .planner import plan_request, PlanKind
     index = load_float_index()
-    plan_decision = plan_request(spec, index=index)
+    force_full = fetch_kwargs.pop("force_full", False)
+    plan_decision = plan_request(spec, index=index, force_full=force_full)
 
     if plan_decision.plan == PlanKind.REFUSE:
         error_msg = plan_decision.reasons[0] if plan_decision.reasons else "Query exceeds allowable regional bounds."
@@ -234,6 +236,7 @@ def _run_spec_impl(
             error_message=error_msg,
             warning=warning_text,
             warnings=option_labels,
+            plan_decision=plan_decision,
         )
     elif plan_decision.plan == PlanKind.SAMPLE:
         from .fetcher import fetch_sample
@@ -309,7 +312,22 @@ def _run_spec_impl(
 
     # Map figure
     try:
-        figures["map"] = plot_position_map(fetch_res.data)
+        if fetch_res.is_sample and index and index.is_available:
+            fig_overview, _, _ = render_index_overview_map(index, spec)
+            if fetch_res.data is not None and not fetch_res.data.empty and "LONGITUDE" in fetch_res.data and "LATITUDE" in fetch_res.data:
+                sample_pts = fetch_res.data[["LONGITUDE", "LATITUDE"]].drop_duplicates()
+                fig_overview.add_trace(
+                    go.Scattergeo(
+                        lon=sample_pts["LONGITUDE"],
+                        lat=sample_pts["LATITUDE"],
+                        mode="markers",
+                        marker=dict(size=8, color="#DC2626", symbol="diamond"),
+                        name=f"Sampled Profiles ({len(sample_pts)})",
+                    )
+                )
+            figures["map"] = fig_overview
+        else:
+            figures["map"] = plot_position_map(fetch_res.data)
     except Exception:
         pass
 
@@ -406,6 +424,13 @@ def _run_spec_impl(
         logger.error("Failed to save query card to history: %s", exc, exc_info=True)
         warning_msg = "Result could not be saved to history"
 
+    warnings_list: list[str] = []
+    if fetch_res.suggestion:
+        warnings_list.append(fetch_res.suggestion)
+    if warning_msg:
+        warnings_list.append(warning_msg)
+    combined_warning = "; ".join(warnings_list) if warnings_list else None
+
     script = generate_script(card)
 
     return PipelineResult(
@@ -416,8 +441,9 @@ def _run_spec_impl(
         figures=figures,
         card=card,
         script=script,
-        warning=warning_msg,
-        warnings=[warning_msg] if warning_msg else [],
+        warning=combined_warning,
+        warnings=warnings_list,
+        plan_decision=plan_decision,
     )
 
 

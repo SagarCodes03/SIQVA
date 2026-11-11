@@ -227,6 +227,7 @@ def plan_request(
     spec: QuerySpec,
     profile: Optional[CapabilityProfile] = None,
     index: Optional[FloatIndex] = None,
+    force_full: bool = False,
 ) -> PlanDecision:
     """Evaluate QuerySpec and produce a deterministic PlanDecision with capacity metrics.
 
@@ -320,8 +321,8 @@ def plan_request(
             return PlanDecision(
                 plan=PlanKind.REFUSE,
                 reasons=[
-                    f"A full regional observation dataset or continuous diagram cannot be fetched for an entire ocean basin ({spec.basin}) in a single query; "
-                    "a sample would not represent regional statistics."
+                    f"A region-wide statistic needs all profiles; a sample would not represent it. "
+                    f"Full observation coverage across an entire ocean basin ({spec.basin}) cannot be fetched in one query."
                 ],
                 options=opts,
                 estimated_rows=0,
@@ -459,7 +460,7 @@ def plan_request(
 
     # Branch C: Exceeds full/chunked capacity -> SAMPLE if module allows
     opts = generate_plan_options(spec, prof, idx, estimated_rows=estimated_total_rows, total_profiles=total_profiles)
-    if prof.data_need == DataNeed.SAMPLE_OK:
+    if prof.data_need == DataNeed.SAMPLE_OK and not force_full:
         return PlanDecision(
             plan=PlanKind.SAMPLE,
             reasons=[
@@ -478,8 +479,8 @@ def plan_request(
     return PlanDecision(
         plan=PlanKind.REFUSE,
         reasons=[
-            f"A region-wide statistic or continuous diagram needs all profiles ({estimated_total_rows:,} estimated rows "
-            f"across {total_profiles} profiles exceeds limits); a sample would not represent it."
+            f"A region-wide statistic needs all profiles; a sample would not represent it. "
+            f"Continuous analysis across {total_profiles} profiles ({estimated_total_rows:,} estimated rows) exceeds capacity limits."
         ],
         options=opts,
         estimated_rows=estimated_total_rows,
