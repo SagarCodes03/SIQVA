@@ -33,7 +33,7 @@ Resume instruction for future sessions:
 | [x] **S2** | Capability profiles (src/siqva/capabilities.py table mapping intent -> METADATA / SAMPLE_OK / FULL_REQUIRED, default depths, 2000 dbar cap, tests) | DONE (tag `done-S2`, 385 passed) |
 | [x] **S3** | Layered validation and planner (validator.py, planner.py, PlanDecision, basin support, antimeridian, structured options, tests) | DONE (tag `done-S3`, 400 passed) |
 | [x] **S4** | Metadata and overview (router/rules parser, pipeline, plots, float-location queries, index overview map, Scattergeo, tests) | DONE (tag `done-S4`, 406 passed) |
-| [ ] **S5** | Deterministic sample selection (floatindex.select_sample, WMO+cycle, grid x time slices, distinct floats, seed from fetch_key + build_date, tests) | PENDING |
+| [x] **S5** | Deterministic sample selection (floatindex.select_sample, WMO+cycle, grid x time slices, distinct floats, seed from fetch_key + build_date, tests) | DONE (tag `done-S5`, 420 passed) |
 | [ ] **S6** | Fetch the sample (fetcher.py per-profile fetch, caching, progress, partial failure handling, FetchResult/AnalysisResult metadata, tests) | PENDING |
 | [ ] **S7** | UI flow and wording (app/ui.py overview map + sample plots, label, interactive options buttons, plain-language PlanDecision, AppTests) | PENDING |
 | [ ] **S8** | Query card and script (card records plan decision, sample profile list, honest sample script generation, rerun, tests) | PENDING |
