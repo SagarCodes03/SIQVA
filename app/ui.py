@@ -22,7 +22,7 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from siqva.analyzer import AnalysisResult
-from siqva.capabilities import get_capability_profile, resolve_effective_depth
+from siqva.capabilities import DataNeed, get_capability_profile, resolve_effective_depth
 from siqva.validator import DEFAULT_MAX_REQUEST_SIZE, is_size_guardrail_enabled
 from siqva.card import (
     DiffSummary,
@@ -439,6 +439,21 @@ st.markdown(
         border-color: var(--border-hover);
         background: var(--bg-surface-hover);
     }
+    .graph-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 2px;
+    }
+    .graph-card-cap {
+        color: var(--text-muted);
+        font-family: var(--font-mono) !important;
+        font-size: 0.65rem;
+        background: rgba(255, 255, 255, 0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+        letter-spacing: 0.03em;
+    }
     .graph-card-tag {
         color: var(--accent-ocean);
         font-family: var(--font-mono) !important;
@@ -720,15 +735,17 @@ def build_clarification_banner_html(message: str) -> str:
     )
 
 
-def build_graph_card_html(tag: str, title: str, desc: str) -> str:
+def build_graph_card_html(tag: str, title: str, desc: str, capability: str = "") -> str:
     """Build sanitized HTML for retro terminal graph selector cards."""
     safe_tag = html.escape(str(tag))
     safe_title = html.escape(str(title))
     safe_desc = html.escape(str(desc))
+    cap_html = f'<div class="graph-card-cap">{html.escape(capability)}</div>' if capability else ""
     return (
         f'<div class="graph-card">\n'
         f'    <div class="graph-card-header">\n'
         f'        <div class="graph-card-tag">{safe_tag}</div>\n'
+        f'        {cap_html}\n'
         f'    </div>\n'
         f'    <div class="graph-card-title">{safe_title}</div>\n'
         f'    <div class="graph-card-desc">{safe_desc}</div>\n'
@@ -1797,8 +1814,16 @@ elif st.session_state["active_page"] == "plots":
         cols = st.columns(cols_per_row)
         for col_idx, gt in enumerate(GRAPH_TYPES[row_start : row_start + cols_per_row]):
             with cols[col_idx]:
+                cap_prof = get_capability_profile(gt["intent"])
+                if cap_prof.data_need == DataNeed.METADATA:
+                    cap_label = "Metadata"
+                elif cap_prof.data_need == DataNeed.SAMPLE_OK:
+                    cap_label = "Sample allowed"
+                else:
+                    cap_label = "Full data required"
+
                 st.markdown(
-                    build_graph_card_html(gt["tag"], gt["title"], gt["desc"]),
+                    build_graph_card_html(gt["tag"], gt["title"], gt["desc"], capability=cap_label),
                     unsafe_allow_html=True,
                 )
                 if st.button("Configure & Plot", key=f"gen_{gt['key']}", use_container_width=True):
@@ -1841,49 +1866,93 @@ elif st.session_state["active_page"] == "compare":
         card_a = all_cards[idx_a]
         card_b = all_cards[idx_b]
 
-        st.divider()
+        dec_a = plan_request(card_a.spec)
+        dec_b = plan_request(card_b.spec)
+        is_a_sample = bool(card_a.is_sample or (card_a.plan_kind == "sample") or dec_a.plan == PlanKind.SAMPLE)
+        is_b_sample = bool(card_b.is_sample or (card_b.plan_kind == "sample") or dec_b.plan == PlanKind.SAMPLE)
 
-        # Delta Metrics Table
-        st.markdown("### Comparative Metrics Delta")
-        m1, m2, m3, m4, m5 = st.columns(5)
-        with m1:
-            d_rows = card_b.row_count - card_a.row_count
-            st.metric("Rows", f"{card_b.row_count:,}", delta=f"{d_rows:,} vs A")
-        with m2:
-            d_prof = card_b.profile_count - card_a.profile_count
-            st.metric("Profiles", f"{card_b.profile_count:,}", delta=f"{d_prof:,} vs A")
-        with m3:
-            st.metric("QC Mode", f"{card_a.mode.value.title()} / {card_b.mode.value.title()}")
-        with m4:
-            st.metric("Intent", f"{card_a.spec.intent.value.title()} / {card_b.spec.intent.value.title()}")
-        with m5:
-            st.metric("Depth B", f"{card_b.effective_depth_range.min_depth:.0f}–{card_b.effective_depth_range.max_depth:.0f} dbar")
+        if is_a_sample or is_b_sample:
+            st.divider()
+            st.warning(
+                "Compare Runs compares only complete observation datasets (FULL or CHUNKED). "
+                "Comparison involving a profile sample is not supported because samples are not statistically representative of whole regions."
+            )
+            col_expl_a, col_expl_b = st.columns(2)
+            if is_a_sample:
+                with col_expl_a:
+                    st.error(
+                        f"Run A ({card_a.region_name}) is a profile sample ({card_a.profile_count} profiles). "
+                        "A region-wide comparison needs all profiles; a sample would not represent it."
+                    )
+                    st.markdown("**Options for Run A — Click to Execute Full Run**")
+                    opts_a = dec_a.options
+                    for o_idx, opt in enumerate(opts_a[:3]):
+                        if st.button(f"> A: {opt.label}", key=f"cmp_opt_a_{o_idx}", use_container_width=True, help=opt.description):
+                            with st.spinner(f"Executing: {opt.label}..."):
+                                new_res = run_spec(opt.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+                                st.session_state["pipeline_res"] = new_res
+                                st.session_state["active_page"] = "query"
+                                st.rerun()
 
-        # Load results for both cards to render visualizations
-        with st.spinner("Loading dual run visualizations..."):
-            try:
-                res_a = run_spec(card_a.spec, force_refresh=False, max_request_size=_ui_max_request_size())
-            except Exception:
-                res_a = None
-            try:
-                res_b = run_spec(card_b.spec, force_refresh=False, max_request_size=_ui_max_request_size())
-            except Exception:
-                res_b = None
+            if is_b_sample:
+                with col_expl_b:
+                    st.error(
+                        f"Run B ({card_b.region_name}) is a profile sample ({card_b.profile_count} profiles). "
+                        "A region-wide comparison needs all profiles; a sample would not represent it."
+                    )
+                    st.markdown("**Options for Run B — Click to Execute Full Run**")
+                    opts_b = dec_b.options
+                    for o_idx, opt in enumerate(opts_b[:3]):
+                        if st.button(f"> B: {opt.label}", key=f"cmp_opt_b_{o_idx}", use_container_width=True, help=opt.description):
+                            with st.spinner(f"Executing: {opt.label}..."):
+                                new_res = run_spec(opt.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+                                st.session_state["pipeline_res"] = new_res
+                                st.session_state["active_page"] = "query"
+                                st.rerun()
+        else:
+            st.divider()
 
-        st.markdown("### Side-by-Side Visualizations")
-        v_col_a, v_col_b = st.columns(2)
-        with v_col_a:
-            st.markdown(f"**Run A: {html.escape(card_a.question or card_a.card_id[:8])}**")
-            if res_a and res_a.figures:
-                fig_key_a = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_a.figures), next(iter(res_a.figures)))
-                st.plotly_chart(_style_fig(res_a.figures[fig_key_a]), use_container_width=True, theme=None)
-            else:
-                st.info("No figure available for Run A")
+            # Delta Metrics Table
+            st.markdown("### Comparative Metrics Delta")
+            m1, m2, m3, m4, m5 = st.columns(5)
+            with m1:
+                d_rows = card_b.row_count - card_a.row_count
+                st.metric("Rows", f"{card_b.row_count:,}", delta=f"{d_rows:,} vs A")
+            with m2:
+                d_prof = card_b.profile_count - card_a.profile_count
+                st.metric("Profiles", f"{card_b.profile_count:,}", delta=f"{d_prof:,} vs A")
+            with m3:
+                st.metric("QC Mode", f"{card_a.mode.value.title()} / {card_b.mode.value.title()}")
+            with m4:
+                st.metric("Intent", f"{card_a.spec.intent.value.title()} / {card_b.spec.intent.value.title()}")
+            with m5:
+                st.metric("Depth B", f"{card_b.effective_depth_range.min_depth:.0f}–{card_b.effective_depth_range.max_depth:.0f} dbar")
 
-        with v_col_b:
-            st.markdown(f"**Run B: {html.escape(card_b.question or card_b.card_id[:8])}**")
-            if res_b and res_b.figures:
-                fig_key_b = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_b.figures), next(iter(res_b.figures)))
-                st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None)
-            else:
-                st.info("No figure available for Run B")
+            # Load results for both cards to render visualizations
+            with st.spinner("Loading dual run visualizations..."):
+                try:
+                    res_a = run_spec(card_a.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+                except Exception:
+                    res_a = None
+                try:
+                    res_b = run_spec(card_b.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+                except Exception:
+                    res_b = None
+
+            st.markdown("### Side-by-Side Visualizations")
+            v_col_a, v_col_b = st.columns(2)
+            with v_col_a:
+                st.markdown(f"**Run A: {html.escape(card_a.question or card_a.card_id[:8])}**")
+                if res_a and res_a.figures:
+                    fig_key_a = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_a.figures), next(iter(res_a.figures)))
+                    st.plotly_chart(_style_fig(res_a.figures[fig_key_a]), use_container_width=True, theme=None)
+                else:
+                    st.info("No figure available for Run A")
+
+            with v_col_b:
+                st.markdown(f"**Run B: {html.escape(card_b.question or card_b.card_id[:8])}**")
+                if res_b and res_b.figures:
+                    fig_key_b = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_b.figures), next(iter(res_b.figures)))
+                    st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None)
+                else:
+                    st.info("No figure available for Run B")

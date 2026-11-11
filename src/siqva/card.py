@@ -31,8 +31,10 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_DB_PATH = PROJECT_ROOT / "data" / "cards.sqlite"
 
 
-def _resolve_db_path(db_path: Path | str) -> Path:
+def _resolve_db_path(db_path: Optional[Path | str] = None) -> Path:
     """Resolve database path relative to project root if not absolute."""
+    if db_path is None:
+        db_path = DEFAULT_DB_PATH
     path = Path(db_path)
     if not path.is_absolute():
         return PROJECT_ROOT / path
@@ -497,7 +499,7 @@ def _init_db(conn: sqlite3.Connection) -> None:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_created_at ON query_cards (created_at DESC)")
 
 
-def save_card(card: QueryCard, db_path: Path | str = DEFAULT_DB_PATH) -> str:
+def save_card(card: QueryCard, db_path: Optional[Path | str] = None) -> str:
     """Save a QueryCard to the SQLite store."""
     path = _resolve_db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -535,7 +537,7 @@ def is_history_shared() -> bool:
 def load_card(
     card_id: str,
     session_id: Optional[str] = None,
-    db_path: Path | str = DEFAULT_DB_PATH,
+    db_path: Optional[Path | str] = None,
 ) -> Optional[QueryCard]:
     """Load a QueryCard from SQLite by card_id (or spec_hash fallback)."""
     path = _resolve_db_path(db_path)
@@ -561,7 +563,7 @@ def load_card(
 def list_cards(
     limit: int = 50,
     session_id: Optional[str] = None,
-    db_path: Path | str = DEFAULT_DB_PATH,
+    db_path: Optional[Path | str] = None,
 ) -> list[QueryCard]:
     """List newest cards, with one entry for each spec-hash and mode pair."""
     path = _resolve_db_path(db_path)
