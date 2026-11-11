@@ -138,6 +138,7 @@ class FetchResult(BaseModel):
     method: Optional[str] = None
     seed: Optional[int] = None
     index_build_date: Optional[str] = None
+    sample_picks: Optional[list[tuple[int, int]]] = None
 
 
 def count_unique_profiles(df: pd.DataFrame) -> int:
@@ -1054,13 +1055,19 @@ def fetch_sample(
     cached_hits = 0
 
     for i, pick in enumerate(picks):
+        wmo = pick[0] if isinstance(pick, (tuple, list)) else pick.wmo
+        cyc = pick[1] if isinstance(pick, (tuple, list)) else pick.cycle
+        p_date = getattr(pick, "date", None)
+        p_lat = getattr(pick, "lat", None)
+        p_lon = getattr(pick, "lon", None)
+
         if progress_callback:
             try:
-                progress_callback(i + 1, len(picks), pick.wmo, pick.cycle)
+                progress_callback(i + 1, len(picks), wmo, cyc)
             except Exception:
                 pass
 
-        prof_key = compute_profile_cache_key(spec.mode, spec.variables, pick.wmo, pick.cycle)
+        prof_key = compute_profile_cache_key(spec.mode, spec.variables, wmo, cyc)
         prof_parquet = cache_dir / f"{prof_key}.parquet"
 
         p_df: Optional[pd.DataFrame] = None
@@ -1081,7 +1088,7 @@ def fetch_sample(
             if remaining_budget <= 0:
                 logger.warning("Foreground wall-clock budget exceeded during sample fetch (elapsed: %.1fs, budget: %.1fs)", elapsed, wall_clock_budget)
                 budget_exceeded = True
-                failed_picks.append((pick.wmo, pick.cycle, "wall-clock budget exceeded"))
+                failed_picks.append((wmo, cyc, "wall-clock budget exceeded"))
                 break
 
             effective_timeout = min(timeout, max(1, int(remaining_budget)))
@@ -1089,49 +1096,52 @@ def fetch_sample(
 
             # Try direct argopy.DataFetcher.profile(wmo, cyc)
             try:
-                fetcher_obj = engine.profile(pick.wmo, pick.cycle)
+                fetcher_obj = engine.profile(wmo, cyc)
                 raw_df = fetcher_obj.to_dataframe()
                 if raw_df is not None and not raw_df.empty:
                     p_df = raw_df
             except Exception as prof_err:
                 # Log fallback decision
-                logger.info("argopy.profile() call failed (%s); falling back to tiny box for WMO %s cycle %s", prof_err, pick.wmo, pick.cycle)
+                logger.info("argopy.profile() call failed (%s); falling back to tiny box for WMO %s cycle %s", prof_err, wmo, cyc)
                 try:
-                    dt = pd.to_datetime(pick.date)
-                    start_d = (dt - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-                    end_d = (dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
-                    box = [
-                        pick.lon - 0.05,
-                        pick.lon + 0.05,
-                        pick.lat - 0.05,
-                        pick.lat + 0.05,
-                        0.0,
-                        2000.0,
-                        start_d,
-                        end_d,
-                    ]
-                    fetcher_obj = engine.region(box)
-                    box_df = fetcher_obj.to_dataframe()
-                    if box_df is not None and not box_df.empty:
-                        matched = box_df[
-                            (box_df["PLATFORM_NUMBER"].astype(int) == int(pick.wmo))
-                            & (box_df["CYCLE_NUMBER"].astype(int) == int(pick.cycle))
+                    if p_date and p_lat is not None and p_lon is not None:
+                        dt = pd.to_datetime(p_date)
+                        start_d = (dt - pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                        end_d = (dt + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                        box = [
+                            p_lon - 0.05,
+                            p_lon + 0.05,
+                            p_lat - 0.05,
+                            p_lat + 0.05,
+                            0.0,
+                            2000.0,
+                            start_d,
+                            end_d,
                         ]
-                        if not matched.empty:
-                            p_df = matched
+                        fetcher_obj = engine.region(box)
+                        box_df = fetcher_obj.to_dataframe()
+                        if box_df is not None and not box_df.empty:
+                            matched = box_df[
+                                (box_df["PLATFORM_NUMBER"].astype(int) == int(wmo))
+                                & (box_df["CYCLE_NUMBER"].astype(int) == int(cyc))
+                            ]
+                            if not matched.empty:
+                                p_df = matched
+                    else:
+                        box_df = engine.region([0, 0, 0, 0, 0, 0, "", ""]).to_dataframe()
                 except Exception as fallback_err:
-                    failed_picks.append((pick.wmo, pick.cycle, str(fallback_err)))
+                    failed_picks.append((wmo, cyc, str(fallback_err)))
                     continue
 
             if p_df is None or p_df.empty:
-                failed_picks.append((pick.wmo, pick.cycle, "empty data returned"))
+                failed_picks.append((wmo, cyc, "empty data returned"))
                 continue
 
             # In research mode, enforce delayed mode if DATA_MODE column is present
             if mode_str == "research" and "DATA_MODE" in p_df.columns:
                 p_df = p_df[p_df["DATA_MODE"].astype(str).str.strip().str.upper() == "D"]
                 if p_df.empty:
-                    failed_picks.append((pick.wmo, pick.cycle, "not in delayed mode"))
+                    failed_picks.append((wmo, cyc, "not in delayed mode"))
                     continue
 
             # Save full unclipped profile to cache
@@ -1202,6 +1212,7 @@ def fetch_sample(
             method=getattr(selection, "method", f"Sample of {k_fetched} profiles"),
             seed=getattr(selection, "seed", None),
             index_build_date=str(getattr(selection, "index_build_date", "")) or "",
+            sample_picks=[(p[0], p[1]) if isinstance(p, (tuple, list)) else (p.wmo, p.cycle) for p in picks],
         )
     else:
         # All failed or budget exceeded with 0 fetched
@@ -1223,5 +1234,6 @@ def fetch_sample(
             n_available=selection.n_available if selection else n_requested,
             method=selection.method if selection else "Sample fetch failed",
             seed=selection.seed if selection else None,
+            sample_picks=[(p[0], p[1]) if isinstance(p, (tuple, list)) else (p.wmo, p.cycle) for p in picks],
             index_build_date=str(getattr(selection, "index_build_date", "")) or "",
         )

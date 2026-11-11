@@ -36,6 +36,6 @@ Resume instruction for future sessions:
 | [x] **S5** | Deterministic sample selection (floatindex.select_sample, WMO+cycle, grid x time slices, distinct floats, seed from fetch_key + build_date, tests) | DONE (tag `done-S5`, 420 passed) |
 | [x] **S6** | Fetch the sample (fetcher.py per-profile fetch, caching, progress, partial failure handling, FetchResult/AnalysisResult metadata, tests) | DONE (tag `done-S6`, 427 passed) |
 | [x] **S7** | UI flow and wording (app/ui.py overview map + sample plots, label, interactive options buttons, plain-language PlanDecision, AppTests) | DONE (tag `done-S7`, 446 passed) |
-| [ ] **S8** | Query card and script (card records plan decision, sample profile list, honest sample script generation, rerun, tests) | PENDING |
+| [x] **S8** | Query card and script (card records plan decision, sample profile list, honest sample script generation, rerun, tests) | DONE (tag `done-S8`, 451 passed) |
 | [ ] **S9** | Plot Graph page and Compare Runs (capability display, S3 plan enforcement, Compare Runs FULL/CHUNKED restriction, tests) | PENDING |
 | [ ] **S10** | Docs, measurements, final (AGENTS.md, README.md, CODE_FLOW.md, docs/SAMPLING.md, bench_sampling.py offline benchmarks, final report) | PENDING |
