@@ -368,14 +368,34 @@ Implemented in `is_cache_entry_valid()`:
 
 ### Hard Architectural Rule
 **The LLM never sees profile data values, statistics, or fetch results.**
-The boundary is enforced in `src/siqva/llm_parser.py`: the only inputs accepted by LLM functions are the user's natural language question string and static few-shot examples. No DataFrame, numerical summary, or array is ever passed into a prompt.
+The boundary is enforced in `src/siqva/llm_parser.py`: the only inputs accepted by LLM functions are the user's natural language question string and static few-shot examples or extraction schemas. No DataFrame, numerical summary, profile observation, or array is ever passed into a prompt.
 
-### Single-Field Fallback Design
-LLM calls are made with:
-- Model: `llama3.2` (3B parameters) via Ollama.
+### Backends
+Configured via `SIQVA_LLM_BACKEND = openai_compatible | ollama | none` (defaults to `none` rules-only when credentials/model are unconfigured):
+1. **Hosted OpenAI-Compatible Backend (`openai_compatible`)**:
+   - Uses plain HTTPS via `requests` (`POST {SIQVA_LLM_BASE_URL}/chat/completions`).
+   - Minimal payload: `model`, `messages`, `temperature: 0.0`, `max_tokens: 500`, and `response_format`.
+   - **One Call Per Question**: Dynamically builds instructions and JSON schema containing ONLY the fields left unfilled or ambiguous by deterministic rules. Rules-resolved fields are never overridden.
+   - Retries invalid JSON once; on persistent failure returns `ClarificationNeeded`.
+   - **Safety & Rate Limits**:
+     - Question length cap: 500 characters (`MAX_QUESTION_LENGTH`). Longer questions bypass LLM.
+     - HTTP timeout: 10 seconds (`LLM_TIMEOUT_SECONDS`).
+     - HTTP 429 backoff: respects `Retry-After` header up to 10 seconds (`MAX_RETRY_AFTER_SECONDS`).
+     - Circuit breaker: 3 consecutive failures trips a 60-second cooldown (`CIRCUIT_BREAKER_FAILURES = 3`, `CIRCUIT_BREAKER_COOLDOWN_SECONDS = 60.0`).
+     - Session limit: 20 calls/hour (`SESSION_CALL_LIMIT_PER_HOUR`).
+     - Global daily cap: tracked in local `data/llm_usage.json` with ceiling `SIQVA_LLM_DAILY_CAP` (default 500).
+   - All errors degrade gracefully to deterministic rules with the plain message: `"The language model is unavailable or over its free limit; fill in the missing fields."`
+2. **Local Ollama Backend (`ollama`)**:
+   - Local Ollama daemon running `llama3.2` with single-field JSON-schema extraction.
+   - Preserved as fallback for local/offline environments.
+3. **None (`none`)**:
+   - Zero LLM calls. Fully functional deterministic rules engine.
+
+### Single-Field Fallback Schemas (Ollama)
+For the local Ollama backend, targeted single-field calls use:
+- Model: `llama3.2` via Ollama.
 - Temperature: `0.0`.
 - Format: Strict JSON Schema enforcement.
-- Scope: Exactly one field per call.
 
 ### Prompts and Schemas
 

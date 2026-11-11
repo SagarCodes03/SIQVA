@@ -22,12 +22,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from .gazetteer import KNOWN_REGIONS, RegionStatus, resolve_region
 from .llm_parser import (
     DEFAULT_MODEL,
+    MAX_QUESTION_LENGTH,
+    OpenAICompatibleClient,
     check_llm_availability,
     extract_date_range_llm,
     extract_depth_range_llm,
     extract_intent_llm,
+    extract_missing_fields_llm,
     extract_region_name_llm,
     extract_variables_llm,
+    get_llm_config,
 )
 from .rules_parser import RulesParseResult, parse_rules
 from .spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
@@ -97,9 +101,14 @@ def parse_detailed(
     ambiguous_fields: list[str] = []
     suggestions: list[str] = []
 
+    # Capped question length for LLM processing
+    if len(question) > MAX_QUESTION_LENGTH:
+        allow_llm = False
+
     # LLM availability state (checked at most once before first fallback)
     llm_checked = False
     llm_available = False
+    llm_failed = False
 
     def can_use_llm() -> bool:
         nonlocal llm_checked, llm_available
@@ -109,6 +118,8 @@ def parse_detailed(
             llm_checked = True
             llm_available = check_llm_availability(client=llm_client)
         return llm_available
+
+    cfg = get_llm_config()
 
     # 1. Deterministic rules pass
     rules_res: RulesParseResult = parse_rules(question, today=today)
@@ -166,24 +177,7 @@ def parse_detailed(
                 region_name = res_reg.region_name
                 provenance["region"] = "rules"
 
-        # Fallback to LLM for region name if still missing
-        if region is None and basin is None and can_use_llm():
-            llm_region_name = extract_region_name_llm(question, client=llm_client, model=model)
-            if llm_region_name:
-                res_reg = resolve_region(llm_region_name)
-                if res_reg.status == RegionStatus.RESOLVED and res_reg.bbox is not None:
-                    region = res_reg.bbox
-                    region_name = res_reg.region_name
-                    provenance["region"] = "llm"
-
-        if region is None and basin is None:
-            missing_fields.append("region")
-            suggestions.append(
-                "No region was mentioned. Please specify an ocean region "
-                "(e.g. 'Arabian Sea', 'North Atlantic') or coordinates."
-            )
-
-    # 3. Date range resolution
+    # 3. Date range resolution from rules
     date_range: Optional[DateRange] = rules_res.date_range
     if date_range is not None:
         provenance["date_range"] = "rules"
@@ -195,22 +189,8 @@ def parse_detailed(
         suggestions.append(
             "Date is ambiguous or missing a year. Please specify an exact year or date range (e.g. 'March 2022' or '2022-01-01 to 2022-01-15')."
         )
-    else:
-        # Fallback to LLM for date range
-        if can_use_llm():
-            llm_dates = extract_date_range_llm(question, client=llm_client, model=model)
-            if llm_dates is not None:
-                try:
-                    date_range = DateRange(start=llm_dates[0], end=llm_dates[1])
-                    provenance["date_range"] = "llm"
-                except Exception:
-                    date_range = None
 
-        if date_range is None:
-            missing_fields.append("date_range")
-            suggestions.append("Please specify a time period (e.g. 'in year 2021' or '2022-01-01 to 2022-01-10').")
-
-    # 4. Variables resolution
+    # 4. Variables resolution from rules
     variables: Optional[list[Variable]] = rules_res.variables
     if variables:
         provenance["variables"] = "rules"
@@ -218,32 +198,11 @@ def parse_detailed(
         suggestions.append(
             "'SST' (Sea Surface Temperature) differs from Argo subsurface temperature profiles (which start at 2–5 dbar). Please confirm if you want Argo subsurface temperature (TEMP)."
         )
-    else:
-        if can_use_llm():
-            llm_vars = extract_variables_llm(question, client=llm_client, model=model)
-            if llm_vars:
-                variables = llm_vars
-                provenance["variables"] = "llm"
 
-        if not variables:
-            missing_fields.append("variables")
-            suggestions.append("Please specify ocean variables to measure (e.g. 'temperature', 'salinity', 'pressure').")
-
-    # 5. Depth range resolution
+    # 5. Depth range resolution from rules
     depth_range: Optional[DepthRange] = rules_res.depth_range
     if depth_range is not None:
         provenance["depth_range"] = "rules"
-    else:
-        if can_use_llm():
-            llm_depth = extract_depth_range_llm(question, client=llm_client, model=model)
-            if llm_depth is not None:
-                depth_range = llm_depth
-                provenance["depth_range"] = "llm"
-
-        if depth_range is None:
-            # Default to 0-500 dbar when unspecified, as mandated by Section 7/workflow
-            depth_range = DepthRange(min_depth=0.0, max_depth=500.0)
-            provenance["depth_range"] = "default"
 
     # 6. Mode resolution (defaults to research; override only on unambiguous phrases)
     mode: DataMode = rules_res.mode
@@ -260,20 +219,153 @@ def parse_detailed(
     )
     provenance["mode"] = "rules" if has_explicit_mode else "default"
 
-    # 7. Intent resolution
+    # 7. Intent resolution from rules
     intent: Optional[Intent] = rules_res.intent
     if intent is not None:
         provenance["intent"] = "rules"
-    else:
-        if can_use_llm():
+
+    # ==============================================================================
+    # ONE CALL PER QUESTION FOR HOSTED OPENAI-COMPATIBLE BACKEND
+    # ==============================================================================
+    rule_region_missing = (region is None and basin is None and not rules_res.region_name and region_issue is None)
+    rule_dates_missing = (date_range is None and "date_range" not in ambiguous_fields)
+    rule_vars_missing = (not variables and "variables" not in ambiguous_fields)
+    rule_depth_missing = (depth_range is None)
+    rule_intent_missing = (intent is None)
+
+    is_hosted = (cfg.backend == "openai_compatible" and (llm_client is None or isinstance(llm_client, OpenAICompatibleClient)))
+    if is_hosted and can_use_llm():
+        needed_fields = []
+        if rule_region_missing:
+            needed_fields.append("region")
+        if rule_dates_missing:
+            needed_fields.append("date_range")
+        if rule_vars_missing:
+            needed_fields.append("variables")
+        if rule_depth_missing:
+            needed_fields.append("depth_range")
+        if rule_intent_missing:
+            needed_fields.append("intent")
+
+        if needed_fields:
+            extracted = extract_missing_fields_llm(
+                question=question,
+                missing_fields=needed_fields,
+                client=llm_client,
+                config=cfg,
+            )
+            if extracted is None:
+                llm_failed = True
+            elif isinstance(extracted, dict):
+                if rule_region_missing and extracted.get("region_name"):
+                    res_reg = resolve_region(str(extracted["region_name"]))
+                    if res_reg.status == RegionStatus.RESOLVED and res_reg.bbox is not None:
+                        region = res_reg.bbox
+                        region_name = res_reg.region_name
+                        provenance["region"] = "llm"
+                if rule_dates_missing and extracted.get("date_range"):
+                    dr = extracted["date_range"]
+                    if isinstance(dr, dict) and dr.get("start") and dr.get("end"):
+                        try:
+                            s = datetime.strptime(str(dr["start"]).strip(), "%Y-%m-%d").date()
+                            e = datetime.strptime(str(dr["end"]).strip(), "%Y-%m-%d").date()
+                            date_range = DateRange(start=s, end=e)
+                            provenance["date_range"] = "llm"
+                        except Exception:
+                            pass
+                if rule_vars_missing and extracted.get("variables"):
+                    raw_vars = extracted["variables"]
+                    if isinstance(raw_vars, list):
+                        v_list = []
+                        for v in raw_vars:
+                            try:
+                                v_list.append(Variable(str(v).upper()))
+                            except ValueError:
+                                pass
+                        if v_list:
+                            variables = v_list
+                            provenance["variables"] = "llm"
+                if rule_depth_missing and extracted.get("depth_range"):
+                    dr = extracted["depth_range"]
+                    if isinstance(dr, dict) and dr.get("min_depth") is not None and dr.get("max_depth") is not None:
+                        try:
+                            d_min = float(dr["min_depth"])
+                            d_max = float(dr["max_depth"])
+                            if 0.0 <= d_min <= d_max <= 2000.0:
+                                depth_range = DepthRange(min_depth=d_min, max_depth=d_max)
+                                provenance["depth_range"] = "llm"
+                        except (ValueError, TypeError):
+                            pass
+                if rule_intent_missing and extracted.get("intent"):
+                    try:
+                        intent = Intent(str(extracted["intent"]).lower())
+                        provenance["intent"] = "llm"
+                    except ValueError:
+                        pass
+
+    # ==============================================================================
+    # LEGACY / OLLAMA MULTI-CALL FALLBACK (PRESERVED FOR OLLAMA BACKEND)
+    # ==============================================================================
+    elif cfg.backend == "ollama" or (llm_client is not None and not isinstance(llm_client, OpenAICompatibleClient)):
+        if region is None and basin is None and can_use_llm():
+            llm_region_name = extract_region_name_llm(question, client=llm_client, model=model)
+            if llm_region_name:
+                res_reg = resolve_region(llm_region_name)
+                if res_reg.status == RegionStatus.RESOLVED and res_reg.bbox is not None:
+                    region = res_reg.bbox
+                    region_name = res_reg.region_name
+                    provenance["region"] = "llm"
+
+        if date_range is None and "date_range" not in ambiguous_fields and can_use_llm():
+            llm_dates = extract_date_range_llm(question, client=llm_client, model=model)
+            if llm_dates is not None:
+                try:
+                    date_range = DateRange(start=llm_dates[0], end=llm_dates[1])
+                    provenance["date_range"] = "llm"
+                except Exception:
+                    date_range = None
+
+        if not variables and "variables" not in ambiguous_fields and can_use_llm():
+            llm_vars = extract_variables_llm(question, client=llm_client, model=model)
+            if llm_vars:
+                variables = llm_vars
+                provenance["variables"] = "llm"
+
+        if depth_range is None and can_use_llm():
+            llm_depth = extract_depth_range_llm(question, client=llm_client, model=model)
+            if llm_depth is not None:
+                depth_range = llm_depth
+                provenance["depth_range"] = "llm"
+
+        if intent is None and can_use_llm():
             llm_intent = extract_intent_llm(question, client=llm_client, model=model)
             if llm_intent is not None:
                 intent = llm_intent
                 provenance["intent"] = "llm"
 
-        if intent is None:
-            intent = Intent.PROFILE
-            provenance["intent"] = "default"
+    # Complete unresolved field handling
+    if region is None and basin is None:
+        missing_fields.append("region")
+        suggestions.append(
+            "No region was mentioned. Please specify an ocean region "
+            "(e.g. 'Arabian Sea', 'North Atlantic') or coordinates."
+        )
+
+    if date_range is None:
+        missing_fields.append("date_range")
+        suggestions.append("Please specify a time period (e.g. 'in year 2021' or '2022-01-01 to 2022-01-10').")
+
+    if not variables:
+        missing_fields.append("variables")
+        suggestions.append("Please specify ocean variables to measure (e.g. 'temperature', 'salinity', 'pressure').")
+
+    if depth_range is None:
+        depth_range = DepthRange(min_depth=0.0, max_depth=500.0)
+        provenance["depth_range"] = "default"
+
+    if intent is None:
+        intent = Intent.PROFILE
+        provenance["intent"] = "default"
 
     basin = getattr(rules_res, "basin", None)
 
@@ -329,13 +421,17 @@ def parse_detailed(
     has_location = (region is not None) or (basin is not None)
     if missing_fields or ambiguous_fields or not has_location or date_range is None or not variables:
         reasons = []
-        if llm_checked and not llm_available:
-            reasons.append("The language model is not available.")
+        if (llm_checked and not llm_available) or llm_failed:
+            reasons.append(
+                "The language model is unavailable or over its free limit; fill in the missing fields."
+                if cfg.backend == "openai_compatible"
+                else "The language model is not available."
+            )
         if missing_fields:
             reasons.append(f"Missing required fields: {', '.join(missing_fields)}.")
         if ambiguous_fields:
             reasons.append(f"Ambiguous fields requiring confirmation: {', '.join(ambiguous_fields)}.")
-        if llm_checked and not llm_available:
+        if (llm_checked and not llm_available) or llm_failed:
             reasons.append("Please specify the missing parameters or fill them in the spec panel.")
             suggestions.append("You can manually configure missing parameters in the spec panel.")
         full_message = " ".join(reasons + suggestions)

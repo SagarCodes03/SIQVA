@@ -79,7 +79,40 @@
 
 ### Prerequisites
 - Python 3.11+
-- [Ollama](https://ollama.com/) with `llama3.2` model (optional; system operates rules-first with zero external dependencies)
+- Language Model Backend (optional; system operates rules-first with zero external dependencies):
+  - **Hosted OpenAI-Compatible API** (recommended for production): Any OpenAI-compatible chat completion provider (e.g. Groq, Together, OpenRouter, Mistral, OpenAI).
+  - **Local Ollama**: [Ollama](https://ollama.com/) with `llama3.2` model.
+  - **None (Rules-Only)**: Default when no model or credentials are configured.
+
+### Language Model Configuration & Deployment
+
+SIQVA supports provider-neutral hosted LLM endpoints or local Ollama for resolving parameters that rules leave unfilled.
+
+```bash
+# Set backend to openai_compatible, ollama, or none
+export SIQVA_LLM_BACKEND=openai_compatible
+export SIQVA_LLM_BASE_URL=https://api.groq.com/openai/v1
+export SIQVA_LLM_MODEL=llama-3.2-3b-preview
+export SIQVA_LLM_API_KEY=your-api-key-here
+export SIQVA_LLM_JSON_MODE=json_object     # json_object (default), json_schema, or none
+export SIQVA_LLM_DAILY_CAP=500             # Global daily call limit (default 500)
+```
+
+Configuration values can be set via environment variables or in `.streamlit/secrets.toml` (which is git-ignored):
+
+```toml
+SIQVA_LLM_BACKEND = "openai_compatible"
+SIQVA_LLM_BASE_URL = "https://api.example.com/v1"
+SIQVA_LLM_MODEL = "llama-3.2-3b"
+SIQVA_LLM_API_KEY = "sk-..."
+SIQVA_LLM_JSON_MODE = "json_object"
+SIQVA_LLM_DAILY_CAP = 500
+```
+
+> [!IMPORTANT]
+> **Data Privacy Guarantee**: The LLM *never* sees ocean observation values, profile data, or query results. Only the user's natural language question and fixed extraction schemas are sent to the model. Rules resolve parameters first; the model is only consulted for missing fields in a single call.
+>
+> **Circuit Breaker & Guardrails**: Includes a circuit breaker (trips for 60 s after 3 consecutive failures), session limit (20 calls/hr), daily quota cap (default 500), 500-character question length cap, and 10 s HTTP timeout with 429 backoff handling. If unavailable, SIQVA falls back gracefully to rules-only mode.
 
 ### Setup Virtual Environment
 ```bash

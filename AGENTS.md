@@ -41,7 +41,8 @@ offline mode. Do not claim accuracy figures (e.g. "100%") in code, docs, or UI.
 
 Python 3.11+, Streamlit, Pydantic (spec schema), argopy, xarray,
 pandas, Parquet (cache), SQLite (stored cards), Plotly, pytest, rapidfuzz,
-dateparser, gsw. LLM: local Llama 3.2 3B via Ollama, behind one interface (below).
+dateparser, gsw. LLM: swappable provider-neutral backend (`openai_compatible`,
+`ollama`, or `none` for rules-only), behind one interface (below).
 
 ## 5. Architecture
 
@@ -105,9 +106,12 @@ tests/
 - Query interpretation ("Understood as"):
   - `src/siqva/interpretation.py` formats resolved fields with provenance labels (`[rules]`, `[llm]`, `[default]`).
   - Rendered in Streamlit UI via `st.caption(...)` above both successful results and clarification requests.
-- LLM calls: temperature 0, JSON-schema-constrained output (generate the
-  schema from the Pydantic model; use Ollama's `format` option), short prompt,
-  4-6 examples, one field per call if accuracy is low.
+- LLM calls: temperature 0.0, JSON output.
+  - Swappable backends: `SIQVA_LLM_BACKEND = openai_compatible | ollama | none` (defaults to `none` rules-only when credentials/model are unconfigured).
+  - Hosted `openai_compatible` backend: exactly one call per question, with schema/instructions covering ONLY the fields rules left missing or ambiguous. Rules-resolved fields are never overridden.
+  - The LLM never sees profile data values, statistics, or results, only the user question text and fixed instructions.
+  - Question length capped (default 500 characters). Invalid JSON retried once, then returns clarification.
+  - Circuit breaker (3 consecutive failures -> 60 s cooldown), rate limits (hourly session cap 20, daily cap `SIQVA_LLM_DAILY_CAP` default 500).
 - The public interface is a single function `parse(question) -> QuerySpec`.
   Keep the LLM backend swappable so models can be compared on the benchmark.
 - If validation fails after one retry, return a clarification request. Never
