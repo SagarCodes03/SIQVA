@@ -22,7 +22,8 @@ if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
 from siqva.analyzer import AnalysisResult
-from siqva.validator import DEFAULT_MAX_REQUEST_SIZE
+from siqva.capabilities import get_capability_profile, resolve_effective_depth
+from siqva.validator import DEFAULT_MAX_REQUEST_SIZE, is_size_guardrail_enabled
 from siqva.card import (
     DiffSummary,
     QueryCard,
@@ -834,7 +835,7 @@ def open_terminal_settings_modal() -> None:
         "Force refresh (bypass local cache)",
         value=st.session_state.get("force_refresh_global", False),
     )
-    guardrail_off = st.session_state.get("disable_size_guardrail", True)
+    guardrail_off = not is_size_guardrail_enabled()
     new_guardrail_off = st.toggle(
         "Bypass size guardrails (allow unlimited basin area & length)",
         value=guardrail_off,
@@ -860,8 +861,8 @@ def open_terminal_settings_modal() -> None:
 
 
 def _ui_max_request_size() -> Optional[float]:
-    """Return None to allow unlimited size in UI when guardrails are bypassed, or 15,000 when enabled."""
-    if st.session_state.get("disable_size_guardrail", True):
+    """Return None to allow unlimited size in UI only when guardrails are explicitly bypassed, or 15,000 when enabled."""
+    if not is_size_guardrail_enabled():
         return None
     return DEFAULT_MAX_REQUEST_SIZE
 
@@ -880,6 +881,12 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
     with top_right:
         if st.button("⋮", key=settings_key, help="Terminal Preferences & Diagnostics"):
             open_terminal_settings_modal()
+
+    if not is_size_guardrail_enabled():
+        st.warning(
+            "Size guardrails bypassed (SIQVA_DISABLE_SIZE_GUARDRAIL=1). "
+            "Large regional queries may experience remote timeouts or high memory usage."
+        )
 
 
 def _render_pipeline_result(res: PipelineResult) -> None:
@@ -1350,7 +1357,8 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
                 )
             c3, c4 = st.columns(2)
             with c3:
-                default_max_z = 20.0 if gt_def["intent"] in (Intent.MAP, getattr(Intent, "DRIFT", None)) else 500.0
+                cap_prof = get_capability_profile(gt_def["intent"])
+                default_max_z = cap_prof.default_depth.max_depth if cap_prof.default_depth else 500.0
                 max_z = st.number_input(
                     "Max Depth (dbar)",
                     value=float(default_max_z),

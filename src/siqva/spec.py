@@ -115,12 +115,19 @@ class QuerySpec(BaseModel):
 
     model_config = ConfigDict(frozen=True, use_enum_values=False)
 
-    region: BoundingBox
+    region: Optional[BoundingBox] = None
+    basin: Optional[str] = None
     date_range: DateRange
     variables: list[Variable]
     depth_range: Optional[DepthRange] = None
     mode: DataMode = DataMode.RESEARCH
     intent: Intent
+
+    @model_validator(mode="after")
+    def validate_region_or_basin(self) -> "QuerySpec":
+        if self.region is None and not self.basin:
+            raise ValueError("QuerySpec requires either region (BoundingBox) or a basin name.")
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -177,7 +184,7 @@ class QuerySpec(BaseModel):
     def normalized_dict(self) -> dict[str, Any]:
         """Produce a normalized, canonical dictionary representation."""
         norm_vars = sorted(list({v.value for v in self.variables}))
-        return {
+        d = {
             "date_range": {
                 "end": self.date_range.end.isoformat(),
                 "start": self.date_range.start.isoformat(),
@@ -190,14 +197,18 @@ class QuerySpec(BaseModel):
             else None,
             "intent": self.intent.value,
             "mode": self.mode.value,
-            "region": {
+            "variables": norm_vars,
+        }
+        if self.region is not None:
+            d["region"] = {
                 "lat_max": round(float(self.region.lat_max), 4),
                 "lat_min": round(float(self.region.lat_min), 4),
                 "lon_max": round(float(self.region.lon_max), 4),
                 "lon_min": round(float(self.region.lon_min), 4),
-            },
-            "variables": norm_vars,
-        }
+            }
+        if self.basin is not None:
+            d["basin"] = self.basin
+        return d
 
     def normalized_json(self) -> str:
         """Produce a deterministic, whitespace-stripped, sorted JSON string."""

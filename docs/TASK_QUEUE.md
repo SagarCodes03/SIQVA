@@ -24,9 +24,18 @@ Resume instruction for future sessions:
 | [x] **FIX 3** | Honest benchmark labelling and split field (`split: dev` schema, sample size warning < 30, parser-only latency label, docs disclaimer) | DONE (commit `015f86c`, 312 passed) |
 | [x] **FIX 4** | Safety verification (unquantified date clarifications, Ollama-unavailable < 3s, actionable oversized basin message, docs sync) | DONE (commit `938d3f5`, 315 passed) |
 | [x] **F1** | Physics honesty (SOFAR interior requirement, MIN_SAMPLES_EACH_SIDE=3, SLD surface behavior, aggregate 'N of M' text, shallower profiles count) | DONE (tag `done-F1`, 329 passed) |
-| [x] **F2** | Fetcher binding and offline-safe tests (call-time fetch resolution in pipeline.run/run_spec, autouse network guard in conftest.py, fix test_ui_smoke deselect) | DONE (tag `done-F2`, 335 passed) |
-| [x] **F3** | Plot size (deterministic stratified sampling for plot_ts_diagram and per-row traces, MAX_PLOT_OBSERVATIONS=5000, scattergl support, before/after JSON size) | DONE (tag `done-F3`, 340 passed) |
-| [ ] **F4** | Reproducibility honesty (generate_script support/disclaimers for all 13 intents, audit CLIMATOLOGY external reference/anomaly behavior in DECISIONS.md) | IN PROGRESS |
-| [ ] **F4** | Reproducibility honesty (generate_script support/disclaimers for all 13 intents, audit CLIMATOLOGY external reference/anomaly behavior in DECISIONS.md) | PENDING |
-| [ ] **F5** | Guardrail visibility (banner when SIQVA_DISABLE_SIZE_GUARDRAIL=1, card note, AUTO_SHRINK_MAX_DAYS=14, 2000 dbar max depth validator rule) | PENDING |
-| [ ] **F6** | Cleanup, measurement script, docs (git rm old_ui_0.1.py app/old_ui.py, measure_live.py, AGENTS.md/README.md synchronization, final report) | PENDING |
+| [x] **F2** | Fetcher binding and offline-safe tests (call-time fetcher resolution, network guard in conftest) | DONE (tag `done-F2`, 335 passed) |
+| [x] **F3** | Plot size (MAX_PLOT_OBSERVATIONS=5000 stratified sampling, Scattergl, sampling annotation) | DONE (tag `done-F3`, 340 passed) |
+| [x] **F4** | Reproducibility honesty (reproduction scope in script header for all intents, chunked script support) | DONE (commit `8279ebe`, 366 passed) |
+| [-] **F5-F6** | Guardrail visibility & measurement / cleanup | Unfinished / superseded by S0-S10 sampling design |
+| [x] **S0** | Find and close the bypass; wall-clock budget (trace real UI path, enforce guard on all UI paths, foreground wall-clock budget 90s, AppTest fetch spy) | DONE (tag `done-S0`, 371 passed) |
+| [x] **S1** | Local float index (src/siqva/floatindex.py, scripts/build_float_index.py, load once, query_profiles, count_profiles, last_positions, tracks, coverage_status, tests) | DONE (tag `done-S1`, 381 passed) |
+| [x] **S2** | Capability profiles (src/siqva/capabilities.py table mapping intent -> METADATA / SAMPLE_OK / FULL_REQUIRED, default depths, 2000 dbar cap, tests) | DONE (tag `done-S2`, 385 passed) |
+| [x] **S3** | Layered validation and planner (validator.py, planner.py, PlanDecision, basin support, antimeridian, structured options, tests) | DONE (tag `done-S3`, 400 passed) |
+| [ ] **S4** | Metadata and overview (router/rules parser, pipeline, plots, float-location queries, index overview map, Scattergeo, tests) | PENDING |
+| [ ] **S5** | Deterministic sample selection (floatindex.select_sample, WMO+cycle, grid x time slices, distinct floats, seed from fetch_key + build_date, tests) | PENDING |
+| [ ] **S6** | Fetch the sample (fetcher.py per-profile fetch, caching, progress, partial failure handling, FetchResult/AnalysisResult metadata, tests) | PENDING |
+| [ ] **S7** | UI flow and wording (app/ui.py overview map + sample plots, label, interactive options buttons, plain-language PlanDecision, AppTests) | PENDING |
+| [ ] **S8** | Query card and script (card records plan decision, sample profile list, honest sample script generation, rerun, tests) | PENDING |
+| [ ] **S9** | Plot Graph page and Compare Runs (capability display, S3 plan enforcement, Compare Runs FULL/CHUNKED restriction, tests) | PENDING |
+| [ ] **S10** | Docs, measurements, final (AGENTS.md, README.md, CODE_FLOW.md, docs/SAMPLING.md, bench_sampling.py offline benchmarks, final report) | PENDING |

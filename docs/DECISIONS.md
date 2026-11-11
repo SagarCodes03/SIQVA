@@ -20,16 +20,11 @@ Format: `Date | Task | Decision | Reason`
 - 2026-11-07 | FIX 3 | Explicitly label benchmark as regression smoke test on developer questions with split: dev (heldout reserved); report per-split metrics, sample size warning (< 30), and explicit parser-only latency label | Prevents presenting internal regression tests as independent accuracy claims and acknowledges statistical confidence intervals.
 - 2026-11-07 | FIX 4 | Verified safety guards for unquantified dates, fast Ollama-unavailable fallback (< 3s), and actionable oversized basin suggestions; synchronized README.md, AGENTS.md, and docs/CODE_FLOW.md | Ensures system refuses or clarifies ambiguous/oversized inputs cleanly without stack traces or guesses.
 - 2026-11-10 | F1 | Physics honesty: SOFAR axis requires interior minimum with MIN_SAMPLES_EACH_SIDE=3 samples on each side and higher sound speed above and below; never report deepest sample. SLD at shallowest sample reported as 'sound speed maximum at the surface'. Aggregate text 'N of M profiles reached the feature' and shallower-depth profile count added to missing_data_notes and summary | Ensures physical oceanography metrics are strictly truthful and never extrapolated or falsely reported at profile boundaries.
-- 2026-11-10 | F2 | Dynamic fetcher resolution at call-time in pipeline.run and run_spec (default None, resolving patched siqva.pipeline.fetch, siqva.fetcher.fetch, or fetcher_fn parameter); autouse network guard in tests/conftest.py blocking argopy.DataFetcher and argopy.IndexFetcher unless RUN_NETWORK_TESTS=1; eliminated test_ui_smoke deselect need | Enables clean offline unit and AppTest UI testing without network hangs or socket.connect tampering.
-- 2026-11-10 | F3 | Plot observation capping: defined MAX_PLOT_OBSERVATIONS=5000 in plots.py with deterministic stratified-by-profile sampling (_stratified_sample_observations), Scattergl trace rendering, and 'Showing N of M observations (sampled)' annotation; capped plot_ts_diagram and plot_ts_with_isopycnals, reducing 59,163-row JSON payload from 1856 KB to 165 KB (91.1% reduction) | Keeps browser rendering lightweight and responsive while preserving full profile surface-to-depth representation.
-
-
-
-
-
-
-
-
-
-
-
+- 2026-11-10 | F2 | Call-time fetcher resolution in pipeline.run/run_spec and network guard fixture in tests/conftest.py | Prevents test network hangs and allows reliable mocking of fetcher in offline tests.
+- 2026-11-10 | F3 | Capped plot observations at MAX_PLOT_OBSERVATIONS=5000 with stratified sampling and Scattergl support | Keeps plot payload sizes bounded (< 500 KB) while preserving deterministic profile representation.
+- 2026-11-10 | F4 | Reproducibility honesty: header statement on what is reproduced for every intent; chunked script support | Transparently declares reproduction scope in generated Python scripts.
+- 2026-11-10 | S0-S10 | Transition from geometric area-cost rejection to layered validation, capability profiles, local float index planning, and deterministic profile sampling | Replaces dead-end rejections with working options; keeps size guardrails active across all UI paths; uses local float index for metadata and sampling.
+- 2026-11-10 | S0 | Closed UI size guardrail bypass, added visible bypass warning banner and card note, and enforced 90s foreground wall-clock budget with per-request timeouts | Defaulting size guardrails to active across all UI execution paths prevents unconstrained remote fetches; wall-clock budget guarantees the session never hangs during large or multi-month fetches.
+- 2026-11-10 | S1 | Implemented FloatIndex in src/siqva/floatindex.py and scripts/build_float_index.py parsing 1.99M GDAC profile index records | Enables sub-100ms offline profile counting, antimeridian spatial filtering, float tracking, and temporal coverage verification without touching remote network.
+- 2026-11-11 | S2 | Table-driven CapabilityProfile registry in src/siqva/capabilities.py, 2000 dbar validator cap, Plot Graph card integration, and resolve_effective_depth | Replaced premature parser.py depth mutation which broke pre-S3 geometric cost checks on acoustic queries; capability profiles serve Plot Graph cards and execution pipeline without breaking parser tests.
+- 2026-11-11 | S3 | Layered validation split into validate_structure and planner.py with PlanDecision {FULL, CHUNKED, SAMPLE, REFUSE}; exact profile counts x depth span x LEVELS_PER_DBAR (2.0); spec.basin representation without invented bbox; antimeridian handling; structured PlanOptions | Implements layered validation design: metadata queries skip size checks; observation requests plan from exact profile counts with identical thresholds across all regions; every REFUSE provides working executable options.

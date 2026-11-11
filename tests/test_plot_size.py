@@ -107,3 +107,4 @@ def test_figure_json_size_reduction(large_dataset):
 
     assert size_capped_kb < size_uncapped_kb
     assert size_capped_kb < 200.0  # Well bounded for responsive browser rendering
+

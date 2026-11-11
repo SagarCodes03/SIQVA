@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
+import time
 from datetime import date, datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -15,6 +17,7 @@ import pandas as pd
 import xarray as xr
 from pydantic import BaseModel, ConfigDict, Field
 
+from .capabilities import resolve_effective_depth
 from .qc import QCReport, audit_qc
 from .spec import DataMode, DepthRange, QuerySpec
 from .validator import (
@@ -36,6 +39,22 @@ DEFAULT_FLOAT_INDEX_PATH = Path("data/float_index.parquet")
 # Default maximum allowable profiles before a request is rejected as oversized.
 # Provisional value based on limited measurements (single region and period); should be revisited.
 DEFAULT_MAX_PROFILE_COUNT: int = 100
+
+DEFAULT_WALL_CLOCK_BUDGET: float = 90.0
+DEFAULT_PER_REQUEST_TIMEOUT: int = 60
+
+
+def get_wall_clock_budget() -> float:
+    """Return foreground wall-clock budget in seconds (default 90.0, env SIQVA_WALL_CLOCK_BUDGET)."""
+    raw = os.getenv("SIQVA_WALL_CLOCK_BUDGET", "").strip()
+    if raw:
+        try:
+            val = float(raw)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    return DEFAULT_WALL_CLOCK_BUDGET
 
 
 class FetchStatus(str, Enum):
@@ -589,7 +608,8 @@ def fetch(
     spec: QuerySpec,
     cache_dir: Optional[Path] = None,
     force_refresh: bool = False,
-    timeout: int = 60,
+    timeout: int = DEFAULT_PER_REQUEST_TIMEOUT,
+    wall_clock_budget: Optional[float] = None,
     max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
     max_profile_count: Optional[int] = DEFAULT_MAX_PROFILE_COUNT,
     float_index_path: Optional[Path | str] = None,
@@ -632,8 +652,9 @@ def fetch(
     if today is None:
         today = date.today()
 
-    # Default depth range to 0-500 dbar when spec has none
-    effective_depth_range = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
+    # Default depth range via capability profile resolution when spec has none
+    eff_depth, _ = resolve_effective_depth(spec)
+    effective_depth_range = eff_depth or DepthRange(min_depth=0.0, max_depth=500.0)
 
     # 1. Spec validation & size cap enforcement (active by default with max_request_size = 15,000)
     try:
@@ -787,8 +808,12 @@ def fetch(
     mode_str = spec.mode.value
     fetcher_cls = fetcher_engine if fetcher_engine is not None else argopy.DataFetcher
 
+    if wall_clock_budget is None:
+        wall_clock_budget = get_wall_clock_budget()
+    effective_timeout = min(timeout, max(1, int(wall_clock_budget)))
+
     try:
-        engine = fetcher_cls(mode=mode_str, src=src, api_timeout=timeout)
+        engine = fetcher_cls(mode=mode_str, src=src, api_timeout=effective_timeout)
         df = engine.region(box).to_dataframe()
     except (FileNotFoundError, argopy.errors.DataNotFound, argopy.errors.NoData, argopy.errors.NoDataLeft):
         return _build_empty_result(

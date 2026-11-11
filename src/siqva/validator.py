@@ -88,49 +88,52 @@ def format_oversized_suggestion(
     return " ".join(lines)
 
 
-def validate_spec(
-    spec: QuerySpec,
-    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
-    allow_chunking: bool = False,
-) -> None:
-    """Validate bounds, temporal order, variables, depth range, and size caps of a QuerySpec.
+def validate_structure(spec: QuerySpec, allow_antimeridian: bool = False) -> None:
+    """Validate physical constraints and structure of a QuerySpec.
 
-    Computes a cost estimate incorporating geographic area, temporal duration, and depth range
-    (defaulting to 0-500 dbar when no depth range is specified in the spec).
+    Checks:
+        - Geographic coordinates within physical limits (-180..180 lon, -90..90 lat, lat_min <= lat_max).
+        - Antimeridian crossing (lon_min > lon_max) rejected unless allow_antimeridian=True.
+        - Basin name valid if specified without bbox.
+        - Start date <= end date.
+        - Variables non-empty and allowlisted.
+        - Depth non-negative and max_depth <= 2000.0 dbar.
 
-    Raises:
-        SpecValidationError: If geographic, temporal, variable, or depth values are invalid.
-        OversizedRequestError: If total query cost exceeds max_request_size.
+    Size caps are never evaluated in structure validation.
     """
-    bbox = spec.region
-
-    # 1. Bounding box coordinates validation
-    if not (-180.0 <= bbox.lon_min <= 180.0):
-        raise SpecValidationError(
-            f"lon_min must be between -180 and 180, got {bbox.lon_min}"
-        )
-    if not (-180.0 <= bbox.lon_max <= 180.0):
-        raise SpecValidationError(
-            f"lon_max must be between -180 and 180, got {bbox.lon_max}"
-        )
-    if bbox.lon_min > bbox.lon_max:
-        raise SpecValidationError(
-            f"Bounding boxes crossing the 180° meridian (antimeridian) where lon_min ({bbox.lon_min}) cannot be greater than lon_max ({bbox.lon_max}) "
-            "are not supported. Please split the query into separate eastern and western boxes, or choose a region that does not cross 180°."
-        )
-
-    if not (-90.0 <= bbox.lat_min <= 90.0):
-        raise SpecValidationError(
-            f"lat_min must be between -90 and 90, got {bbox.lat_min}"
-        )
-    if not (-90.0 <= bbox.lat_max <= 90.0):
-        raise SpecValidationError(
-            f"lat_max must be between -90 and 90, got {bbox.lat_max}"
-        )
-    if bbox.lat_min > bbox.lat_max:
-        raise SpecValidationError(
-            f"lat_min ({bbox.lat_min}) cannot be greater than lat_max ({bbox.lat_max})"
-        )
+    if spec.region is not None:
+        bbox = spec.region
+        if not (-180.0 <= bbox.lon_min <= 180.0):
+            raise SpecValidationError(
+                f"lon_min must be between -180 and 180, got {bbox.lon_min}"
+            )
+        if not (-180.0 <= bbox.lon_max <= 180.0):
+            raise SpecValidationError(
+                f"lon_max must be between -180 and 180, got {bbox.lon_max}"
+            )
+        if not allow_antimeridian and bbox.lon_min > bbox.lon_max:
+            raise SpecValidationError(
+                f"Bounding boxes crossing the 180° meridian (antimeridian) where lon_min ({bbox.lon_min}) cannot be greater than lon_max ({bbox.lon_max}) "
+                "are not supported. Please split the query into separate eastern and western boxes, or choose a region that does not cross 180°."
+            )
+        if not (-90.0 <= bbox.lat_min <= 90.0):
+            raise SpecValidationError(
+                f"lat_min must be between -90 and 90, got {bbox.lat_min}"
+            )
+        if not (-90.0 <= bbox.lat_max <= 90.0):
+            raise SpecValidationError(
+                f"lat_max must be between -90 and 90, got {bbox.lat_max}"
+            )
+        if bbox.lat_min > bbox.lat_max:
+            raise SpecValidationError(
+                f"lat_min ({bbox.lat_min}) cannot be greater than lat_max ({bbox.lat_max})"
+            )
+    else:
+        if not spec.basin:
+            raise SpecValidationError("QuerySpec must specify either a valid geographic region (BoundingBox) or a supported basin name.")
+        from .floatindex import _resolve_basin_code
+        if _resolve_basin_code(spec.basin) is None:
+            raise SpecValidationError(f"Basin '{spec.basin}' is not supported. Supported basins: Indian Ocean, Pacific Ocean, Atlantic Ocean.")
 
     # 2. Date range order validation
     start_date = spec.date_range.start
@@ -160,6 +163,35 @@ def validate_spec(
         raise SpecValidationError(
             f"min_depth ({depth.min_depth}) cannot exceed max_depth ({depth.max_depth})"
         )
+    if depth.max_depth > 2000.0:
+        raise SpecValidationError(
+            f"max_depth ({depth.max_depth} dbar) cannot exceed 2000.0 dbar (core Argo profiling limit)."
+        )
+
+
+def validate_spec(
+    spec: QuerySpec,
+    max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
+    allow_chunking: bool = False,
+) -> None:
+    """Validate bounds, temporal order, variables, depth range, and size caps of a QuerySpec.
+
+    Computes a cost estimate incorporating geographic area, temporal duration, and depth range
+    (defaulting to 0-500 dbar when no depth range is specified in the spec).
+
+    Raises:
+        SpecValidationError: If geographic, temporal, variable, or depth values are invalid.
+        OversizedRequestError: If total query cost exceeds max_request_size.
+    """
+    validate_structure(spec, allow_antimeridian=False)
+
+    if spec.region is None:
+        return
+
+    bbox = spec.region
+    start_date = spec.date_range.start
+    end_date = spec.date_range.end
+    depth = spec.depth_range or DepthRange(min_depth=0.0, max_depth=500.0)
 
     # 5. Cost estimate validation incorporating depth range
     area = (bbox.lon_max - bbox.lon_min) * (bbox.lat_max - bbox.lat_min)

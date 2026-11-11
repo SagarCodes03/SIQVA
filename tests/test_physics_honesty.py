@@ -225,3 +225,4 @@ def test_aggregate_text_and_missing_data_notes():
     # 2. Check shallower count in missing_data_notes
     assert any("profiles ended shallower than requested target depth" in note for note in result.missing_data_notes)
     assert any("SOFAR channel axis: 1 of 2 profiles reached the feature" in note for note in result.missing_data_notes)
+

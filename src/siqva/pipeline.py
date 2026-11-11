@@ -105,10 +105,15 @@ def run_spec(
     question: Optional[str] = None,
     session_id: Optional[str] = None,
     max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
+    wall_clock_budget: Optional[float] = None,
     **fetch_kwargs: Any,
 ) -> PipelineResult:
     """Execute a fully formed QuerySpec through fetcher, QC, analysis, plots, and card generation."""
     from .chunking import fetch_chunked, is_chunked_spec
+    from .fetcher import get_wall_clock_budget
+
+    if wall_clock_budget is None:
+        wall_clock_budget = get_wall_clock_budget()
 
     resolved_fetcher = _resolve_fetcher(fetcher_fn)
 
@@ -119,6 +124,7 @@ def run_spec(
             force_refresh=force_refresh,
             fetcher_fn=resolved_fetcher,
             max_request_size=max_request_size,
+            wall_clock_budget=wall_clock_budget,
             **fetch_kwargs,
         )
     else:
@@ -127,6 +133,7 @@ def run_spec(
             cache_dir=cache_dir,
             force_refresh=force_refresh,
             max_request_size=max_request_size,
+            wall_clock_budget=wall_clock_budget,
             **fetch_kwargs,
         )
 
@@ -287,6 +294,7 @@ def run(
     allow_llm: bool = True,
     db_path: Optional[Path] = None,
     max_request_size: Optional[float] = DEFAULT_MAX_REQUEST_SIZE,
+    wall_clock_budget: Optional[float] = None,
     fetcher_fn: Any = None,
     **kwargs: Any,
 ) -> PipelineResult:
@@ -316,6 +324,7 @@ def run(
         fetcher_fn=fetcher_fn,
         question=question,
         max_request_size=max_request_size,
+        wall_clock_budget=wall_clock_budget,
         **kwargs,
     )
     res.question = question
