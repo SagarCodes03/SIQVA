@@ -17,5 +17,6 @@ __pycache__/
 cache/
 logs/
 data/*.parquet
+data/llm_usage.json
 *.sqlite
 *.sqlite-journal

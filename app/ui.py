@@ -37,6 +37,13 @@ from siqva.fetcher import FetchResult, FetchStatus
 from siqva.floatindex import SAMPLE_STEPS
 from siqva.gazetteer import KNOWN_REGIONS
 from siqva.interpretation import build_understood_from_spec, format_understood_as
+from siqva.llm_parser import (
+    SESSION_CALL_LIMIT_PER_HOUR,
+    get_daily_calls,
+    get_llm_config,
+    get_session_calls_past_hour,
+    is_hosted_backend_active,
+)
 from siqva.parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
 from siqva.planner import PlanKind, plan_request
@@ -1402,6 +1409,17 @@ with st.sidebar:
     else:
         st.caption("• no recorded sessions")
 
+    if os.environ.get("SIQVA_DEBUG") in ("1", "true", "True"):
+        st.divider()
+        st.markdown(
+            "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 6px 2px;'>DEBUG · LLM USAGE</div>",
+            unsafe_allow_html=True,
+        )
+        h_calls = get_session_calls_past_hour()
+        d_calls = get_daily_calls()
+        cfg_debug = get_llm_config()
+        st.caption(f"Calls this hour: {h_calls}/{SESSION_CALL_LIMIT_PER_HOUR} · Calls today: {d_calls}/{cfg_debug.daily_cap}")
+
 
 # ---------------------------------------------------------------------------
 # FLOATING MODAL DIALOG FOR PLOT GRAPHS (@st.dialog)
@@ -1626,6 +1644,13 @@ if st.session_state["active_page"] == "query":
                 )
             with b_send:
                 send_clicked = st.button("↑", key="send_query_btn", type="primary", use_container_width=True)
+
+        if is_hosted_backend_active():
+            st.caption(
+                html.escape(
+                    "Your question text is sent to a language model provider to interpret it. Data and results are never sent. Deterministic rules parse as much as possible first."
+                )
+            )
 
         if send_clicked and user_question.strip():
             question_text = user_question.strip()
