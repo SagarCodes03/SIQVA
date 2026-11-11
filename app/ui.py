@@ -34,10 +34,12 @@ from siqva.card import (
     rerun,
 )
 from siqva.fetcher import FetchResult, FetchStatus
+from siqva.floatindex import SAMPLE_STEPS
 from siqva.gazetteer import KNOWN_REGIONS
-from siqva.interpretation import format_understood_as
+from siqva.interpretation import build_understood_from_spec, format_understood_as
 from siqva.parser import ClarificationNeeded, ParseOutcome, parse_detailed
 from siqva.pipeline import PipelineResult, PipelineStatus, run, run_spec
+from siqva.planner import PlanKind, plan_request
 from siqva.router import RouteTarget, route
 from siqva.spec import (
     BoundingBox,
@@ -47,6 +49,7 @@ from siqva.spec import (
     Intent,
     QuerySpec,
     Variable,
+    get_location_info,
 )
 
 # ---------------------------------------------------------------------------
@@ -898,6 +901,9 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                 res.parse_outcome.provenance,
             )
         )
+    elif res.spec is not None:
+        understood, provenance = build_understood_from_spec(res.spec)
+        st.caption(format_understood_as(understood, provenance))
 
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
@@ -924,36 +930,27 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         tag = f"[{res.status.value.upper()}]"
         st.error(f"{tag} Execution halted: {res.error_message}")
 
-        # Auto-clamp button for OVERSIZED queries with a bounding box
-        if res.status == PipelineStatus.OVERSIZED and res.spec is not None and res.spec.region is not None:
-            if st.button("Auto-shrink Query to Fit Cost Limit & Re-run", type="primary", key="auto_clamp_btn"):
-                # If it's a Map or Drift plot, clamp depth to 0-20 dbar; otherwise clamp date window to fit cost cap
-                if res.spec.intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
-                    clamped_spec = res.spec.model_copy(
-                        update={"depth_range": DepthRange(min_depth=0.0, max_depth=20.0)}
-                    )
-                else:
-                    from datetime import timedelta
+        # Structured options for OVERSIZED queries (replaces mechanical auto-shrink)
+        if res.status == PipelineStatus.OVERSIZED and res.spec is not None:
+            opts = []
+            if res.plan_decision and res.plan_decision.options:
+                opts = res.plan_decision.options
+            else:
+                opts = plan_request(res.spec).options
 
-                    area = (res.spec.region.lon_max - res.spec.region.lon_min) * (res.spec.region.lat_max - res.spec.region.lat_min)
-                    cur_span = (res.spec.depth_range.max_depth - res.spec.depth_range.min_depth) if res.spec.depth_range else 500.0
-                    depth_factor = cur_span / 500.0
-                    cost_per_day = area * depth_factor
-                    max_fitting_days = max(1, int(15_000.0 / cost_per_day)) if cost_per_day > 0 else 14
-                    clamped_days = min(max_fitting_days, 14)
-                    new_end = res.spec.date_range.start + timedelta(days=clamped_days)
-                    if new_end > res.spec.date_range.end:
-                        new_end = res.spec.date_range.end
-                    clamped_spec = res.spec.model_copy(
-                        update={"date_range": DateRange(start=res.spec.date_range.start, end=new_end)}
-                    )
-                with st.spinner("Re-executing with clamped parameters..."):
-                    new_res = run_spec(clamped_spec, force_refresh=False, max_request_size=_ui_max_request_size())
-                    if st.session_state["active_page"] == "query":
-                        st.session_state["pipeline_res"] = new_res
-                    else:
-                        st.session_state["active_plot_res"] = new_res
-                    st.rerun()
+            if opts:
+                st.markdown("**Actionable Options to Fit Constraints — Click to Execute**")
+                cols = st.columns(min(len(opts), 3))
+                for idx, opt in enumerate(opts):
+                    with cols[idx % len(cols)]:
+                        if st.button(f"> {opt.label}", key=f"plan_opt_{idx}", use_container_width=True, help=opt.description):
+                            with st.spinner(f"Executing: {opt.label}..."):
+                                new_res = run_spec(opt.spec, force_refresh=False, max_request_size=_ui_max_request_size())
+                                if st.session_state.get("active_page") == "query":
+                                    st.session_state["pipeline_res"] = new_res
+                                else:
+                                    st.session_state["active_plot_res"] = new_res
+                                st.rerun()
 
         if res.spec:
             with st.expander("Inspected Spec Parameters"):
@@ -1030,7 +1027,14 @@ def _render_pipeline_result(res: PipelineResult) -> None:
     with c1:
         st.metric("Total Rows", f"{res.card.row_count:,}")
     with c2:
-        st.metric("Float Profiles", f"{res.card.profile_count:,}")
+        if res.fetch_result and res.fetch_result.is_sample:
+            n_avail = getattr(res.fetch_result, "n_available", None)
+            if n_avail:
+                st.metric("Float Profiles", f"Sample: {res.card.profile_count} of {n_avail:,}")
+            else:
+                st.metric("Float Profiles", f"Sample: {res.card.profile_count}")
+        else:
+            st.metric("Float Profiles", f"Full: all {res.card.profile_count:,} profiles")
     with c3:
         cache_str = "CACHED" if res.card.is_cached else "LIVE"
         st.metric("Source", f"{res.card.source.upper()} [{cache_str}]")
@@ -1056,7 +1060,103 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         other_keys = [k for k in res.figures if k not in analytical_keys and k != "map"]
         all_analytical = analytical_keys + other_keys
 
-        if has_map and all_analytical:
+        if res.fetch_result and res.fetch_result.is_sample:
+            # S7 SAMPLE display: (1) Overview map, then (2) sample plots with required label, then (3) actions
+            if has_map:
+                st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
+
+            n_avail = getattr(res.fetch_result, "n_available", None) or res.card.profile_count
+            st.info(
+                f"Sample: {res.card.profile_count} of {n_avail:,} profiles in this region and period, "
+                "selected evenly across space and time. Not representative of the whole region."
+            )
+
+            for key in all_analytical:
+                st.plotly_chart(_style_fig(res.figures[key], is_map=False), use_container_width=True, theme=None)
+
+            # Interactive Action Buttons
+            st.markdown("**Sample Actions & Alternatives**")
+            cur_n = res.card.profile_count
+            next_n = None
+            for step in SAMPLE_STEPS:
+                if step > cur_n:
+                    next_n = step
+                    break
+
+            opts = []
+            if res.plan_decision and res.plan_decision.options:
+                opts = res.plan_decision.options
+            elif res.spec:
+                opts = plan_request(res.spec).options
+
+            action_items: list[dict[str, Any]] = []
+            if next_n is not None:
+                action_items.append({
+                    "label": f"Bigger sample ({next_n} profiles)",
+                    "spec": res.spec,
+                    "sample_n": next_n,
+                    "help": f"Fetch a denser sample of {next_n} profiles.",
+                })
+
+            for opt in opts:
+                if opt.option_type in ("smaller_region", "subregion"):
+                    action_items.append({
+                        "label": opt.label,
+                        "spec": opt.spec,
+                        "help": opt.description,
+                    })
+                elif opt.option_type == "narrow_period":
+                    action_items.append({
+                        "label": opt.label,
+                        "spec": opt.spec,
+                        "help": opt.description,
+                    })
+                elif opt.option_type == "float_map":
+                    action_items.append({
+                        "label": "Float map only",
+                        "spec": opt.spec,
+                        "help": opt.description,
+                    })
+
+            # Run full (only when allowed)
+            is_run_full_allowed = False
+            if res.spec.basin is None and res.spec.region is not None:
+                dec = plan_request(res.spec, force_full=True)
+                if dec.plan in (PlanKind.FULL, PlanKind.CHUNKED):
+                    is_run_full_allowed = True
+
+            if is_run_full_allowed:
+                action_items.append({
+                    "label": "Run full (all profiles)",
+                    "spec": res.spec,
+                    "force_full": True,
+                    "help": "Download complete observation dataset across all matching profiles.",
+                })
+
+            if action_items:
+                act_cols = st.columns(min(len(action_items), 4))
+                for a_idx, act in enumerate(action_items):
+                    with act_cols[a_idx % len(act_cols)]:
+                        if st.button(act["label"], key=f"sample_act_{a_idx}", use_container_width=True, help=act.get("help")):
+                            with st.spinner(f"Executing: {act['label']}..."):
+                                f_kw: dict[str, Any] = {}
+                                if act.get("sample_n") is not None:
+                                    f_kw["sample_n"] = act["sample_n"]
+                                if act.get("force_full"):
+                                    f_kw["force_full"] = True
+                                new_res = run_spec(
+                                    act["spec"],
+                                    force_refresh=False,
+                                    max_request_size=_ui_max_request_size(),
+                                    **f_kw,
+                                )
+                                if st.session_state.get("active_page") == "query":
+                                    st.session_state["pipeline_res"] = new_res
+                                else:
+                                    st.session_state["active_plot_res"] = new_res
+                                st.rerun()
+
+        elif has_map and all_analytical:
             primary_key = all_analytical[0]
             c_map, c_plot = st.columns(2)
             with c_map:

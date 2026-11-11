@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 from .parser import UnderstoodQuery
+
+if TYPE_CHECKING:
+    from .spec import QuerySpec
 
 
 def _source_label(provenance: Mapping[str, str], field: str) -> str:
@@ -58,3 +62,43 @@ def format_understood_as(understood: UnderstoodQuery, provenance: Mapping[str, s
         parts.append(f"Intent: {understood.intent.value} [{_source_label(provenance, 'intent')}]")
 
     return "Understood as: " + ("; ".join(parts) if parts else "no query fields resolved.")
+
+
+def build_understood_from_spec(spec: QuerySpec) -> tuple[UnderstoodQuery, dict[str, str]]:
+    """Build an UnderstoodQuery and provenance map directly from a QuerySpec for UI display."""
+    from .gazetteer import KNOWN_REGIONS
+
+    provenance: dict[str, str] = {}
+    region_name = None
+    if spec.region is not None:
+        provenance["region"] = "rules"
+        for k, v in KNOWN_REGIONS.items():
+            if v == spec.region:
+                region_name = k
+                break
+    elif spec.basin is not None:
+        provenance["region"] = "rules"
+
+    if spec.date_range is not None:
+        provenance["date_range"] = "rules"
+    if spec.variables:
+        provenance["variables"] = "rules"
+    if spec.depth_range is not None:
+        provenance["depth_range"] = "rules"
+    if spec.mode is not None:
+        provenance["mode"] = "rules"
+    if spec.intent is not None:
+        provenance["intent"] = "rules"
+
+    understood = UnderstoodQuery(
+        region=spec.region,
+        basin=spec.basin,
+        region_name=region_name,
+        date_range=spec.date_range,
+        variables=spec.variables,
+        depth_range=spec.depth_range,
+        mode=spec.mode,
+        intent=spec.intent,
+    )
+    return understood, provenance
+

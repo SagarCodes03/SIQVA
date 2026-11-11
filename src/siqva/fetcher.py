@@ -993,6 +993,7 @@ def fetch_sample(
     pause_s: float = 0.05,
     progress_callback: Optional[Any] = None,
     float_index: Optional[Any] = None,
+    sample_n: Optional[int] = None,
 ) -> FetchResult:
     """Fetch profile data for a deterministic sample sequentially with per-profile caching.
 
@@ -1019,7 +1020,8 @@ def fetch_sample(
     if picks is None or selection is None:
         idx = float_index or load_float_index()
         if idx is not None and idx.is_available:
-            sel = idx.select_sample(spec)
+            n_val = sample_n or (selection.n_selected if selection else None)
+            sel = idx.select_sample(spec, n=n_val) if n_val is not None else idx.select_sample(spec)
             if selection is None:
                 selection = sel
             if picks is None:
