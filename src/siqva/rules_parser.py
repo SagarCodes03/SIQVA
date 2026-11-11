@@ -27,6 +27,7 @@ class RulesParseResult(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     region: Optional[BoundingBox] = None
+    basin: Optional[str] = None
     region_name: Optional[str] = None
     region_resolution: Optional[RegionResolution] = None
     date_range: Optional[DateRange] = None
@@ -365,6 +366,16 @@ def _extract_intent(text: str) -> tuple[Optional[Intent], Optional[str]]:
             "locations",
             "find floats",
             "locate floats",
+            "show floats",
+            "display floats",
+            "how many floats",
+            "how many profiles",
+            "count floats",
+            "count of floats",
+            "number of floats",
+            "active floats",
+            "floats in",
+            "floats near",
         )
     ):
         matched_intents.add(Intent.MAP)
@@ -701,11 +712,32 @@ def parse_rules(question: str, today: Optional[date] = None) -> RulesParseResult
         if "variables" in missing:
             missing.remove("variables")
 
+    # If intent is MAP / metadata, handle basin queries and exempt dates / variables
+    basin = None
+    if intent == Intent.MAP:
+        lower_q = question.lower()
+        if re.search(r"\b(pacific|pacific ocean)\b", lower_q):
+            basin = "Pacific Ocean"
+            region_name = "Pacific Ocean"
+            if "region" in missing:
+                missing.remove("region")
+        elif re.search(r"\b(indian ocean)\b", lower_q):
+            basin = "Indian Ocean"
+            region_name = "Indian Ocean"
+            if "region" in missing:
+                missing.remove("region")
+        elif re.search(r"\b(atlantic|atlantic ocean)\b", lower_q) and not re.search(r"\bnorth atlantic\b", lower_q):
+            basin = "Atlantic Ocean"
+            region_name = "Atlantic Ocean"
+            if "region" in missing:
+                missing.remove("region")
+
     # 6. Depth range (optional)
     depth_range = _extract_depth_range(question)
 
     return RulesParseResult(
         region=bbox,
+        basin=basin,
         region_name=region_name,
         region_resolution=region_resolution,
         date_range=date_range,

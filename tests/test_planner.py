@@ -288,3 +288,4 @@ def test_parametrized_consistency_same_request_size(region_bbox, mock_index):
     decision = plan_request(spec, index=mock_index)
     assert decision.plan == PlanKind.FULL
     assert decision.profile_count == 15
+

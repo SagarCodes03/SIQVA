@@ -31,7 +31,13 @@ from .llm_parser import (
 )
 from .rules_parser import RulesParseResult, parse_rules
 from .spec import BoundingBox, DataMode, DateRange, DepthRange, Intent, QuerySpec, Variable
-from .validator import DEFAULT_MAX_REQUEST_SIZE, OversizedRequestError, SpecValidationError, validate_spec
+from .validator import (
+    DEFAULT_MAX_REQUEST_SIZE,
+    OversizedRequestError,
+    SpecValidationError,
+    validate_spec,
+    validate_structure,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +59,7 @@ class UnderstoodQuery(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     region: Optional[BoundingBox] = None
+    basin: Optional[str] = None
     region_name: Optional[str] = None
     date_range: Optional[DateRange] = None
     variables: Optional[list[Variable]] = None
@@ -262,12 +269,39 @@ def parse_detailed(
             intent = Intent.PROFILE
             provenance["intent"] = "default"
 
+    basin = getattr(rules_res, "basin", None)
+
+    # For METADATA intent (Map), no dates or variables required
+    if intent == Intent.MAP:
+        if date_range is None:
+            from datetime import timedelta
+            from .floatindex import load_float_index
+
+            idx = load_float_index()
+            snap_date = idx.max_date if (idx and idx.is_available and idx.max_date) else date.today()
+            date_range = DateRange(start=snap_date - timedelta(days=30), end=snap_date)
+            provenance["date_range"] = "default"
+            if "date_range" in missing_fields:
+                missing_fields.remove("date_range")
+        if not variables:
+            variables = [Variable.TEMP]
+            provenance["variables"] = "default"
+            if "variables" in missing_fields:
+                missing_fields.remove("variables")
+        if region is None and basin:
+            region_name = basin
+            if "region" in missing_fields:
+                missing_fields.remove("region")
+            if ambiguous_fields:
+                ambiguous_fields = [f for f in ambiguous_fields if "Pacific Ocean" not in f and "crosses the 180" not in f]
+
     # Surface maps and drift velocity only require surface layer coordinates; default to 0-20 dbar
     if provenance.get("depth_range") == "default" and intent in (Intent.MAP, getattr(Intent, "DRIFT", None)):
         depth_range = DepthRange(min_depth=0.0, max_depth=20.0)
 
     understood = UnderstoodQuery(
         region=region,
+        basin=basin,
         region_name=region_name,
         date_range=date_range,
         variables=variables,
@@ -277,7 +311,8 @@ def parse_detailed(
     )
 
     # 8. Check for mandatory missing or ambiguous fields
-    if missing_fields or ambiguous_fields or region is None or date_range is None or not variables:
+    has_location = (region is not None) or (basin is not None)
+    if missing_fields or ambiguous_fields or not has_location or date_range is None or not variables:
         reasons = []
         if llm_checked and not llm_available:
             reasons.append("The language model is not available.")
@@ -304,6 +339,7 @@ def parse_detailed(
     # 9. Build candidate spec and validate
     candidate_spec = QuerySpec(
         region=region,
+        basin=basin,
         date_range=date_range,
         variables=variables,
         depth_range=depth_range,
@@ -312,7 +348,10 @@ def parse_detailed(
     )
 
     try:
-        validate_spec(candidate_spec, max_request_size=max_request_size, allow_chunking=True)
+        if intent == Intent.MAP:
+            validate_structure(candidate_spec, allow_antimeridian=True)
+        else:
+            validate_spec(candidate_spec, max_request_size=max_request_size, allow_chunking=True)
         return ParseOutcome(
             spec=candidate_spec,
             clarification=None,
