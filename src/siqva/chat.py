@@ -258,7 +258,6 @@ def load_chat_messages(
     if not path.exists():
         return []
 
-    shared = is_history_shared()
     messages: list[ChatMessage] = []
 
     with closing(sqlite3.connect(path)) as conn:
@@ -266,12 +265,8 @@ def load_chat_messages(
         query = (
             "SELECT message_id, role, kind, text, card_id, understood_as, options_json, created_at "
             "FROM chat_messages WHERE session_id = ? ORDER BY position ASC LIMIT ?"
-            if not shared
-            else "SELECT message_id, role, kind, text, card_id, understood_as, options_json, created_at "
-            "FROM chat_messages ORDER BY position ASC LIMIT ?"
         )
-        params = (session_id, limit) if not shared else (limit,)
-        cur = conn.execute(query, params)
+        cur = conn.execute(query, (session_id, limit))
 
         for row in cur.fetchall():
             m_id, role, kind, text, card_id, understood_as, opt_json, created_at = row
@@ -306,14 +301,10 @@ def clear_chat_messages(
     if not path.exists():
         return
 
-    shared = is_history_shared()
     with closing(sqlite3.connect(path)) as conn:
         _init_chat_db(conn)
         with conn:
-            if shared:
-                conn.execute("DELETE FROM chat_messages")
-            else:
-                conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+            conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
 
 
 # ==============================================================================
@@ -345,6 +336,7 @@ def dispatch(
     force_refresh: bool = False,
     session_id: Optional[str] = None,
     fetcher_fn: Any = None,
+    on_result: Optional[Any] = None,
 ) -> tuple[list[ChatMessage], ConversationState]:
     """Pure dispatcher: routes a user question to assistant responses without Streamlit dependencies.
 
@@ -356,6 +348,7 @@ def dispatch(
         force_refresh: Bypass Parquet cache if True.
         session_id: Session identifier for multi-session isolation.
         fetcher_fn: Optional fetcher callable or class for offline testing.
+        on_result: Optional callback invoked with the raw PipelineResult if a pipeline was executed.
 
     Returns:
         tuple[list[ChatMessage], ConversationState]: Generated assistant messages and updated state.
@@ -406,6 +399,11 @@ def dispatch(
                 max_request_size=max_request_size,
                 session_id=session_id,
             )
+            if on_result is not None:
+                try:
+                    on_result(res)
+                except Exception:
+                    pass
             return _convert_pipeline_result(res, q_clean, c_state, append_refusal=pure_refusal)
 
     # 5. Routing classification
@@ -491,6 +489,12 @@ def dispatch(
             session_id=session_id,
         )
 
+    if on_result is not None:
+        try:
+            on_result(res)
+        except Exception:
+            pass
+
     return _convert_pipeline_result(res, q_clean, c_state, append_refusal=pure_refusal)
 
 
@@ -516,7 +520,7 @@ def _convert_pipeline_result(
         options: list[ChatOption] = []
         if res.plan_decision and res.plan_decision.options:
             for opt in res.plan_decision.options:
-                options.append(ChatOption(label=opt.label, action_type="plan_option", query_text=opt.query_text or opt.label))
+                options.append(ChatOption(label=opt.label, action_type="plan_option", query_text=opt.description or opt.label))
 
         msg = ChatMessage(
             role="assistant",
@@ -572,7 +576,7 @@ def _convert_pipeline_result(
     options: list[ChatOption] = []
     if res.plan_decision and res.plan_decision.options:
         for opt in res.plan_decision.options:
-            options.append(ChatOption(label=opt.label, action_type="plan_option", query_text=opt.query_text or opt.label))
+            options.append(ChatOption(label=opt.label, action_type="plan_option", query_text=opt.description or opt.label))
 
     msg = ChatMessage(
         role="assistant",
