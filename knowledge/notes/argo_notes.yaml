@@ -47,7 +47,10 @@
   source_version: ''
   retrieved_on: '2026-11-14'
   limits: Covers standard core park-and-profile missions only; does not cover specialized
-    biogeochemical 1-day bursts or Deep Argo missions down to 6000 meters.
+    biogeochemical 1-day bursts or Deep Argo missions down to 6000 meters. Fleetwide
+    surface interval is 15 minutes to 1 hour (argo-how-floats-work); for Iridium floats
+    specifically, surface transmission time is under 20 minutes compared to 6 to 18 hours
+    for older Argos-2 floats (see float-telemetry-and-surface, Wong et al. 2020).
   related:
   - argo-one-paragraph
   - core-argo-parameters
@@ -328,9 +331,9 @@
   checked_on: ''
 - id: conservative-temperature
   question_examples:
-  - What is Conservative Temperature in TEOS-10?
-  - What units are used for Conservative Temperature?
   - What inputs does Conservative Temperature accompany in GSW?
+  - What units and scale are used for Conservative Temperature in GSW?
+  - How do array dimensions of Conservative Temperature and Absolute Salinity relate in GSW?
   answer: 'In the Gibbs SeaWater oceanographic toolbox, Conservative Temperature (symbol
     CT) is defined on the ITS-90 temperature scale in units of degrees Celsius. Conservative
     Temperature serves alongside Absolute Salinity (SA in g/kg) and sea pressure (p
@@ -344,7 +347,7 @@
   source_version: '3.05'
   retrieved_on: '2026-11-14'
   limits: Derived thermodynamic relations connecting Conservative Temperature to potential
-    enthalpy are documented in the TEOS-10 Manual, which is not currently retrieved.
+    enthalpy require the TEOS-10 Manual / Primer, which is not currently retrieved.
   related:
   - what-is-teos-10
   - practical-vs-absolute-salinity
@@ -449,7 +452,10 @@
   source_version: Vol. 7, Art. 700
   retrieved_on: '2026-11-14'
   limits: Covers Argos and Iridium satellite systems; does not cover experimental
-    acoustic underwater positioning networks used beneath Antarctic sea ice.
+    acoustic underwater positioning networks used beneath Antarctic sea ice. Surface
+    transmission time under 20 minutes applies to modern bidirectional Iridium floats
+    (compared to 6–18 h for Argos-2); the broader fleet overview describes the typical
+    surface interval as 15 minutes to one hour (see float-cycle-and-depth).
   related:
   - float-cycle-and-depth
   - argo-one-paragraph

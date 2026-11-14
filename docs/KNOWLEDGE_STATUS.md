@@ -12,6 +12,7 @@ Current status of the SIQVA trusted knowledge base preparation.
 - [x] **K5. Scope, questions, checker, review tool**: `knowledge/scope.md`, `knowledge/questions.jsonl` (40 dev questions), `scripts/check_knowledge.py`, `scripts/review_note.py`, and `tests/test_knowledge.py` created and verified.
 - [x] **K6. Status and finish**: Summary report, checklist for owner verification, test suite run (472 passed, 4 skipped), pushed to `task-knowledge`.
 - [x] **K7. Evidence audit and cleanup**: Comprehensive sentence-by-sentence evidence audit in `knowledge/notes/evidence/<id>.md` for all 21 notes (82 sentences, 100% supported by phrases < 15 words, 0 `NO SUPPORT FOUND`). Removed unsupported sentences, filled metadata (`source_version`, `retrieved_on`, real section headings), merged `qc-flag-1-definition` and `qc-flag-4-definition` into `qc-flag-scale` with aliases, and validated via `scripts/check_knowledge.py` and `tests/test_knowledge.py`.
+- [x] **K8. Fix product text and generator drift**: Aligned delayed-mode 12-month messaging and real-time/adjusted explanation; corrected QC descriptions in qc.py and proved exact flag survival via unit test; eliminated generator drift in build_own_notes.py by importing code constants and recording default mode; suppressed aggregate curves in plots for sampled fetch results; reconciled float surface-time figures and renamed conservative temperature questions while logging definition under Knowledge Gaps.
 
 ---
 
@@ -138,6 +139,45 @@ If the drafted text accurately reflects the source document, edit `knowledge/not
 - Agents (including Codex, Antigravity, or other assistants) are **never** permitted to mark document notes as `verified: true`.
 - Only the human repository owner may verify a note after reviewing the original text using `python scripts/review_note.py <note_id>`.
 - `scripts/check_knowledge.py` and `tests/test_knowledge.py` enforce this invariant in CI: any document-derived note marked `verified: true` will immediately fail automated tests unless approved by the owner.
+
+---
+
+## Knowledge Gaps
+
+1. **Definition of Conservative Temperature**:
+   - **Status**: Knowledge gap.
+   - **Missing information**: The formal thermodynamic definition of Conservative Temperature $\Theta$ (proportional to potential enthalpy $h^0$) and its physical conservation properties.
+   - **Needed source**: TEOS-10 Manual / Primer (`teos10-manual`: *IOC, SCOR and IAPSO, 2010: The international thermodynamic equation of seawater - 2010: Calculation and use of thermodynamic properties* or McDougall & Barker 2011).
+   - **Interim mitigation**: In `knowledge/notes/argo_notes.yaml` (`conservative-temperature`), no definitions were invented from memory. Example questions were renamed to focus strictly on Conservative Temperature as a required input alongside Absolute Salinity in GSW function calculations.
+
+2. **Reconciliation of Float Surface-Time Figures**:
+   - **General fleetwide interval**: Sourced from `argo-how-floats-work` (Section "What does an Argo float do?"), which states that for the majority of the fleet, the surface interval is between 15 minutes and one hour.
+   - **Telemetry-specific interval**: Sourced from `wong2020` (Section "Satellite Communications", Pages 5–6), which records that modern bidirectional Iridium reduces time spent on the sea surface to under 20 minutes for each cycle, compared to 6 to 18 hours required for older one-way Argos-2 floats.
+   - **Reconciliation**: Sourced numbers are consistent; the < 20 minute Iridium duration represents the fast end of the 15-minute to one-hour surface window described in fleetwide general documentation. Both notes cross-reference each other under `limits`.
+
+---
+
+## Stage K8 Audit & Alignment Report
+
+1. **Delayed-Mode Message Alignment (Step 1)**:
+   - Aligned `src/siqva/fetcher.py` delayed-mode empty message with Argo User Manual (p. 16) and Wong et al. (2020, p. 8) to explicitly state examination takes "about 12 months" and explains that recent profiles are real-time or adjusted mode (not in research mode). Updated `knowledge/questions.jsonl` and added `test_empty_recent_research_mode_message`.
+2. **QC Description Correction & Flag Survival Test (Step 2)**:
+   - Corrected standard mode QC description in `src/siqva/qc.py` to: `"only QC flags 1 and 2 are retained; all other flags are excluded"`.
+   - Updated research mode to: `"Strict QC=1 only (good data); all other flags and real-time records excluded."`
+   - Updated expert mode to: `"No QC filtering applied; all QC flags (0-9) retained as measured."`
+   - Added `test_real_filter_code_path_flag_survival` in `tests/test_qc.py` proving exact flag survival using real argopy filter methods (`[1, 2]` for standard, `[1]` for research, and `[0..9]` for expert).
+3. **Generator Drift Elimination (Step 3)**:
+   - Updated `scripts/build_own_notes.py` to import all user-facing strings and thresholds from source code modules (`analyzer.py`, `qc.py`, `floatindex.py`, `chunking.py`, `planner.py`, `validator.py`, `spec.py`).
+   - Added `default_mode: research` and note on argopy's standard default.
+   - Regenerated `knowledge/notes/own_generated.yaml`. Added test in `tests/test_own_notes.py` asserting generated sample label equals the code constant.
+4. **Plots on Samples Aggregate Suppression (Step 4)**:
+   - Added `is_sample` parameter to `plot_regional_climatology_envelope` in `src/siqva/plots.py` and piped `fetch_res.is_sample` from `src/siqva/pipeline.py`.
+   - When `is_sample=True`, regional mean curve and ±1σ shaded envelope are strictly suppressed, rendering individual per-profile curves only with an explanatory annotation.
+   - Added unit test in `tests/test_plots.py` using a sampled `FetchResult`.
+5. **Notes Cleanup and Gap Logging (Step 5)**:
+   - Harmonized surface-time figures in `float-cycle-and-depth` and `float-telemetry-and-surface`.
+   - Renamed `conservative-temperature` example questions and logged definition under Knowledge Gaps.
+   - Verified with `python scripts/check_knowledge.py`.
 
 ---
 
