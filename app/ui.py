@@ -17,6 +17,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+_root_dir = str(Path(__file__).resolve().parent.parent)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
 _src_dir = str(Path(__file__).resolve().parent.parent / "src")
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
@@ -915,18 +919,25 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
         )
 
 
-def _render_pipeline_result(res: PipelineResult) -> None:
+def _render_pipeline_result(
+    res: PipelineResult,
+    key_prefix: str = "",
+    show_understood: bool = True,
+) -> None:
     """Render a PipelineResult with metrics, tabs, plots, stats, card, and script (Zero Emojis)."""
-    if res.parse_outcome is not None:
-        st.caption(
-            format_understood_as(
-                res.parse_outcome.understood,
-                res.parse_outcome.provenance,
+    prefix = key_prefix if key_prefix else (res.card.card_id if (res.card and res.card.card_id) else "live")
+
+    if show_understood:
+        if res.parse_outcome is not None:
+            st.caption(
+                format_understood_as(
+                    res.parse_outcome.understood,
+                    res.parse_outcome.provenance,
+                )
             )
-        )
-    elif res.spec is not None:
-        understood, provenance = build_understood_from_spec(res.spec)
-        st.caption(format_understood_as(understood, provenance))
+        elif res.spec is not None:
+            understood, provenance = build_understood_from_spec(res.spec)
+            st.caption(format_understood_as(understood, provenance))
 
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
@@ -943,7 +954,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             sug_cols = st.columns(min(len(clarification.suggestions), 3))
             for idx, sug in enumerate(clarification.suggestions):
                 with sug_cols[idx % len(sug_cols)]:
-                    if st.button(f"> {sug}", key=f"clarify_sug_{idx}", use_container_width=True):
+                    if st.button(f"> {sug}", key=f"clarify_sug_{prefix}_{idx}", use_container_width=True):
                         with st.spinner("Executing suggested spec..."):
                             st.session_state["pipeline_res"] = run(question=sug, force_refresh=False, max_request_size=_ui_max_request_size())
                             st.rerun()
@@ -966,7 +977,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                 cols = st.columns(min(len(opts), 3))
                 for idx, opt in enumerate(opts):
                     with cols[idx % len(cols)]:
-                        if st.button(f"> {opt.label}", key=f"plan_opt_{idx}", use_container_width=True, help=opt.description):
+                        if st.button(f"> {opt.label}", key=f"plan_opt_{prefix}_{idx}", use_container_width=True, help=opt.description):
                             with st.spinner(f"Executing: {opt.label}..."):
                                 new_res = run_spec(opt.spec, force_refresh=False, max_request_size=_ui_max_request_size())
                                 if st.session_state.get("active_page") == "query":
@@ -990,7 +1001,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                                 st.rerun()
 
         if res.spec:
-            with st.expander("Inspected Spec Parameters"):
+            with st.expander("Inspected Spec Parameters", key=f"exp_spec_inspect_{prefix}"):
                 st.json(res.spec.model_dump())
         return
 
@@ -1005,8 +1016,8 @@ def _render_pipeline_result(res: PipelineResult) -> None:
 
     # Spec Inspection and Override Drawer
     if res.spec is not None:
-        with st.expander("Spec Parameters & Overrides", expanded=False):
-            with st.form(key=f"override_spec_form_{res.card.card_id if res.card else 'live'}"):
+        with st.expander("Spec Parameters & Overrides", expanded=False, key=f"exp_spec_params_{prefix}"):
+            with st.form(key=f"override_spec_form_{prefix}"):
                 oc1, oc2, oc3, oc4 = st.columns(4)
                 with oc1:
                     intent_opts = [i.value for i in Intent]
@@ -1015,6 +1026,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                         "Intent",
                         options=intent_opts,
                         index=intent_idx,
+                        key=f"sel_intent_{prefix}",
                     )
                 with oc2:
                     mode_opts = [m.value for m in DataMode]
@@ -1023,23 +1035,24 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                         "Data Mode",
                         options=mode_opts,
                         index=mode_idx,
+                        key=f"sel_mode_{prefix}",
                     )
                 with oc3:
                     cur_min_z = float(res.spec.depth_range.min_depth) if res.spec.depth_range else 0.0
-                    new_min_z = st.number_input("Min Depth (dbar)", value=cur_min_z, min_value=0.0, max_value=2000.0, step=10.0)
+                    new_min_z = st.number_input("Min Depth (dbar)", value=cur_min_z, min_value=0.0, max_value=2000.0, step=10.0, key=f"num_min_z_{prefix}")
                 with oc4:
                     cur_max_z = float(res.spec.depth_range.max_depth) if res.spec.depth_range else 1000.0
-                    new_max_z = st.number_input("Max Depth (dbar)", value=cur_max_z, min_value=10.0, max_value=6000.0, step=50.0)
+                    new_max_z = st.number_input("Max Depth (dbar)", value=cur_max_z, min_value=10.0, max_value=6000.0, step=50.0, key=f"num_max_z_{prefix}")
 
                 od1, od2 = st.columns(2)
                 with od1:
                     cur_start = res.spec.date_range.start
-                    new_start_dt = st.date_input("Start Date", value=cur_start, min_value=date(1999, 1, 1), max_value=date.today())
+                    new_start_dt = st.date_input("Start Date", value=cur_start, min_value=date(1999, 1, 1), max_value=date.today(), key=f"date_start_{prefix}")
                 with od2:
                     cur_end = res.spec.date_range.end
-                    new_end_dt = st.date_input("End Date", value=cur_end, min_value=date(1999, 1, 1), max_value=date.today())
+                    new_end_dt = st.date_input("End Date", value=cur_end, min_value=date(1999, 1, 1), max_value=date.today(), key=f"date_end_{prefix}")
 
-                force_ref = st.checkbox("Bypass Cache (Force Live Fetch)", value=False)
+                force_ref = st.checkbox("Bypass Cache (Force Live Fetch)", value=False, key=f"chk_force_ref_{prefix}")
                 if st.form_submit_button("Re-execute with Updated Spec", type="primary"):
                     if new_start_dt > new_end_dt:
                         new_start_dt, new_end_dt = new_end_dt, new_start_dt
@@ -1083,7 +1096,8 @@ def _render_pipeline_result(res: PipelineResult) -> None:
 
     # Tabbed visualizers
     tab_plots, tab_stats, tab_card, tab_script, tab_export = st.tabs(
-        ["Visualizations", "Summary & Statistics", "Query Card", "Python Script", "Export Artifacts"]
+        ["Visualizations", "Summary & Statistics", "Query Card", "Python Script", "Export Artifacts"],
+        key=f"tabs_{prefix}",
     )
 
     with tab_plots:
@@ -1100,13 +1114,13 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         if res.fetch_result and res.fetch_result.is_sample:
             # S7 SAMPLE display: (1) Overview map, then (2) sample plots with required label, then (3) actions
             if has_map:
-                st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None, key=f"plot_sample_map_{prefix}")
 
             n_avail = getattr(res.fetch_result, "n_available", None) or res.card.profile_count
             st.info(SAMPLE_LABEL_TEMPLATE.format(n_selected=res.card.profile_count, n_available=f"{n_avail:,}"))
 
             for key in all_analytical:
-                st.plotly_chart(_style_fig(res.figures[key], is_map=False), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res.figures[key], is_map=False), use_container_width=True, theme=None, key=f"plot_sample_{key}_{prefix}")
 
             # Interactive Action Buttons
             st.markdown("**Sample Actions & Alternatives**")
@@ -1199,13 +1213,12 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                     else:
                         st.session_state["active_plot_res"] = new_res
 
-                act_cid = res.card.card_id if res.card else "live"
                 act_cols = st.columns(min(len(action_items), 4))
                 for a_idx, act in enumerate(action_items):
                     with act_cols[a_idx % len(act_cols)]:
                         st.button(
                             act["label"],
-                            key=f"sample_act_{act_cid}_{a_idx}",
+                            key=f"sample_act_{prefix}_{a_idx}",
                             use_container_width=True,
                             help=act.get("help"),
                             on_click=_on_sample_action_click,
@@ -1216,7 +1229,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             primary_key = all_analytical[0]
             c_map, c_plot = st.columns(2)
             with c_map:
-                map_chart_key = f"map_chart_{res.card.card_id if res.card else 'live'}"
+                map_chart_key = f"map_chart_{prefix}"
                 map_event = st.plotly_chart(
                     _style_fig(res.figures["map"], is_map=True),
                     use_container_width=True,
@@ -1239,25 +1252,25 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             with c_plot:
                 if selected_wmo:
                     st.caption(f"[CROSS-FILTER ACTIVE: ISOLATED FLOAT WMO {selected_wmo}]")
-                st.plotly_chart(_style_fig(res.figures[primary_key], is_map=False), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res.figures[primary_key], is_map=False), use_container_width=True, theme=None, key=f"plot_primary_{primary_key}_{prefix}")
 
             for extra_key in all_analytical[1:]:
-                st.plotly_chart(_style_fig(res.figures[extra_key], is_map=False), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res.figures[extra_key], is_map=False), use_container_width=True, theme=None, key=f"plot_extra_{extra_key}_{prefix}")
 
         elif has_map and not all_analytical:
-            st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
+            st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None, key=f"plot_map_only_{prefix}")
 
         elif not has_map and all_analytical:
             if len(all_analytical) == 1:
-                st.plotly_chart(_style_fig(res.figures[all_analytical[0]], is_map=False), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res.figures[all_analytical[0]], is_map=False), use_container_width=True, theme=None, key=f"plot_single_{all_analytical[0]}_{prefix}")
             else:
                 for i in range(0, len(all_analytical), 2):
                     cols = st.columns(2)
                     with cols[0]:
-                        st.plotly_chart(_style_fig(res.figures[all_analytical[i]], is_map=False), use_container_width=True, theme=None)
+                        st.plotly_chart(_style_fig(res.figures[all_analytical[i]], is_map=False), use_container_width=True, theme=None, key=f"plot_grid_{all_analytical[i]}_{prefix}")
                     if i + 1 < len(all_analytical):
                         with cols[1]:
-                            st.plotly_chart(_style_fig(res.figures[all_analytical[i + 1]], is_map=False), use_container_width=True, theme=None)
+                            st.plotly_chart(_style_fig(res.figures[all_analytical[i + 1]], is_map=False), use_container_width=True, theme=None, key=f"plot_grid_{all_analytical[i + 1]}_{prefix}")
         else:
             st.info("[NO FIGURES GENERATED FOR THIS SPEC]")
 
@@ -1290,7 +1303,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                             row["SLD (m)"] = f"{s.sld_m:.1f}" if s.sld_m is not None else "N/A"
                             row["SOFAR Axis (m)"] = f"{s.sofar_axis_m:.1f}" if s.sofar_axis_m is not None else "N/A"
                         phys_data.append(row)
-                    st.dataframe(pd.DataFrame(phys_data), use_container_width=True)
+                    st.dataframe(pd.DataFrame(phys_data), use_container_width=True, key=f"df_phys_{prefix}")
                 else:
                     reason = res.analysis.physics_skipped_reason or "All profiles were skipped or lacked sufficient upper-ocean observations."
                     st.info(f"Physics not computed: {reason}")
@@ -1308,7 +1321,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                     if b.psal_mean is not None:
                         row["PSAL Mean (PSU)"] = f"{b.psal_mean:.2f}"
                     bin_data.append(row)
-                st.dataframe(pd.DataFrame(bin_data), use_container_width=True)
+                st.dataframe(pd.DataFrame(bin_data), use_container_width=True, key=f"df_bins_{prefix}")
 
     with tab_card:
         card: QueryCard = res.card
@@ -1320,7 +1333,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         st.info(f"**QC Filter Applied**: {card.qc_filter_description}")
 
         st.subheader("Reproducibility Check")
-        if st.button("Re-run Fetch & Diff", key=f"rerun_btn_{card.card_id}"):
+        if st.button("Re-run Fetch & Diff", key=f"rerun_btn_{prefix}"):
             with st.spinner("Re-fetching remote data and comparing hashes..."):
                 diff: DiffSummary = rerun(card)
                 if diff.is_same and not diff.version_changed:
@@ -1342,6 +1355,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             data=res.script,
             file_name=f"siqva_{card.card_id}.py",
             mime="text/x-python",
+            key=f"dl_script_{prefix}",
         )
 
     with tab_export:
@@ -1355,6 +1369,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                 file_name=f"siqva_card_{res.card.card_id}.json",
                 mime="application/json",
                 use_container_width=True,
+                key=f"dl_card_{prefix}",
             )
         with ex2:
             if res.analysis and res.analysis.physics_summaries:
@@ -1365,6 +1380,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                     file_name=f"siqva_physics_{res.card.card_id}.csv",
                     mime="text/csv",
                     use_container_width=True,
+                    key=f"dl_phys_{prefix}",
                 )
             else:
                 st.caption("No TEOS-10 physics summary to export")
@@ -1378,6 +1394,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                     file_name=f"siqva_{first_fig_key}_{res.card.card_id}.html",
                     mime="text/html",
                     use_container_width=True,
+                    key=f"dl_plot_{prefix}",
                 )
             else:
                 st.caption("No active figure to export")
@@ -1474,7 +1491,10 @@ with st.sidebar:
         "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 6px 2px;'>QUICK TEMPLATES</div>",
         unsafe_allow_html=True,
     )
-    from app.chat_ui import handle_user_turn
+    try:
+        from app.chat_ui import handle_user_turn
+    except ImportError:
+        from chat_ui import handle_user_turn
     s_templates = [
         ("thermocline and barrier layer in Bay of Bengal April 2022", "MLD: Bay of Bengal"),
         ("cyclone heat potential tchp in Arabian Sea May 2022", "TCHP: Arabian Sea"),
@@ -1662,7 +1682,10 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
 # PAGE 1: PERSISTENT CHAT QUERY INTERFACE
 # ---------------------------------------------------------------------------
 if st.session_state["active_page"] == "query":
-    from app.chat_ui import render_chat_page
+    try:
+        from app.chat_ui import render_chat_page
+    except ImportError:
+        from chat_ui import render_chat_page
 
     render_chat_page(_render_pipeline_result, _render_top_bar)
 
@@ -1719,10 +1742,10 @@ elif st.session_state["active_page"] == "compare":
         col_a, col_b = st.columns(2)
         with col_a:
             st.markdown("**Baseline Run (A)**")
-            idx_a = st.selectbox("Select Run A", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=0)
+            idx_a = st.selectbox("Select Run A", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=0, key="compare_select_run_a")
         with col_b:
             st.markdown("**Comparison Run (B)**")
-            idx_b = st.selectbox("Select Run B", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=min(1, len(all_cards) - 1))
+            idx_b = st.selectbox("Select Run B", options=range(len(all_cards)), format_func=lambda i: card_labels[i], index=min(1, len(all_cards) - 1), key="compare_select_run_b")
 
         card_a = all_cards[idx_a]
         card_b = all_cards[idx_b]
@@ -1762,7 +1785,7 @@ elif st.session_state["active_page"] == "compare":
             st.markdown(f"**Run A: {html.escape(card_a.question or card_a.card_id[:8])}**")
             if res_a and res_a.figures:
                 fig_key_a = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_a.figures), next(iter(res_a.figures)))
-                st.plotly_chart(_style_fig(res_a.figures[fig_key_a]), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res_a.figures[fig_key_a]), use_container_width=True, theme=None, key=f"compare_chart_a_{card_a.card_id}")
             else:
                 st.info("No figure available for Run A")
 
@@ -1770,6 +1793,6 @@ elif st.session_state["active_page"] == "compare":
             st.markdown(f"**Run B: {html.escape(card_b.question or card_b.card_id[:8])}**")
             if res_b and res_b.figures:
                 fig_key_b = next((k for k in ["profile", "thermocline", "tchp", "acoustic", "ts", "map"] if k in res_b.figures), next(iter(res_b.figures)))
-                st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None)
+                st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None, key=f"compare_chart_b_{card_b.card_id}")
             else:
                 st.info("No figure available for Run B")
