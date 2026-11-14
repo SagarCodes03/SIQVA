@@ -17,6 +17,10 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+_root_dir = str(Path(__file__).resolve().parent.parent)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
 _src_dir = str(Path(__file__).resolve().parent.parent / "src")
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
@@ -1474,7 +1478,10 @@ with st.sidebar:
         "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 6px 2px;'>QUICK TEMPLATES</div>",
         unsafe_allow_html=True,
     )
-    from app.chat_ui import handle_user_turn
+    try:
+        from app.chat_ui import handle_user_turn
+    except ImportError:
+        from chat_ui import handle_user_turn
     s_templates = [
         ("thermocline and barrier layer in Bay of Bengal April 2022", "MLD: Bay of Bengal"),
         ("cyclone heat potential tchp in Arabian Sea May 2022", "TCHP: Arabian Sea"),
@@ -1662,7 +1669,10 @@ def open_graph_parameter_modal(gt_def: dict) -> None:
 # PAGE 1: PERSISTENT CHAT QUERY INTERFACE
 # ---------------------------------------------------------------------------
 if st.session_state["active_page"] == "query":
-    from app.chat_ui import render_chat_page
+    try:
+        from app.chat_ui import render_chat_page
+    except ImportError:
+        from chat_ui import render_chat_page
 
     render_chat_page(_render_pipeline_result, _render_top_bar)
 

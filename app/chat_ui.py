@@ -14,9 +14,14 @@ from __future__ import annotations
 import html
 import json
 import logging
+import sys
 from pathlib import Path
 from typing import Any, Callable, Optional
 import uuid
+
+_src_dir = str(Path(__file__).resolve().parent.parent / "src")
+if _src_dir not in sys.path:
+    sys.path.insert(0, _src_dir)
 
 import streamlit as st
 
