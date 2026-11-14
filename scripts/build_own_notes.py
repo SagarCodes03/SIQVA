@@ -25,12 +25,15 @@ if _src_dir not in sys.path:
 
 import yaml
 
+from siqva.analyzer import FULL_LABEL_TEMPLATE, SAMPLE_LABEL_TEMPLATE
 from siqva.capabilities import CAPABILITY_PROFILES
+from siqva.chunking import DEFAULT_MAX_CHUNKS, DEFAULT_MAX_TOTAL_ROWS
 from siqva.floatindex import SAMPLE_DEFAULT, SAMPLE_MAX, SAMPLE_STEPS
 from siqva.gazetteer import KNOWN_REGIONS, REGION_ALIASES
-from siqva.planner import PlanKind
+from siqva.planner import DEFAULT_MAX_FULL_ROWS, PlanKind
 from siqva.qc import get_mode_description, get_qc_filter_description
-from siqva.spec import DataMode, Intent
+from siqva.spec import DataMode, Intent, QuerySpec
+from siqva.validator import DEFAULT_MAX_REQUEST_SIZE, MAX_DEPTH_DBAR
 
 OUTPUT_PATH = Path("knowledge/notes/own_generated.yaml")
 
@@ -78,16 +81,46 @@ def build_own_notes_data() -> dict:
             "mode_description": get_mode_description(mode),
             "qc_filter_description": get_qc_filter_description(mode),
         })
+    default_mode_val = QuerySpec.model_fields["mode"].default.value
 
-    # 4. Plan Decisions
+    # 4. Thresholds and Environment Variables
+    thresholds_info = {
+        "max_request_size": {
+            "default": DEFAULT_MAX_REQUEST_SIZE,
+            "units": "cost units (normalized deg-deg-days x depth/500)",
+            "source_code_path": "src/siqva/validator.py",
+        },
+        "max_core_depth_dbar": {
+            "default": MAX_DEPTH_DBAR,
+            "units": "dbar",
+            "source_code_path": "src/siqva/validator.py",
+        },
+        "siqva_max_full_rows": {
+            "env_var": "SIQVA_MAX_FULL_ROWS",
+            "default": DEFAULT_MAX_FULL_ROWS,
+            "source_code_path": "src/siqva/planner.py",
+        },
+        "siqva_max_chunks": {
+            "env_var": "SIQVA_MAX_CHUNKS",
+            "default": DEFAULT_MAX_CHUNKS,
+            "source_code_path": "src/siqva/chunking.py",
+        },
+        "siqva_max_total_rows": {
+            "env_var": "SIQVA_MAX_TOTAL_ROWS",
+            "default": DEFAULT_MAX_TOTAL_ROWS,
+            "source_code_path": "src/siqva/chunking.py",
+        },
+    }
+
+    # 5. Plan Decisions
     plans_list = [
         {
             "plan": PlanKind.FULL.value,
-            "description": "Fetch entire requested dataset directly when estimated rows fit within the single-request ceiling.",
+            "description": f"Fetch entire requested dataset directly when estimated rows fit within the single-request ceiling (SIQVA_MAX_FULL_ROWS={DEFAULT_MAX_FULL_ROWS:,}).",
         },
         {
             "plan": PlanKind.CHUNKED.value,
-            "description": "Partition multi-month request into individual calendar months up to SIQVA_MAX_CHUNKS with independent Parquet caching.",
+            "description": f"Partition multi-month request into individual calendar months up to SIQVA_MAX_CHUNKS={DEFAULT_MAX_CHUNKS} with independent Parquet caching (cumulative ceiling SIQVA_MAX_TOTAL_ROWS={DEFAULT_MAX_TOTAL_ROWS:,}).",
         },
         {
             "plan": PlanKind.SAMPLE.value,
@@ -99,16 +132,17 @@ def build_own_notes_data() -> dict:
         },
     ]
 
-    # 5. Sampling Parameters and Label Texts
+    # 6. Sampling Parameters and Label Texts
     sampling_info = {
         "sample_default": SAMPLE_DEFAULT,
         "sample_steps": list(SAMPLE_STEPS),
         "sample_max": SAMPLE_MAX,
-        "sample_label_template": "Sample: {k} of {N} profiles in this region and period, selected by space-time grid (max {sample_max}).",
+        "sample_label_template": SAMPLE_LABEL_TEMPLATE,
+        "full_label_template": FULL_LABEL_TEMPLATE,
         "sample_notice_policy": "Regional aggregate statistics and physics are strictly suppressed on sample selections; only individual profile tracks and curves are rendered.",
     }
 
-    # 6. Supported Intents
+    # 7. Supported Intents
     intents_list = [
         {"intent": i.value, "enum_name": i.name}
         for i in Intent
@@ -117,7 +151,7 @@ def build_own_notes_data() -> dict:
     return {
         "metadata": {
             "origin": "generated",
-            "source_code_path": "src/siqva/{gazetteer.py, capabilities.py, qc.py, planner.py, floatindex.py, spec.py}",
+            "source_code_path": "src/siqva/{gazetteer.py, capabilities.py, qc.py, planner.py, floatindex.py, spec.py, validator.py, analyzer.py, chunking.py}",
             "generator_script": "scripts/build_own_notes.py",
         },
         "supported_regions": {
@@ -134,13 +168,20 @@ def build_own_notes_data() -> dict:
         },
         "data_modes": {
             "origin": "generated",
-            "source_code_path": "src/siqva/qc.py",
+            "source_code_path": "src/siqva/qc.py, src/siqva/spec.py",
+            "default_mode": default_mode_val,
+            "argopy_default_mode_note": "By default, all argopy data fetchers are set to work with a standard user mode (source: argopy user modes documentation).",
             "count": len(modes_list),
             "entries": modes_list,
         },
+        "thresholds": {
+            "origin": "generated",
+            "source_code_path": "src/siqva/validator.py, src/siqva/planner.py, src/siqva/chunking.py",
+            "config": thresholds_info,
+        },
         "plan_decisions": {
             "origin": "generated",
-            "source_code_path": "src/siqva/planner.py",
+            "source_code_path": "src/siqva/planner.py, src/siqva/chunking.py",
             "count": len(plans_list),
             "entries": plans_list,
         },

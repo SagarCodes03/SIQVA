@@ -23,6 +23,12 @@ STANDARD_DEPTH_BINS = [
     (500.0, 2000.0, "500–2000 dbar"),
 ]
 
+SAMPLE_LABEL_TEMPLATE: str = (
+    "Sample: {n_selected} of {n_available} profiles in this region and period, "
+    "selected evenly across space and time. Not representative of the whole region."
+)
+FULL_LABEL_TEMPLATE: str = "Full: all {n_profiles} profiles"
+
 
 class DepthBinStats(BaseModel):
     """Statistical breakdown within a specific vertical depth layer."""
@@ -141,10 +147,7 @@ def summary_text(analysis: AnalysisResult) -> str:
     if analysis.is_sample:
         n_sel = analysis.n_selected if analysis.n_selected is not None else analysis.profile_count
         n_avail = analysis.n_available if analysis.n_available is not None else n_sel
-        lines.append(
-            f"**Sample**: {n_sel} of {n_avail} profiles in this region and period, "
-            "selected evenly across space and time. Not representative of the whole region."
-        )
+        lines.append(f"**Sample**: {SAMPLE_LABEL_TEMPLATE.format(n_selected=n_sel, n_available=n_avail)[8:]}")
 
     lines.extend([
         f"**Mode**: `{analysis.mode.value}` ({get_mode_description(analysis.mode)})",

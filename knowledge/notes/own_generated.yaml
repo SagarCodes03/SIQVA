@@ -5,7 +5,7 @@
 metadata:
   origin: generated
   source_code_path: src/siqva/{gazetteer.py, capabilities.py, qc.py, planner.py, floatindex.py,
-    spec.py}
+    spec.py, validator.py, analyzer.py, chunking.py}
   generator_script: scripts/build_own_notes.py
 supported_regions:
   origin: generated
@@ -226,7 +226,10 @@ capabilities:
     description: Lagrangian surface drift speed tracking requiring all float cycles.
 data_modes:
   origin: generated
-  source_code_path: src/siqva/qc.py
+  source_code_path: src/siqva/qc.py, src/siqva/spec.py
+  default_mode: research
+  argopy_default_mode_note: 'By default, all argopy data fetchers are set to work
+    with a standard user mode (source: argopy user modes documentation).'
   count: 3
   entries:
   - mode: research
@@ -241,17 +244,42 @@ data_modes:
     mode_description: raw unadjusted data, all QC flags 0–9 included without filtering
     qc_filter_description: No QC filtering applied; all QC flags (0-9) retained as
       measured.
+thresholds:
+  origin: generated
+  source_code_path: src/siqva/validator.py, src/siqva/planner.py, src/siqva/chunking.py
+  config:
+    max_request_size:
+      default: 15000.0
+      units: cost units (normalized deg-deg-days x depth/500)
+      source_code_path: src/siqva/validator.py
+    max_core_depth_dbar:
+      default: 2000.0
+      units: dbar
+      source_code_path: src/siqva/validator.py
+    siqva_max_full_rows:
+      env_var: SIQVA_MAX_FULL_ROWS
+      default: 60000
+      source_code_path: src/siqva/planner.py
+    siqva_max_chunks:
+      env_var: SIQVA_MAX_CHUNKS
+      default: 24
+      source_code_path: src/siqva/chunking.py
+    siqva_max_total_rows:
+      env_var: SIQVA_MAX_TOTAL_ROWS
+      default: 3000000
+      source_code_path: src/siqva/chunking.py
 plan_decisions:
   origin: generated
-  source_code_path: src/siqva/planner.py
+  source_code_path: src/siqva/planner.py, src/siqva/chunking.py
   count: 4
   entries:
   - plan: full
     description: Fetch entire requested dataset directly when estimated rows fit within
-      the single-request ceiling.
+      the single-request ceiling (SIQVA_MAX_FULL_ROWS=60,000).
   - plan: chunked
     description: Partition multi-month request into individual calendar months up
-      to SIQVA_MAX_CHUNKS with independent Parquet caching.
+      to SIQVA_MAX_CHUNKS=24 with independent Parquet caching (cumulative ceiling
+      SIQVA_MAX_TOTAL_ROWS=3,000,000).
   - plan: sample
     description: Select a representative, deterministic space-time stratified sample
       of profiles for SAMPLE_OK visualization modules.
@@ -268,8 +296,10 @@ sampling:
     - 24
     - 48
     sample_max: 50
-    sample_label_template: 'Sample: {k} of {N} profiles in this region and period,
-      selected by space-time grid (max {sample_max}).'
+    sample_label_template: 'Sample: {n_selected} of {n_available} profiles in this
+      region and period, selected evenly across space and time. Not representative
+      of the whole region.'
+    full_label_template: 'Full: all {n_profiles} profiles'
     sample_notice_policy: Regional aggregate statistics and physics are strictly suppressed
       on sample selections; only individual profile tracks and curves are rendered.
 supported_intents:
