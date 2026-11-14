@@ -236,3 +236,4 @@ def write_own_sentences(output_path: Path = OUTPUT_PATH) -> None:
 
 if __name__ == "__main__":
     write_own_sentences()
+

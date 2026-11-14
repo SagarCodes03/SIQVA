@@ -13,6 +13,7 @@ Current status of the SIQVA trusted knowledge base preparation.
 - [x] **K6. Status and finish**: Summary report, checklist for owner verification, test suite run (472 passed, 4 skipped), pushed to `task-knowledge`.
 - [x] **K7. Evidence audit and cleanup**: Comprehensive sentence-by-sentence evidence audit in `knowledge/notes/evidence/<id>.md` for all 21 notes (82 sentences, 100% supported by phrases < 15 words, 0 `NO SUPPORT FOUND`). Removed unsupported sentences, filled metadata (`source_version`, `retrieved_on`, real section headings), merged `qc-flag-1-definition` and `qc-flag-4-definition` into `qc-flag-scale` with aliases, and validated via `scripts/check_knowledge.py` and `tests/test_knowledge.py`.
 - [x] **K8. Fix product text and generator drift**: Aligned delayed-mode 12-month messaging and real-time/adjusted explanation; corrected QC descriptions in qc.py and proved exact flag survival via unit test; eliminated generator drift in build_own_notes.py by importing code constants and recording default mode; suppressed aggregate curves in plots for sampled fetch results; reconciled float surface-time figures and renamed conservative temperature questions while logging definition under Knowledge Gaps.
+- [x] **K9. Fill the knowledge gaps**: Created `knowledge/notes/own_sentences.yaml` generated from code via `scripts/build_own_sentences.py` with empty developer fields for the owner; added 5 source-derived notes (`argo-vocabulary-float-profile-cycle-wmo`, `realtime-qc-tests`, `argo-measurement-accuracy`, `argo-data-access-gdac`, `bgc-oxygen-sensors-coverage`) with 100% supported evidence files; verified and tested non-aggregate rendering for sampled data across profile, trend, T-S, and isopycnal plots; updated `knowledge/scope.md` with maritime safety, event causality, BGC biology limits, system prompt protection, and English policy; added 20 dev benchmark questions (`q-dev-41` to `q-dev-60`); logged unretrieved science gaps (MLD, CT potential enthalpy, potential density).
 
 ---
 
@@ -148,12 +149,80 @@ If the drafted text accurately reflects the source document, edit `knowledge/not
    - **Status**: Knowledge gap.
    - **Missing information**: The formal thermodynamic definition of Conservative Temperature $\Theta$ (proportional to potential enthalpy $h^0$) and its physical conservation properties.
    - **Needed source**: TEOS-10 Manual / Primer (`teos10-manual`: *IOC, SCOR and IAPSO, 2010: The international thermodynamic equation of seawater - 2010: Calculation and use of thermodynamic properties* or McDougall & Barker 2011).
-   - **Interim mitigation**: In `knowledge/notes/argo_notes.yaml` (`conservative-temperature`), no definitions were invented from memory. Example questions were renamed to focus strictly on Conservative Temperature as a required input alongside Absolute Salinity in GSW function calculations.
+   - **Interim mitigation**: In `knowledge/notes/argo_notes.yaml` (`conservative-temperature`), no definitions were invented from memory. Example questions focus strictly on Conservative Temperature as a required input alongside Absolute Salinity in GSW function calculations.
 
-2. **Reconciliation of Float Surface-Time Figures**:
+2. **Mixed Layer Depth (MLD) Criterion**:
+   - **Status**: Knowledge gap.
+   - **Missing information**: The formal density/temperature threshold criteria for mixed layer depth defined by de Boyer Montégut et al. (2004) ($\Delta\sigma_\theta = 0.03\text{ kg/m}^3$ or $\Delta T = 0.2^\circ\text{C}$).
+   - **Needed source**: `mld-deboyer2004` (*de Boyer Montégut et al., 2004, Mixed layer depth over the global ocean: An examination of profile data and a profile-based climatology*, J. Geophys. Res.).
+   - **Interim mitigation**: No note was created without the extracted source text; question `q-dev-26` is classified as `not_in_notes`.
+
+3. **Potential Density ($\sigma_\theta$) Definition**:
+   - **Status**: Knowledge gap.
+   - **Missing information**: Thermodynamic reference pressure definition for potential density anomaly relative to 0 dbar ($\sigma_0 = \rho(S_A, \Theta, 0) - 1000\text{ kg/m}^3$).
+   - **Needed source**: `teos10-manual` or GSW manual.
+   - **Interim mitigation**: Background isopycnals are computed in code via `gsw.sigma0` but no theoretical note is drafted without local text citations.
+
+4. **Reconciliation of Float Surface-Time Figures**:
    - **General fleetwide interval**: Sourced from `argo-how-floats-work` (Section "What does an Argo float do?"), which states that for the majority of the fleet, the surface interval is between 15 minutes and one hour.
    - **Telemetry-specific interval**: Sourced from `wong2020` (Section "Satellite Communications", Pages 5–6), which records that modern bidirectional Iridium reduces time spent on the sea surface to under 20 minutes for each cycle, compared to 6 to 18 hours required for older one-way Argos-2 floats.
    - **Reconciliation**: Sourced numbers are consistent; the < 20 minute Iridium duration represents the fast end of the 15-minute to one-hour surface window described in fleetwide general documentation. Both notes cross-reference each other under `limits`.
+
+---
+
+## Stage K9 Report: Knowledge Gaps, Own Sentences, and Scope Expansion
+
+1. **SIQVA Own Notes in Sentences (`knowledge/notes/own_sentences.yaml`)**:
+   - Created generator `scripts/build_own_sentences.py` importing all user-facing strings and numerical limits directly from production code (`analyzer.py`, `qc.py`, `floatindex.py`, `chunking.py`, `planner.py`, `validator.py`, `spec.py`).
+   - Drafted 9 narrative notes (`origin: code`):
+     - `siqva-sample-explanation`: Explains why sampling is triggered and how to fetch full data.
+     - `siqva-understood-as-depth`: Explains provenance tags (`[rules]`, `[llm]`, `[default]`) and the 0–2000 dbar core Argo default depth.
+     - `siqva-qc-data-modes`: Explains QC flag filtering across research (QC 1), standard (QC 1 & 2), and expert (all QC 0–9).
+     - `siqva-delayed-mode-timing`: Explains the ~12-month DMQC lag and real-time/adjusted exclusion.
+     - `siqva-data-sources-caching`: Details ERDDAP/GDAC retrieval via argopy, Parquet cache hashing, and float index metadata freshness.
+     - `siqva-reproduce-query-card`: Details query card provenance fields and runnable standalone Python script generation.
+     - `siqva-llm-data-privacy`: Guarantees LLMs never receive ocean data values, profiles, or statistics.
+     - `siqva-known-limits`: Documents 180° antimeridian limitation, non-area-weighted arithmetic averaging, and uneven float spatial sampling.
+     - `siqva-plan-decisions-refusal`: Summarizes refusal categories and clarification conditions.
+   - Preserved developer metadata fields (`developer_name`, `developer_affiliation`, `developer_email`) as empty strings for the repository owner to fill.
+   - Updated `scripts/check_knowledge.py` and added 3 unit tests in `tests/test_own_notes.py`.
+
+2. **Source-Derived Notes from Extracted Literature**:
+   - Added 5 source-derived notes to `knowledge/notes/argo_notes.yaml` citing exact page/section numbers:
+     - `argo-vocabulary-float-profile-cycle-wmo` (from `argo-user-manual`, p. 23 & p. 18).
+     - `realtime-qc-tests` (from `argo-qc-ctd`, pp. 11–17, Section 2.1.2).
+     - `argo-measurement-accuracy` (from `argo-faq`, Section "*  How accurate is the Argo data?").
+     - `argo-data-access-gdac` (from `argo-data-gdacs`, Section "GDAC data", "HTTP and FTP Access", "via DOI").
+     - `bgc-oxygen-sensors-coverage` (from `roemmich2019`, pp. 11–12, Section "BGC-Argo").
+   - Authored 5 evidence files in `knowledge/notes/evidence/<id>.md` with 100% verified supporting phrases (< 15 words) matching extracted text.
+   - Kept `verified: false` on all new document-derived notes.
+
+3. **Sampled-Data Plots Verification & Testing**:
+   - Audited `src/siqva/plots.py` and `src/siqva/pipeline.py`:
+     - `trend`: `pipeline.py:335` routes directly to `plot_depth_profile` (`plots.py:119-229`). No statistical regression or trendline is drawn.
+     - `profile`: `plot_depth_profile` (`plots.py:119-229`) renders individual lines per profile. No regional mean or aggregate curve is computed.
+     - `T-S`: `plot_ts_diagram` (`plots.py:230-337`) renders individual observation scatter points. No regional aggregate or trendline is drawn.
+     - `isopycnal`: `plot_ts_with_isopycnals` (`plots.py:1297-1474`) renders background physics contours (`sigma0_mesh` on regular grid) and observation scatter points. No regional mean curve is drawn across profiles.
+     - `climatology`: `plot_regional_climatology_envelope` (`plots.py:1479-1590`) was previously patched to suppress regional mean and ±1σ envelope when `is_sample=True`.
+   - Added unit test `test_sampled_fetch_result_does_not_draw_aggregates_or_trends` in `tests/test_plots.py` verifying that passing a sampled `FetchResult` to profile, T-S, and isopycnal plots produces no mean, trendline, or aggregate band traces.
+
+4. **Scope Additions (`knowledge/scope.md`)**:
+   - Added Refusal Category 7: Operational Safety, Navigation, and Maritime Decisions (navigation, search and rescue, commercial fishing).
+   - Added Refusal Category 8: Marine Biology and Fisheries Beyond Core BGC (fish stocks, taxonomy, species ecology).
+   - Added Refusal Category 9: System Prompts, Architecture Internals, and Jailbreak Attempts.
+   - Formulated explicit policy separating general oceanographic concepts (answered from notes) from causal event attribution questions (refused).
+   - Clarified Category 3 to explicitly name Global Drifter Program (GDP) surface drifter datasets (distinguished from Argo subsurface float trajectory drift).
+   - Added conversational greetings/courtesy acknowledgment policy.
+   - Added English-only language policy.
+   - Reworded "listed in our knowledge manifest" to "app's Sources page".
+
+5. **Benchmark Question Expansion (`knowledge/questions.jsonl`)**:
+   - Added 20 dev benchmark questions (`q-dev-41` through `q-dev-60`) covering vocabulary, real-time QC tests, measurement accuracy, GDAC data access, BGC oxygen sensors, sample explanations, depth defaults, QC modes, DMQC timing, data provenance, query cards, LLM privacy, known limits, planner refusals, shipping navigation safety, fisheries, storm causality, prompt injection, and French language guidance.
+   - Verified that all `expected_note_ids` resolve to valid registered notes.
+
+6. **Automated Verification**:
+   - `python scripts/check_knowledge.py`: PASSED (19 sources, 44 registered concepts/aliases, 26 verified evidence files, 60 benchmark questions).
+   - Full test suite: PASSED (all tests passing with 0 failures).
 
 ---
 
