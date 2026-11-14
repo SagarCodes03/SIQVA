@@ -191,7 +191,11 @@ def render_compact_summary(
         st.markdown("<div style='margin-top: 8px;'></div>", unsafe_allow_html=True)
         if card is not None:
             res = restore_card_result(card)
-            render_pipeline_result_fn(res)
+            render_pipeline_result_fn(
+                res,
+                key_prefix=f"{msg.id}_{card.card_id}",
+                show_understood=False,
+            )
         else:
             st.info("Cached card data is unavailable on disk.")
 
@@ -294,7 +298,7 @@ def render_chat_page(
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
                             with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"opt_btn_{msg.id}_{idx}", use_container_width=True):
+                                if st.button(f"> {opt.label}", key=f"clarify_opt_btn_{msg.id}_{idx}", use_container_width=True):
                                     handle_user_turn(opt.query_text or opt.label)
                                     st.rerun()
 
@@ -305,7 +309,7 @@ def render_chat_page(
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
                             with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"opt_btn_{msg.id}_{idx}", use_container_width=True):
+                                if st.button(f"> {opt.label}", key=f"plan_opt_btn_{msg.id}_{idx}", use_container_width=True):
                                     handle_user_turn(opt.query_text or opt.label)
                                     st.rerun()
 
@@ -315,12 +319,21 @@ def render_chat_page(
                         # Auto-render full plots and tabs for newest result
                         active_res = st.session_state.get("pipeline_res")
                         if active_res is not None:
-                            render_pipeline_result_fn(active_res)
+                            cid = active_res.card.card_id if active_res.card else "res"
+                            render_pipeline_result_fn(
+                                active_res,
+                                key_prefix=f"{msg.id}_{cid}",
+                                show_understood=False,
+                            )
                         elif msg.card_id:
                             card = load_card(msg.card_id, session_id=session_id)
                             if card:
                                 res = restore_card_result(card)
-                                render_pipeline_result_fn(res)
+                                render_pipeline_result_fn(
+                                    res,
+                                    key_prefix=f"{msg.id}_{card.card_id}",
+                                    show_understood=False,
+                                )
                             else:
                                 st.markdown(html.escape(msg.text))
                         else:
