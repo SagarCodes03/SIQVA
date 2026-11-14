@@ -5,9 +5,13 @@ SIQVA Knowledge Base Validator (scripts/check_knowledge.py)
 Validates:
 1. knowledge/manifest.csv (headers, unique IDs, status, SHA256)
 2. knowledge/notes/*.yaml (required fields, unique IDs, source_id in manifest,
-   verified: false on document notes, 2-5 sentences, <= 1 quotation < 15 words)
-3. knowledge/questions.jsonl (valid JSON, required fields, unique IDs,
-   referenced note IDs exist)
+   verified: false on document notes, 2-5 sentences, <= 1 quotation < 15 words,
+   valid aliases)
+3. knowledge/notes/evidence/<id>.md (evidence file exists for every note,
+   evidence line for every sentence, no "NO SUPPORT FOUND", supporting phrase < 15 words
+   and present in extracted text)
+4. knowledge/questions.jsonl (valid JSON, required fields, unique IDs,
+   referenced note IDs/aliases exist)
 
 Exits with code 0 on success, code 1 on validation errors.
 """
@@ -18,6 +22,7 @@ import csv
 import json
 import re
 import sys
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -40,9 +45,25 @@ def count_sentences(text: str) -> int:
     return len(sentences)
 
 
+def split_sentences_list(text: str) -> list[str]:
+    """Split prose text into list of individual sentences, handling common abbreviations."""
+    clean = re.sub(
+        r"\b(e\.g\.|i\.e\.|vs\.|approx\.|et al\.|no\.|dr\.|prof\.)",
+        lambda m: m.group(0).replace(".", "@DOT@"),
+        text,
+        flags=re.IGNORECASE,
+    )
+    clean = re.sub(r"\b\d+\.\d+\b", lambda m: m.group(0).replace(".", "@DOT@"), clean)
+    sentences = [
+        s.replace("@DOT@", ".").strip()
+        for s in re.split(r"(?<=[.?!])\s+", clean.strip())
+        if s.strip()
+    ]
+    return sentences
+
+
 def find_quotations(text: str) -> list[str]:
     """Extract quoted substrings from text (supports standard and curly quotes)."""
-    # Matches "..." or “...”
     matches = re.findall(r'"([^"]+)"|“([^”]+)”', text)
     quotes: list[str] = []
     for m in matches:
@@ -50,6 +71,17 @@ def find_quotations(text: str) -> list[str]:
         if q.strip():
             quotes.append(q.strip())
     return quotes
+
+
+def check_phrase_in_source(text_file: Path, phrase: str) -> bool:
+    """Check if phrase exists in extracted source text with flexible whitespace and unicode normalization."""
+    if not text_file.exists():
+        return False
+    raw_content = text_file.read_text(encoding="utf-8")
+    norm_content = unicodedata.normalize("NFKD", raw_content)
+    norm_phrase = unicodedata.normalize("NFKD", phrase)
+    pattern = r"\s+".join(re.escape(w) for w in norm_phrase.split())
+    return bool(re.search(pattern, norm_content, re.IGNORECASE))
 
 
 def validate_manifest(
@@ -119,20 +151,88 @@ def validate_manifest(
     return sources, errors
 
 
+def validate_evidence_file(
+    evidence_path: Path,
+    note: dict[str, Any],
+    source_text_file: Path,
+) -> list[str]:
+    """Validate a single knowledge/notes/evidence/<id>.md file."""
+    errors: list[str] = []
+    note_id = note.get("id", "")
+
+    if not evidence_path.exists():
+        return [f"Evidence file missing for note '{note_id}': {evidence_path.name}"]
+
+    evidence_text = evidence_path.read_text(encoding="utf-8")
+
+    sentences = split_sentences_list(str(note.get("answer", "")))
+    if not sentences:
+        errors.append(f"Evidence audit for '{note_id}': note answer has no sentences.")
+        return errors
+
+    # Check evidence sections for every sentence
+    for s_idx, sent in enumerate(sentences, 1):
+        s_marker = f"### Sentence {s_idx}"
+        if s_marker not in evidence_text:
+            errors.append(
+                f"Evidence file '{evidence_path.name}': missing block for Sentence {s_idx}."
+            )
+            continue
+
+        # Find block for this sentence
+        idx_start = evidence_text.find(s_marker)
+        next_marker = f"### Sentence {s_idx + 1}"
+        idx_end = evidence_text.find(next_marker) if next_marker in evidence_text else len(evidence_text)
+        block = evidence_text[idx_start:idx_end]
+
+        if "NO SUPPORT FOUND" in block:
+            errors.append(
+                f"Evidence file '{evidence_path.name}': Sentence {s_idx} is marked 'NO SUPPORT FOUND'."
+            )
+
+        # Extract supporting phrase
+        m_phrase = re.search(r'Supporting Phrase\*\*:\s*["“]([^"”]+)["”]', block)
+        if not m_phrase:
+            errors.append(
+                f"Evidence file '{evidence_path.name}': Sentence {s_idx} missing 'Supporting Phrase'."
+            )
+        else:
+            phrase = m_phrase.group(1).strip()
+            w_count = len(phrase.split())
+            if w_count >= 15:
+                errors.append(
+                    f"Evidence file '{evidence_path.name}': Sentence {s_idx} supporting phrase has {w_count} words (must be < 15)."
+                )
+            if source_text_file.exists() and not check_phrase_in_source(source_text_file, phrase):
+                errors.append(
+                    f"Evidence file '{evidence_path.name}': Sentence {s_idx} supporting phrase not found in extracted text: '{phrase}'"
+                )
+
+    return errors
+
+
 def validate_notes(
-    notes_dir: Path, manifest_sources: dict[str, dict[str, str]]
+    notes_dir: Path,
+    manifest_sources: dict[str, dict[str, str]],
+    repo_root: Path | None = None,
 ) -> tuple[set[str], list[str]]:
-    """Validate YAML note files in knowledge/notes/."""
+    """Validate YAML note files in knowledge/notes/ and their evidence files."""
     errors: list[str] = []
     all_note_ids: set[str] = set()
 
     if not notes_dir.exists():
         return all_note_ids, [f"Notes directory not found: {notes_dir}"]
 
+    if repo_root is None:
+        repo_root = notes_dir.resolve().parent.parent
+
     yaml_files = sorted(notes_dir.glob("*.yaml"))
     if not yaml_files:
         errors.append(f"No YAML files found in {notes_dir}")
         return all_note_ids, errors
+
+    evidence_dir = notes_dir / "evidence"
+    text_dir = repo_root / "knowledge" / "text"
 
     for yaml_path in yaml_files:
         with open(yaml_path, "r", encoding="utf-8") as f:
@@ -149,7 +249,6 @@ def validate_notes(
                 errors.append(
                     f"{yaml_path.name}: dictionary format expected origin: 'generated'."
                 )
-            # Register top-level keys as available concepts (e.g. supported_regions, capabilities, data_modes)
             for key in data.keys():
                 if key != "metadata":
                     all_note_ids.add(key)
@@ -168,6 +267,7 @@ def validate_notes(
             "source_id",
             "section_or_page",
             "source_version",
+            "retrieved_on",
             "limits",
             "related",
             "verified",
@@ -191,6 +291,14 @@ def validate_notes(
                     f"{yaml_path.name}: duplicate note id '{note_id}'."
                 )
             all_note_ids.add(note_id)
+
+            # Register any declared aliases
+            aliases = note.get("aliases", [])
+            if isinstance(aliases, list):
+                for alias in aliases:
+                    alias_str = str(alias).strip()
+                    if alias_str:
+                        all_note_ids.add(alias_str)
 
             missing_fields = required_fields - set(note.keys())
             if missing_fields:
@@ -247,6 +355,12 @@ def validate_notes(
                         errors.append(
                             f"{yaml_path.name}[{note_id}]: quotation has {word_len} words (must be under 15 words): '{q}'"
                         )
+
+            # Validate evidence file
+            evidence_file = evidence_dir / f"{note_id}.md"
+            source_txt_file = text_dir / f"{src_id}.txt"
+            ev_errors = validate_evidence_file(evidence_file, note, source_txt_file)
+            errors.extend(ev_errors)
 
     return all_note_ids, errors
 
@@ -360,7 +474,7 @@ def check_knowledge_base(repo_root: Path | None = None) -> list[str]:
     sources, manifest_errors = validate_manifest(manifest_path)
     all_errors.extend(manifest_errors)
 
-    note_ids, notes_errors = validate_notes(notes_dir, sources)
+    note_ids, notes_errors = validate_notes(notes_dir, sources, repo_root)
     all_errors.extend(notes_errors)
 
     questions_errors = validate_questions(questions_path, note_ids)
@@ -372,7 +486,7 @@ def check_knowledge_base(repo_root: Path | None = None) -> list[str]:
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     print("=" * 60)
-    print("SIQVA Knowledge Base Integrity Checker")
+    print("SIQVA Knowledge Base Integrity Checker (with Evidence Audit)")
     print("=" * 60)
 
     errors = check_knowledge_base(repo_root)
@@ -387,15 +501,18 @@ def main() -> int:
     manifest_path = repo_root / "knowledge" / "manifest.csv"
     sources, _ = validate_manifest(manifest_path)
     notes_dir = repo_root / "knowledge" / "notes"
-    note_ids, _ = validate_notes(notes_dir, sources)
+    note_ids, _ = validate_notes(notes_dir, sources, repo_root)
     questions_path = repo_root / "knowledge" / "questions.jsonl"
     with open(questions_path, "r", encoding="utf-8") as f:
         q_count = sum(1 for line in f if line.strip())
 
+    evidence_files = list((notes_dir / "evidence").glob("*.md"))
+
     print("\n[PASSED] Knowledge base verification successful!")
     print(f"  - Sources in manifest: {len(sources)}")
-    print(f"  - Registered note concepts: {len(note_ids)}")
+    print(f"  - Registered note concepts & aliases: {len(note_ids)}")
     print(f"  - Verified flag: all document-derived notes are verified: false")
+    print(f"  - Evidence audit files: {len(evidence_files)} verified (0 'NO SUPPORT FOUND')")
     print(f"  - Questions verified: {q_count}")
     return 0
 

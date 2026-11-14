@@ -80,6 +80,9 @@ def load_all_notes(repo_root: Path) -> dict[str, dict]:
             for note in data:
                 if isinstance(note, dict) and "id" in note:
                     notes_by_id[note["id"]] = note
+                    for alias in note.get("aliases", []):
+                        if alias not in notes_by_id:
+                            notes_by_id[alias] = note
     return notes_by_id
 
 

@@ -53,6 +53,7 @@ def test_verified_true_rejection(tmp_path):
   source_id: argo-home
   section_or_page: "Home"
   source_version: ""
+  retrieved_on: "2026-11-14"
   limits: "None"
   related: []
   verified: true
@@ -61,7 +62,7 @@ def test_verified_true_rejection(tmp_path):
         encoding="utf-8",
     )
     manifest_sources = {"argo-home": {"id": "argo-home"}}
-    _, errors = validate_notes(notes_dir, manifest_sources)
+    _, errors = validate_notes(notes_dir, manifest_sources, tmp_path)
     assert any("verified: true" in err or "'verified' is set to True" in err for err in errors)
 
 
@@ -76,3 +77,29 @@ def test_question_unknown_note_rejection(tmp_path):
     )
     errors = validate_questions(questions_file, valid_note_ids={"argo-one-paragraph"})
     assert any("non-existent-note-id" in err for err in errors)
+
+
+def test_evidence_file_missing_rejection(tmp_path):
+    """Verify notes without an evidence file are rejected."""
+    notes_dir = tmp_path / "notes"
+    notes_dir.mkdir()
+    note_yaml = notes_dir / "note.yaml"
+    note_yaml.write_text(
+        """
+- id: test-note-2
+  question_examples: ["Test?"]
+  answer: "First sentence here. Second sentence here."
+  source_id: argo-home
+  section_or_page: "Home"
+  source_version: ""
+  retrieved_on: "2026-11-14"
+  limits: "None"
+  related: []
+  verified: false
+  checked_on: ""
+""",
+        encoding="utf-8",
+    )
+    manifest_sources = {"argo-home": {"id": "argo-home"}}
+    _, errors = validate_notes(notes_dir, manifest_sources, tmp_path)
+    assert any("Evidence file missing" in err for err in errors)
