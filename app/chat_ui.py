@@ -369,33 +369,41 @@ def render_chat_page(
         c_reg, c_wmo = st.columns(2)
         with c_reg:
             all_regions = ["(None)"] + sorted(KNOWN_REGIONS.keys())
-            pin_region = st.selectbox("PIN REGION", options=all_regions, index=0)
+            st.selectbox("PIN REGION", options=all_regions, index=0, key="pin_region_select")
         with c_wmo:
-            pin_wmo = st.text_input("PIN WMO ID (OPTIONAL)", placeholder="e.g. 2902269")
+            st.text_input("PIN WMO ID (OPTIONAL)", placeholder="e.g. 2902269", key="pin_wmo_input")
         c_z1, c_z2, c_force = st.columns(3)
         with c_z1:
-            pin_min_d = st.number_input("MIN dbar", value=0, min_value=0, max_value=2000, step=50)
+            st.number_input("MIN dbar", value=0, min_value=0, max_value=2000, step=50, key="pin_min_dbar")
         with c_z2:
-            pin_max_d = st.number_input("MAX dbar", value=500, min_value=10, max_value=6000, step=50)
+            st.number_input("MAX dbar", value=500, min_value=10, max_value=6000, step=50, key="pin_max_dbar")
         with c_force:
-            pin_force = st.checkbox("FORCE LIVE ERDDAP/ARGOVIS FETCH", value=False)
+            st.checkbox("FORCE LIVE ERDDAP/ARGOVIS FETCH", value=False, key="pin_force_check")
 
-        user_input_area = st.text_area(
+        def _on_send_query_click() -> None:
+            raw_q = st.session_state.get("claude_query_box", "").strip()
+            if not raw_q:
+                return
+            p_reg = st.session_state.get("pin_region_select", "(None)")
+            if p_reg != "(None)" and p_reg.lower() not in raw_q.lower():
+                raw_q += f" in {p_reg}"
+            p_wmo = st.session_state.get("pin_wmo_input", "").strip()
+            if p_wmo:
+                raw_q += f" for float {p_wmo}"
+            p_min_z = float(st.session_state.get("pin_min_dbar", 0))
+            p_max_z = float(st.session_state.get("pin_max_dbar", 500))
+            p_force = bool(st.session_state.get("pin_force_check", False))
+            d_over = DepthRange(min_depth=p_min_z, max_depth=p_max_z) if (p_min_z > 0 or p_max_z != 500) else None
+            handle_user_turn(raw_q, depth_override=d_over, force_refresh=p_force)
+            st.session_state["claude_query_box"] = ""
+
+        st.text_area(
             "Query Input Box",
             placeholder="Ask an oceanographic question...",
-            key=f"claude_query_box_{st.session_state['query_input_key']}",
+            key="claude_query_box",
             height=68,
         )
-        if st.button("Send Query ↑", key="send_query_btn", type="primary"):
-            if user_input_area.strip():
-                final_q = user_input_area.strip()
-                if pin_region != "(None)" and pin_region.lower() not in final_q.lower():
-                    final_q += f" in {pin_region}"
-                if pin_wmo.strip():
-                    final_q += f" for float {pin_wmo.strip()}"
-                depth_over = DepthRange(min_depth=float(pin_min_d), max_depth=float(pin_max_d)) if (pin_min_d > 0 or pin_max_d != 500) else None
-                handle_user_turn(final_q, depth_override=depth_over, force_refresh=pin_force)
-                st.rerun()
+        st.button("Send Query ↑", key="send_query_btn", type="primary", on_click=_on_send_query_click)
 
     # 6. Bottom Pinned Chat Input (ChatGPT / Claude style)
     chat_prompt = st.chat_input("Ask an oceanographic question (e.g. thermocline in Bay of Bengal April 2022)...")

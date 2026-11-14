@@ -1199,12 +1199,13 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                     else:
                         st.session_state["active_plot_res"] = new_res
 
+                act_cid = res.card.card_id if res.card else "live"
                 act_cols = st.columns(min(len(action_items), 4))
                 for a_idx, act in enumerate(action_items):
                     with act_cols[a_idx % len(act_cols)]:
                         st.button(
                             act["label"],
-                            key=f"sample_act_{a_idx}",
+                            key=f"sample_act_{act_cid}_{a_idx}",
                             use_container_width=True,
                             help=act.get("help"),
                             on_click=_on_sample_action_click,
@@ -1319,7 +1320,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
         st.info(f"**QC Filter Applied**: {card.qc_filter_description}")
 
         st.subheader("Reproducibility Check")
-        if st.button("Re-run Fetch & Diff", key="rerun_btn"):
+        if st.button("Re-run Fetch & Diff", key=f"rerun_btn_{card.card_id}"):
             with st.spinner("Re-fetching remote data and comparing hashes..."):
                 diff: DiffSummary = rerun(card)
                 if diff.is_same and not diff.version_changed:
