@@ -50,7 +50,7 @@ GLOSSARY_PATTERNS = [
 ]
 
 META_PATTERNS = [
-    re.compile(r"\b(?:what\s+(?:query\s+)?did\s+i\s+(?:just\s+)?run|what\s+was\s+the\s+last\s+query)\b", re.IGNORECASE),
+    re.compile(r"\b(?:what\s+(?:query\s+)?did\s+i\s+(?:just\s+)?(?:run|query)|what\s+was\s+the\s+last\s+query)\b", re.IGNORECASE),
     re.compile(r"\b(?:show\s+(?:me\s+)?(?:the\s+)?(?:script|card|versions?|spec))\b", re.IGNORECASE),
     re.compile(r"\b(?:which|what)\s+version\b", re.IGNORECASE),
     re.compile(r"\b(?:what\s+mode\s+was\s+used|how\s+many\s+profiles\s+in\s+last\s+query)\b", re.IGNORECASE),

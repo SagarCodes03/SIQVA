@@ -22,22 +22,29 @@ class ConversationState(BaseModel):
 
     last_spec: Optional[QuerySpec] = None
     last_question: Optional[str] = None
+    last_card_id: Optional[str] = None
     turn_count: int = 0
 
-    def with_new_query(self, spec: QuerySpec, question: Optional[str] = None) -> "ConversationState":
+    def with_new_query(
+        self,
+        spec: QuerySpec,
+        question: Optional[str] = None,
+        card_id: Optional[str] = None,
+    ) -> "ConversationState":
         """Return updated state after a successful data query."""
         return self.model_copy(update={
             "last_spec": spec,
             "last_question": question,
+            "last_card_id": card_id,
             "turn_count": self.turn_count + 1,
         })
 
 
 # Patterns for conversational edits
 _VARIABLE_SWAP_PATTERNS = [
-    (re.compile(r"\b(?:same\s+for|do\s+it\s+for|now\s+for|what\s+about|how\s+about)\s+salinity\b", re.IGNORECASE), Variable.PSAL),
-    (re.compile(r"\b(?:same\s+for|do\s+it\s+for|now\s+for|what\s+about|how\s+about)\s+temperature\b", re.IGNORECASE), Variable.TEMP),
-    (re.compile(r"\b(?:same\s+for|do\s+it\s+for|now\s+for|what\s+about|how\s+about)\s+pressure\b", re.IGNORECASE), Variable.PRES),
+    (re.compile(r"\b(?:same\s+for|do\s+it\s+for|now\s+for|what\s+about|how\s+about|show|switch\s+to|change\s+to)\s+salinity\b", re.IGNORECASE), Variable.PSAL),
+    (re.compile(r"\b(?:same\s+for|do\s+it\s+for|now\s+for|what\s+about|how\s+about|show|switch\s+to|change\s+to)\s+temperature\b", re.IGNORECASE), Variable.TEMP),
+    (re.compile(r"\b(?:same\s+for|do\s+it\s+for|now\s+for|what\s+about|how\s+about|show|switch\s+to|change\s+to)\s+pressure\b", re.IGNORECASE), Variable.PRES),
 ]
 
 _YEAR_SWAP_PATTERN = re.compile(
