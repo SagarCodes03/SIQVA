@@ -9,7 +9,7 @@ Current status of the SIQVA trusted knowledge base preparation.
 - [x] **K2. Extract text**: `scripts/extract_sources.py` created and verified. Extracted all 16 present sources into `knowledge/text/` with `=== PAGE n ===` and `=== SECTION: heading ===` markers.
 - [x] **K3. Notes generated from our own code**: `scripts/build_own_notes.py` created and verified. Generates `knowledge/notes/own_generated.yaml` from code modules with regression test `tests/test_own_notes.py`.
 - [x] **K4. Draft source-derived notes**: Drafted 23 grounded notes in `knowledge/notes/argo_notes.yaml` citing page/section numbers. All notes have `verified: false` and `checked_on: ""`.
-- [ ] **K5. Scope, questions, checker, review tool**: `knowledge/scope.md`, `knowledge/questions.jsonl` (40 dev questions), `scripts/check_knowledge.py`, `scripts/review_note.py`, tests.
+- [x] **K5. Scope, questions, checker, review tool**: `knowledge/scope.md`, `knowledge/questions.jsonl` (40 dev questions), `scripts/check_knowledge.py`, `scripts/review_note.py`, and `tests/test_knowledge.py` created and verified.
 - [ ] **K6. Status and finish**: Summary report, checklist for owner verification, push `task-knowledge`.
 
 ---
