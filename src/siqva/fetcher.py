@@ -592,7 +592,8 @@ def _build_empty_result(
     if spec.mode == DataMode.RESEARCH and is_recent_window:
         msg = (
             "No delayed-mode Argo data found for this recent time window. "
-            "Argo delayed-mode quality control (DMQC) for research mode typically takes 6 to 12 months to complete and publish."
+            "Initial delayed-mode quality control (DMQC) for research mode takes about 12 months after collection; "
+            "recent profiles are in real-time or adjusted mode and are not included in research mode."
         )
         suggestion = (
             "Try standard mode (e.g. 'real-time' or 'near real-time') for observations within the last 12 months, "
