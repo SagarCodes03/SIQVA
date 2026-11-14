@@ -10,6 +10,7 @@ from .spec import DepthRange, QuerySpec, Variable
 # Default threshold in cost units (normalized degree-day-depth units based on 500 dbar reference)
 # Provisional value based on limited measurements (single region and period); should be revisited.
 DEFAULT_MAX_REQUEST_SIZE: float = 15_000.0
+MAX_DEPTH_DBAR: float = 2000.0
 
 
 def is_size_guardrail_enabled() -> bool:
@@ -163,9 +164,9 @@ def validate_structure(spec: QuerySpec, allow_antimeridian: bool = False) -> Non
         raise SpecValidationError(
             f"min_depth ({depth.min_depth}) cannot exceed max_depth ({depth.max_depth})"
         )
-    if depth.max_depth > 2000.0:
+    if depth.max_depth > MAX_DEPTH_DBAR:
         raise SpecValidationError(
-            f"max_depth ({depth.max_depth} dbar) cannot exceed 2000.0 dbar (core Argo profiling limit)."
+            f"max_depth ({depth.max_depth} dbar) cannot exceed {MAX_DEPTH_DBAR} dbar (core Argo profiling limit)."
         )
 
 

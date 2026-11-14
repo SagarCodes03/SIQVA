@@ -1,0 +1,565 @@
+# Trusted document-derived notes for SIQVA.
+# Generated strictly from extracted source texts in knowledge/text/.
+# All notes default to verified: false; only the owner verifies them.
+
+- id: argo-one-paragraph
+  question_examples:
+  - What is the Argo program?
+  - Explain Argo in simple terms.
+  - What does the Argo observation network do?
+  answer: 'Argo is an international real-time in situ ocean observing array consisting
+    of nearly 4000 autonomous robotic floats distributed across the global ocean.
+    These free-drifting robotic probes measure seawater pressure, temperature, and
+    salinity from the surface down to a depth of 2000 meters every 10 days. Data collected
+    by the array are relayed by satellite communication to data centers and made freely
+    available on the web in less than 24 hours.
+
+    '
+  source_id: argopy-what-is-argo
+  section_or_page: Section "What is Argo ?"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Does not cover experimental sensors, shipboard CTD calibration methods,
+    or localized coastal moorings outside the open ocean array.
+  related:
+  - float-cycle-and-depth
+  - argo-array-size-and-coverage
+  - core-argo-parameters
+  verified: false
+  checked_on: ''
+- id: float-cycle-and-depth
+  question_examples:
+  - How does an Argo float work and how deep does it go?
+  - What is the standard float mission cycle?
+  - How long does an Argo float profile take?
+  answer: 'The standard Argo float operates on a recurring 10-day mission cycle that
+    begins by sinking from the surface to a parking drift depth of 1000 meters. The
+    float drifts passively with deep currents at 1000 meters for roughly 9 days before
+    sinking further to its profile depth of 2000 meters. From 2000 meters, the float
+    slowly rises to the ocean surface while recording measurements of conductivity,
+    temperature, and pressure. Upon reaching the surface, the float obtains a position
+    fix often through GPS and transmits its profile data to satellites during a surface
+    interval between 15 minutes and one hour.
+
+    '
+  source_id: argo-how-floats-work
+  section_or_page: Section "What does an Argo float do?"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers standard core park-and-profile missions only; does not cover specialized
+    biogeochemical 1-day bursts or Deep Argo missions down to 6000 meters. Fleetwide
+    surface interval is 15 minutes to 1 hour (argo-how-floats-work); for Iridium floats
+    specifically, surface transmission time is under 20 minutes compared to 6 to 18 hours
+    for older Argos-2 floats (see float-telemetry-and-surface, Wong et al. 2020).
+  related:
+  - argo-one-paragraph
+  - core-argo-parameters
+  - float-telemetry-and-surface
+  verified: false
+  checked_on: ''
+- id: qc-flag-scale
+  aliases:
+  - qc-flag-1-definition
+  - qc-flag-4-definition
+  question_examples:
+  - What do the Argo quality control flags mean?
+  - Explain the 0 to 9 Argo QC flag scale.
+  - What is the difference between flag 1 and flag 4 in Argo?
+  answer: 'Argo quality control evaluates individual observation levels on a numerical
+    scale from 0 to 9 as specified in Reference table 2 of the Argo User''s Manual.
+    Flag 0 indicates no QC was performed, flag 1 represents good data where all real-time
+    tests passed, flag 2 marks probably good data to be used with caution, and flag
+    3 denotes probably bad data that are potentially adjustable. Flag 4 denotes bad
+    data that must not be used, flag 5 indicates value changed, flags 6 and 7 are
+    not used, flag 8 marks estimated values, and flag 9 represents missing values.
+    In delayed mode, flag 1 signifies that no adjustment is needed or that the value
+    is statistically consistent with good quality reference data, whereas unadjustable
+    flag 4 data are replaced by FillValue.
+
+    '
+  source_id: argo-user-manual
+  section_or_page: 'Page 76, Section 3.2.1 "Reference table 2: quality control flag
+    scale"'
+  source_version: 3.44.0
+  retrieved_on: '2026-11-14'
+  limits: Applies to individual measurement depth levels; overall profile letter grades
+    (A-F) are defined separately in Reference table 2a.
+  related:
+  - profile-quality-flags
+  - data-modes-rad
+  - adjusted-vs-raw-variables
+  verified: false
+  checked_on: ''
+- id: data-modes-rad
+  question_examples:
+  - What are data modes R, A, and D in Argo?
+  - What is the difference between real-time and delayed mode?
+  - What does DATA_MODE mean in an Argo netCDF file?
+  answer: 'Data from Argo floats are classified into three operational categories
+    denoted by DATA_MODE values of ''R'', ''A'', or ''D''. Real-time raw data (DATA_MODE
+    = ''R'') pass through automatic quality control procedures with a target issuance
+    to GDACs within 12 hours of surfacing. Real-time adjusted data (DATA_MODE = ''A'')
+    contain interim automated adjustments applied to raw data before delayed-mode
+    assessment. Delayed-mode data (DATA_MODE = ''D'') are assessed by scientists who
+    evaluate long-term sensor stability and apply necessary adjustments, with a target
+    GDAC availability of about 12 months after transmission for core CTD data.
+
+    '
+  source_id: argo-user-manual
+  section_or_page: Page 16, Section 1.7 "Real-time, real-time adjusted data and delayed
+    mode data"
+  source_version: 3.44.0
+  retrieved_on: '2026-11-14'
+  limits: Describes data mode classification; does not detail specific delayed-mode
+    salinity drift fitting algorithms (e.g., OWC method).
+  related:
+  - qc-flag-scale
+  - adjusted-vs-raw-variables
+  - delayed-mode-timing
+  verified: false
+  checked_on: ''
+- id: delayed-mode-timing
+  question_examples:
+  - Why are recent Argo profiles not in delayed mode?
+  - How long does it take for Argo data to reach delayed mode?
+  - When will last month's profiles be calibrated in delayed mode?
+  answer: 'Recent Argo observations cannot be processed into delayed mode immediately
+    because determining sensor drift requires the accumulation of a relatively long
+    time series. In Argo, the established practice is to examine float profiles in
+    delayed mode initially about 12 months after they are collected. Because retrieving
+    floats for recalibration is rarely possible, oceanographers use statistical tools
+    and climatological comparisons to adjust data for sensor drift. Profiles are subsequently
+    revisited several times as more data from the floats are obtained until the floats
+    become inactive.
+
+    '
+  source_id: wong2020
+  section_or_page: Page 8, Section "Delayed-Mode"
+  source_version: Vol. 7, Art. 700
+  retrieved_on: '2026-11-14'
+  limits: Applies to standard core CTD drift evaluation; fast-turnaround pilot projects
+    or rapid sensor failures may receive earlier flagging.
+  related:
+  - data-modes-rad
+  - realtime-vs-delayed-qc
+  verified: false
+  checked_on: ''
+- id: realtime-vs-delayed-qc
+  question_examples:
+  - What is the difference between real-time and delayed-mode QC in Argo?
+  - Why does delayed mode take so long compared to real-time QC?
+  - Can I use real-time Argo data for climate research?
+  answer: 'Real-time quality control applies automated procedures to deliver flagged
+    data within 24 hours of satellite transmission. These automated real-time checks
+    serve operational weather and ocean forecasting where timely data delivery is
+    required. In contrast, delayed-mode quality control subjects observations to visual
+    examination by oceanographic experts because automatic real-time procedures are
+    not flawless. The delayed-mode pathway aims to provide the highest-quality version
+    of the data including realistic error estimates suitable for climate research.
+
+    '
+  source_id: wong2020
+  section_or_page: Page 8, Section "Delayed-Mode"
+  source_version: Vol. 7, Art. 700
+  retrieved_on: '2026-11-14'
+  limits: Does not detail individual real-time test parameters such as spike thresholds,
+    density inversion limits, or regional climatology envelopes.
+  related:
+  - data-modes-rad
+  - qc-flag-scale
+  - delayed-mode-timing
+  verified: false
+  checked_on: ''
+- id: profile-quality-flags
+  question_examples:
+  - What do the profile quality flags A through F mean?
+  - How is the overall quality of an Argo profile determined?
+  - What percentage of good data is required for profile flag A?
+  answer: 'Argo assigns an overall profile quality letter flag from A to F based on
+    the percentage N of levels containing good data, defined in Reference table 2a.
+    In calculating N, levels with QC flags 1, 2, 5, and 8 are counted as good data,
+    levels with flags 3 and 4 are counted as bad data, and flags 0, 9, or FillValue
+    are not used. Grade A requires N = 100% where all levels contain good data, Grade
+    B spans 75% <= N < 100%, Grade C covers 50% <= N < 75%, Grade D spans 25% <= N
+    < 50%, Grade E covers 0% < N < 25%, and Grade F indicates N = 0% where no levels
+    have good data. An empty space FillValue is assigned when no QC is performed or
+    no usable flag values are present in the profile.
+
+    '
+  source_id: argo-user-manual
+  section_or_page: 'Page 77, Section 3.2.2 "Reference table 2a: overall profile quality
+    flag"'
+  source_version: 3.44.0
+  retrieved_on: '2026-11-14'
+  limits: Applies to whole-profile summary quality; individual measurement levels
+    are flagged using Reference table 2.
+  related:
+  - qc-flag-scale
+  - data-modes-rad
+  verified: false
+  checked_on: ''
+- id: adjusted-vs-raw-variables
+  question_examples:
+  - What is the difference between TEMP and TEMP_ADJUSTED?
+  - Why are there adjusted variables in Argo files?
+  - Which variable should researchers use in Argo netCDF files?
+  answer: 'In Argo netCDF profile files, the <PARAM> variable contains the raw values
+    transmitted by the float, which should never be altered. The variable <PARAM>_QC
+    records quality control flags that pertain to the raw values in <PARAM>. The mandatory
+    variable <PARAM>_ADJUSTED contains values derived from the original parameter
+    after applying sensor adjustments. When no adjustment has been performed on a
+    parameter, the FillValue is inserted into <PARAM>_ADJUSTED and <PARAM>_ADJUSTED_ERROR.
+
+    '
+  source_id: argo-user-manual
+  section_or_page: Pages 23–25, Section 2.2.5 "Measurements for each profile"
+  source_version: 3.44.0
+  retrieved_on: '2026-11-14'
+  limits: Covers variable naming in Argo NetCDF profile files; does not detail algorithmic
+    calibration methods (such as OWC for salinity).
+  related:
+  - data-modes-rad
+  - qc-flag-scale
+  verified: false
+  checked_on: ''
+- id: argopy-user-modes-overview
+  question_examples:
+  - What are the user modes in argopy?
+  - What is the difference between standard and research mode in argopy?
+  - Which mode should I choose in argopy?
+  answer: 'The argopy Python library provides three user modes—standard, research,
+    and expert—to control data verbosity and quality filtering. Standard mode is the
+    default mode in argopy and returns good or probably good data with QC flags 1
+    and 2 from real-time or delayed mode. Research mode preserves only delayed-mode
+    data of the highest quality carefully checked by human experts, admitting exclusively
+    QC flag 1. Expert mode returns all raw Argo data without any postprocessing or
+    quality filtering.
+
+    '
+  source_id: argopy-user-modes
+  section_or_page: Section "Definitions" & Section "Standard mode (default)"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Applies strictly to the argopy Python library fetching interface; underlying
+    GDAC files remain unmodified NetCDF.
+  related:
+  - data-modes-rad
+  - qc-flag-scale
+  verified: false
+  checked_on: ''
+- id: argo-data-policy-and-citation
+  question_examples:
+  - How do I cite Argo float data in a paper?
+  - What is the official citation format for the Argo GDAC dataset?
+  - Is Argo data free to use?
+  answer: 'The citation of Argo data used in scientific studies requires specialized
+    handling because the global dataset is dynamic, evolving and growing in time.
+    To allow reproducibility of scientific studies that use Argo data, a snapshot
+    of the entire dataset at the GDACs is preserved each month. Argo adopted a Digital
+    Object Identifier format based on the master DOI 10.17882/42182 with unique monthly
+    snapshot suffixes appended after a hash symbol. Authors cite an Argo snapshot
+    by referencing the Argo Data Management Team, the snapshot date, and the specific
+    snapshot DOI identifier.
+
+    '
+  source_id: wong2020
+  section_or_page: 'Page 18, Section "HOW TO CITE ARGO DATA: THE DYNAMIC DOI STRUCTURE"'
+  source_version: Vol. 7, Art. 700
+  retrieved_on: '2026-11-14'
+  limits: Covers global GDAC dataset citations; individual regional float providers
+    or projects may also request acknowledgments in project metadata.
+  related:
+  - argo-one-paragraph
+  - argo-gdac-structure
+  verified: false
+  checked_on: ''
+- id: what-is-teos-10
+  question_examples:
+  - What is TEOS-10 and why is it used in oceanography?
+  - What is the difference between TEOS-10 and EOS-80?
+  - Why did oceanographers replace EOS-80?
+  answer: 'TEOS-10 is the Thermodynamic Equation of Seawater 2010 adopted in 2009
+    by the Intergovernmental Oceanographic Commission to replace EOS-80 as the official
+    description of seawater. It is based on a Gibbs function formulation from which
+    all thermodynamic properties of seawater, including density, enthalpy, entropy,
+    and sound speed, can be derived in a thermodynamically consistent manner. A significant
+    change compared with past practice is that TEOS-10 uses Absolute Salinity (mass
+    fraction of salt in g/kg) as opposed to conductivity-based Practical Salinity
+    to describe salt content. While Absolute Salinity is needed to compute density
+    and other properties, Practical Salinity on PSS-78 continues to be the measured
+    variable archived in national databases.
+
+    '
+  source_id: teos10-site
+  section_or_page: Section "HOME"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers thermodynamic standards; does not cover biological or geochemical
+    nutrient interactions beyond inorganic thermodynamic properties.
+  related:
+  - practical-vs-absolute-salinity
+  - conservative-temperature
+  - gsw-sound-speed-inputs
+  verified: false
+  checked_on: ''
+- id: practical-vs-absolute-salinity
+  question_examples:
+  - What is the difference between Practical Salinity and Absolute Salinity?
+  - Why does TEOS-10 use Absolute Salinity?
+  - What are the units of Practical Salinity vs Absolute Salinity?
+  answer: 'TEOS-10 defines salt content using Absolute Salinity (symbol SA), which
+    represents the mass fraction of salt in seawater expressed in SI units of g/kg.
+    In contrast, Practical Salinity (symbol SP) under PSS-78 is a dimensionless quantity
+    that serves essentially as a measure of seawater electrical conductivity. Spatial
+    variations in the composition of seawater mean that Absolute Salinity is not simply
+    proportional to Practical Salinity across the ocean. Thermodynamic properties
+    such as density and enthalpy are correctly expressed as functions of Absolute
+    Salinity, while measured Practical Salinity continues to be archived in databases.
+
+    '
+  source_id: teos10-site
+  section_or_page: Section "HOME"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers standard open-ocean thermodynamic salinity definitions; coastal estuarine
+    chemistry anomalies require localized composition models.
+  related:
+  - what-is-teos-10
+  - conservative-temperature
+  - gsw-sound-speed-inputs
+  verified: false
+  checked_on: ''
+- id: conservative-temperature
+  question_examples:
+  - What inputs does Conservative Temperature accompany in GSW?
+  - What units and scale are used for Conservative Temperature in GSW?
+  - How do array dimensions of Conservative Temperature and Absolute Salinity relate in GSW?
+  answer: 'In the Gibbs SeaWater oceanographic toolbox, Conservative Temperature (symbol
+    CT) is defined on the ITS-90 temperature scale in units of degrees Celsius. Conservative
+    Temperature serves alongside Absolute Salinity (SA in g/kg) and sea pressure (p
+    in dbar) as a required input for calculating seawater sound speed and specific
+    volume. In GSW function calculations, the array dimensions of Conservative Temperature
+    and Absolute Salinity must match each other.
+
+    '
+  source_id: gsw-sound-speed
+  section_or_page: Section "INPUT" & Section "DESCRIPTION"
+  source_version: '3.05'
+  retrieved_on: '2026-11-14'
+  limits: Derived thermodynamic relations connecting Conservative Temperature to potential
+    enthalpy require the TEOS-10 Manual / Primer, which is not currently retrieved.
+  related:
+  - what-is-teos-10
+  - practical-vs-absolute-salinity
+  - gsw-sound-speed-inputs
+  verified: false
+  checked_on: ''
+- id: gsw-sound-speed-inputs
+  question_examples:
+  - What inputs are needed to calculate sound speed in GSW?
+  - How is sound speed calculated in the Gibbs SeaWater toolbox?
+  - What parameters does gsw_sound_speed require?
+  answer: 'The Gibbs SeaWater function gsw_sound_speed requires three oceanographic
+    inputs: Absolute Salinity (SA in g/kg), Conservative Temperature (CT in degrees
+    Celsius on ITS-90), and sea pressure (p in dbar). Sea pressure is gauge pressure
+    relative to the surface, representing absolute pressure minus standard atmospheric
+    pressure of 10.1325 dbar. The function calculates speed of sound in seawater in
+    meters per second using a computationally efficient 75-term polynomial expression
+    for specific volume. This 75-term equation has been fitted in a restricted parameter
+    range and is most accurate inside the oceanographic funnel described in McDougall
+    et al. (2003).
+
+    '
+  source_id: gsw-sound-speed
+  section_or_page: Section "USAGE" & Section "DESCRIPTION"
+  source_version: '3.05'
+  retrieved_on: '2026-11-14'
+  limits: The GSW library function gsw_infunnel(SA,CT,p) is available to test whether
+    data lie outside the oceanographic funnel.
+  related:
+  - what-is-teos-10
+  - conservative-temperature
+  - practical-vs-absolute-salinity
+  verified: false
+  checked_on: ''
+- id: noaa-cpc-nino-definitions
+  question_examples:
+  - What are the geographic boundaries of the Nino regions?
+  - How does NOAA define Nino 3.4 and Nino 1+2?
+  - What coordinates define the El Nino monitoring areas?
+  answer: 'The NOAA Climate Prediction Center defines standard oceanic coordinate
+    boundaries in the tropical Pacific to monitor sea surface temperature indices.
+    The Niño 1+2 region is bounded by latitudes 0 to 10°South and longitudes 90°West
+    to 80°West off the coast of South America. The Niño 3 region spans latitudes 5°North
+    to 5°South and longitudes 150°West to 90°West in the eastern tropical Pacific.
+    The Niño 3.4 region spans latitudes 5°North to 5°South and longitudes 170°West
+    to 120°West, while Niño 4 encompasses latitudes 5°North to 5°South and longitudes
+    160°East to 150°West.
+
+    '
+  source_id: noaa-cpc-nino
+  section_or_page: Section "Relative Sea Surface Temperature"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers NOAA CPC coordinate boundaries; Niño 4 crosses the 180° antimeridian
+    from 160°East to 150°West.
+  related:
+  - argo-one-paragraph
+  verified: false
+  checked_on: ''
+- id: argo-array-size-and-coverage
+  question_examples:
+  - How many floats are in the Argo array?
+  - What is the spatial coverage and resolution of Argo?
+  - How many profiles does Argo collect per day?
+  answer: 'The international Argo network maintains nearly 4000 autonomous profiling
+    floats distributed across the global ocean. The geographic locations of these
+    robotic probes are distributed between the 60th parallels to provide seasonally
+    and regionally unbiased measurements. The global array reached its target coverage
+    of one profile per month per 3 degree by 3 degree horizontal area in 2007. Operating
+    continuously, the observation array provides more than 400 in situ vertical profiles
+    per day.
+
+    '
+  source_id: argopy-what-is-argo
+  section_or_page: Section "What is Argo ?"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers core open-ocean spatial target; marginal seas, high-latitude seasonal
+    ice zones, and boundary currents have separate regional densities.
+  related:
+  - argo-one-paragraph
+  - float-cycle-and-depth
+  verified: false
+  checked_on: ''
+- id: float-telemetry-and-surface
+  question_examples:
+  - How do Argo floats send their data back to land?
+  - How long do Argo floats spend on the surface?
+  - Do Argo floats use satellites or radio to transmit data?
+  answer: 'Argo floats transmit their ocean observations to ground stations using
+    satellite telecommunication systems whenever they surface. Early generation floats
+    used one-way Argos-2 satellite transmission, which required floats to drift on
+    the sea surface for 6 to 18 hours to guarantee error-free data reception. At present,
+    the majority of active floats use bidirectional Iridium satellite communications,
+    which reduces time spent on the sea surface to less than 20 minutes for each cycle.
+    Two-way communication via Iridium makes it possible to send instructions to the
+    float for troubleshooting or for changing the float''s sampling mission.
+
+    '
+  source_id: wong2020
+  section_or_page: Pages 5–6, Section "Satellite Communications"
+  source_version: Vol. 7, Art. 700
+  retrieved_on: '2026-11-14'
+  limits: Covers Argos and Iridium satellite systems; does not cover experimental
+    acoustic underwater positioning networks used beneath Antarctic sea ice. Surface
+    transmission time under 20 minutes applies to modern bidirectional Iridium floats
+    (compared to 6–18 h for Argos-2); the broader fleet overview describes the typical
+    surface interval as 15 minutes to one hour (see float-cycle-and-depth).
+  related:
+  - float-cycle-and-depth
+  - argo-one-paragraph
+  verified: false
+  checked_on: ''
+- id: core-argo-parameters
+  question_examples:
+  - What parameters do core Argo floats measure?
+  - What sensors are mounted on a standard Argo float?
+  - What are the primary physical variables collected by Argo?
+  answer: 'On top of every core Argo profiling float is a Conductivity, Temperature,
+    Depth (CTD) sensor package to measure physical seawater properties. The sensor
+    measures temperature within an accuracy of 0.001 degrees Celsius and pressure
+    within 0.1 dbar. Salinity is calculated from measured conductivity, temperature,
+    and pressure within an accuracy of 0.001 practical salinity units. These measurements
+    are gathered as the float moves up through the water column back to the ocean
+    surface.
+
+    '
+  source_id: argo-how-floats-work
+  section_or_page: Section "What is in an Argo float?"
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers core CTD parameters; biogeochemical variables (oxygen, nitrate, pH,
+    bio-optics) follow separate BGC-Argo sensor specifications.
+  related:
+  - float-cycle-and-depth
+  - bgc-argo-parameters
+  verified: false
+  checked_on: ''
+- id: bgc-argo-parameters
+  question_examples:
+  - What parameters do BGC Argo floats measure?
+  - What is Biogeochemical Argo?
+  - What sensors are added to BGC floats?
+  answer: 'The Argo Quality Control Manual for Biogeochemical Data defines quality
+    control procedures for floats measuring chemical and biological properties. Defined
+    parameters in the biogeochemical data system include dissolved oxygen (DOXY),
+    chlorophyll-a (CHLA), particle backscattering (BBP), downwelling irradiance, nitrate,
+    and pH. Users are warned that the accuracy of raw biogeochemical data in their
+    unadjusted state is not suitable for direct usage in scientific applications.
+    Often, adjustments are needed before biogeochemical observations can be used for
+    meaningful scientific applications.
+
+    '
+  source_id: argo-qc-bgc
+  section_or_page: Pages 6–9, Section 2.1 "Real-time quality control for biogeochemical
+    data"
+  source_version: '1.1'
+  retrieved_on: '2026-11-14'
+  limits: Covers standard global BGC variables; experimental sensors such as acoustic
+    fish trackers or imaging cytometers follow auxiliary data protocols.
+  related:
+  - core-argo-parameters
+  - argo-one-paragraph
+  verified: false
+  checked_on: ''
+- id: deep-argo-depth
+  question_examples:
+  - How deep do Deep Argo floats dive?
+  - What is Deep Argo and why was it developed?
+  - Can Argo measure below 2000 meters?
+  answer: 'Deep Argo was developed to sample the ocean interior below the 2000-dbar
+    limit of the core array down to the abyssal ocean floor at 6000 dbar. Standard
+    core floats sample approximately the upper half of ocean volume, leaving deep
+    and abyssal water masses below 2000 dbar unmonitored by autonomous floats. Development
+    of floats and CTDs capable of accurate measurements to 6000 dbar enables sampling
+    of bottom-intensified ocean variability. Antarctic Bottom Water below 2000 dbar
+    has been warming and freshening over recent decades, contributing directly to
+    steric sea level rise.
+
+    '
+  source_id: roemmich2019
+  section_or_page: Page 7, Section "Deep Argo"
+  source_version: Vol. 6, Art. 439
+  retrieved_on: '2026-11-14'
+  limits: Covers Deep Argo design and depth limits; does not cover core Argo float
+    pressure limits (2000 dbar).
+  related:
+  - float-cycle-and-depth
+  - argo-array-size-and-coverage
+  verified: false
+  checked_on: ''
+- id: argo-gdac-structure
+  question_examples:
+  - What are the Argo GDACs and where are they located?
+  - How does data synchronization work between GDACs?
+  - What role do DACs and GDACs play in the Argo data system?
+  answer: 'The international Argo data system delivers observations to users through
+    two mirror Global Data Assembly Centers (GDACs). The two GDACs are the Coriolis
+    Data Center in France and the US Navy''s Fleet Numerical Meteorology and Oceanography
+    Center (FNMOC). Data holdings at the two Argo GDACs are synchronized once per
+    day to ensure redundancy and uniform global access. The two GDACs receive standardized
+    netCDF files that have been processed by 11 national Data Assembly Centers (DACs).
+
+    '
+  source_id: wong2020
+  section_or_page: Pages 6–7, Section "Components of the Argo Data System"
+  source_version: Vol. 7, Art. 700
+  retrieved_on: '2026-11-14'
+  limits: Describes global data assembly centers; does not detail initial satellite
+    telemetry decoding performed upstream by national Data Assembly Centres (DACs).
+  related:
+  - argo-one-paragraph
+  - argo-data-policy-and-citation
+  verified: false
+  checked_on: ''

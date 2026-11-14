@@ -21,7 +21,7 @@ _src_dir = str(Path(__file__).resolve().parent.parent / "src")
 if _src_dir not in sys.path:
     sys.path.insert(0, _src_dir)
 
-from siqva.analyzer import AnalysisResult
+from siqva.analyzer import AnalysisResult, FULL_LABEL_TEMPLATE, SAMPLE_LABEL_TEMPLATE
 from siqva.capabilities import get_capability_profile, resolve_effective_depth
 from siqva.validator import DEFAULT_MAX_REQUEST_SIZE, is_size_guardrail_enabled
 from siqva.card import (
@@ -1041,7 +1041,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
             else:
                 st.metric("Float Profiles", f"Sample: {res.card.profile_count}")
         else:
-            st.metric("Float Profiles", f"Full: all {res.card.profile_count:,} profiles")
+            st.metric("Float Profiles", FULL_LABEL_TEMPLATE.format(n_profiles=f"{res.card.profile_count:,}"))
     with c3:
         cache_str = "CACHED" if res.card.is_cached else "LIVE"
         st.metric("Source", f"{res.card.source.upper()} [{cache_str}]")
@@ -1073,10 +1073,7 @@ def _render_pipeline_result(res: PipelineResult) -> None:
                 st.plotly_chart(_style_fig(res.figures["map"], is_map=True), use_container_width=True, theme=None)
 
             n_avail = getattr(res.fetch_result, "n_available", None) or res.card.profile_count
-            st.info(
-                f"Sample: {res.card.profile_count} of {n_avail:,} profiles in this region and period, "
-                "selected evenly across space and time. Not representative of the whole region."
-            )
+            st.info(SAMPLE_LABEL_TEMPLATE.format(n_selected=res.card.profile_count, n_available=f"{n_avail:,}"))
 
             for key in all_analytical:
                 st.plotly_chart(_style_fig(res.figures[key], is_map=False), use_container_width=True, theme=None)

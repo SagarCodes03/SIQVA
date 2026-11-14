@@ -123,7 +123,7 @@ def test_summary_text_flags_default_depth_and_unverified_profile_count(sample_df
     assert "default 0–500 dbar applied" in text
     assert "profile count unverified" in text
     assert "Mode" in text and "`standard`" in text
-    assert "QC=1 (good) and QC=2" in text
+    assert get_qc_filter_description(DataMode.STANDARD) in text
     assert "Fetched remotely from ERDDAP" in text
 
 

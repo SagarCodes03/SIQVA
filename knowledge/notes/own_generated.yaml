@@ -1,0 +1,335 @@
+# Auto-generated code-derived notes for SIQVA.
+# Generated directly from source code modules by scripts/build_own_notes.py.
+# DO NOT EDIT MANUALLY; run 'python scripts/build_own_notes.py' to regenerate.
+
+metadata:
+  origin: generated
+  source_code_path: src/siqva/{gazetteer.py, capabilities.py, qc.py, planner.py, floatindex.py,
+    spec.py, validator.py, analyzer.py, chunking.py}
+  generator_script: scripts/build_own_notes.py
+supported_regions:
+  origin: generated
+  source_code_path: src/siqva/gazetteer.py
+  count: 9
+  entries:
+  - canonical_name: Arabian Sea
+    bounding_box:
+      lon_min: 50.0
+      lon_max: 77.0
+      lat_min: 8.0
+      lat_max: 25.0
+    aliases:
+    - arabian
+    - the arabian sea
+  - canonical_name: Bay of Bengal
+    bounding_box:
+      lon_min: 80.0
+      lon_max: 100.0
+      lat_min: 5.0
+      lat_max: 22.5
+    aliases:
+    - bob
+    - the bay of bengal
+  - canonical_name: Indian Ocean
+    bounding_box:
+      lon_min: 20.0
+      lon_max: 120.0
+      lat_min: -50.0
+      lat_max: 25.0
+    aliases:
+    - the indian ocean
+  - canonical_name: Eastern equatorial Pacific
+    bounding_box:
+      lon_min: -170.0
+      lon_max: -80.0
+      lat_min: -10.0
+      lat_max: 10.0
+    aliases:
+    - eastern equatorial pacific ocean
+    - eq pac
+    - equatorial pacific
+    - equatorial pacific ocean
+    - the eastern equatorial pacific
+    - the equatorial pacific
+  - canonical_name: North Atlantic
+    bounding_box:
+      lon_min: -80.0
+      lon_max: 0.0
+      lat_min: 0.0
+      lat_max: 65.0
+    aliases:
+    - north atlantic ocean
+    - the north atlantic
+  - canonical_name: Mediterranean Sea
+    bounding_box:
+      lon_min: -6.0
+      lon_max: 36.0
+      lat_min: 30.0
+      lat_max: 46.0
+    aliases:
+    - med sea
+    - mediterranean
+    - the mediterranean sea
+  - canonical_name: Nino 1+2
+    bounding_box:
+      lon_min: -90.0
+      lon_max: -80.0
+      lat_min: -10.0
+      lat_max: 0.0
+    aliases:
+    - el nino 1+2
+    - el niño 1+2
+    - nino 1 2
+    - nino 1 and 2
+    - nino 1-2
+    - nino1+2
+    - nino12
+    - niño 1 2
+    - niño 1+2
+    - niño 1-2
+  - canonical_name: Nino 3
+    bounding_box:
+      lon_min: -150.0
+      lon_max: -90.0
+      lat_min: -5.0
+      lat_max: 5.0
+    aliases:
+    - el nino 3
+    - el niño 3
+    - nino3
+    - niño 3
+  - canonical_name: Nino 3.4
+    bounding_box:
+      lon_min: -170.0
+      lon_max: -120.0
+      lat_min: -5.0
+      lat_max: 5.0
+    aliases:
+    - el nino 3.4
+    - el niño 3.4
+    - nino 3 4
+    - nino 3 and 4
+    - nino 3-4
+    - nino3.4
+    - nino34
+    - niño 3 4
+    - niño 3.4
+capabilities:
+  origin: generated
+  source_code_path: src/siqva/capabilities.py
+  count: 13
+  entries:
+  - intent: profile
+    module_label: Temperature vs Depth Profile
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: false
+    description: Vertical profiles of temperature or salinity against depth/pressure.
+  - intent: map
+    module_label: Float Position Map
+    data_need: metadata
+    default_depth: null
+    per_profile_only: false
+    description: Geographic overview of active Argo floats and surface positions.
+  - intent: ts
+    module_label: Temperature vs Salinity (T-S)
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: false
+    description: Water property diagram comparing temperature and practical salinity.
+  - intent: trend
+    module_label: Time-Series Trend
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: false
+    description: Chronological time series of oceanographic observations.
+  - intent: thermocline
+    module_label: Thermocline & Barrier Layer
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: true
+    description: Mixed layer depth (MLD), isothermal layer depth (ILD), barrier layer,
+      and 20°C isotherm.
+  - intent: tchp
+    module_label: Cyclone Heat Potential (TCHP)
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: true
+    description: Upper ocean heat content integrated relative to the 26°C isotherm.
+  - intent: acoustic
+    module_label: Acoustic Sound Speed
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 2000.0
+    per_profile_only: true
+    description: TEOS-10 sound speed profile, sonic layer depth, and SOFAR channel
+      axis.
+  - intent: buoyancy
+    module_label: Buoyancy & Stability
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: true
+    description: Brunt-Väisälä buoyancy frequency squared (N²) stratification profile.
+  - intent: ts_isopycnal
+    module_label: T-S with Isopycnals
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: false
+    description: Temperature-salinity diagram overlaid with potential density contours.
+  - intent: omz
+    module_label: Oxygen Minimum Zone
+    data_need: sample_ok
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: true
+    description: Dissolved oxygen vertical profile and hypoxic / suboxic ceiling detection.
+  - intent: hovmoller
+    module_label: Hovmoller Diagram
+    data_need: full_required
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: false
+    description: Hovmøller space-time contour diagram requiring complete observations.
+  - intent: climatology
+    module_label: Climatology Envelope
+    data_need: full_required
+    default_depth:
+      min_depth: 0.0
+      max_depth: 500.0
+    per_profile_only: false
+    description: Regional mean envelope with standard deviation bands requiring full
+      data.
+  - intent: drift
+    module_label: Float Drift Velocity
+    data_need: full_required
+    default_depth:
+      min_depth: 0.0
+      max_depth: 20.0
+    per_profile_only: false
+    description: Lagrangian surface drift speed tracking requiring all float cycles.
+data_modes:
+  origin: generated
+  source_code_path: src/siqva/qc.py, src/siqva/spec.py
+  default_mode: research
+  argopy_default_mode_note: 'By default, all argopy data fetchers are set to work
+    with a standard user mode (source: argopy user modes documentation).'
+  count: 3
+  entries:
+  - mode: research
+    mode_description: delayed-mode only, QC=1 only, adjusted values merged
+    qc_filter_description: Strict QC=1 only (good data); all other flags and real-time
+      records excluded.
+  - mode: standard
+    mode_description: real-time and delayed-mode, QC 1 and 2, adjusted values merged
+    qc_filter_description: only QC flags 1 and 2 are retained; all other flags are
+      excluded
+  - mode: expert
+    mode_description: raw unadjusted data, all QC flags 0–9 included without filtering
+    qc_filter_description: No QC filtering applied; all QC flags (0-9) retained as
+      measured.
+thresholds:
+  origin: generated
+  source_code_path: src/siqva/validator.py, src/siqva/planner.py, src/siqva/chunking.py
+  config:
+    max_request_size:
+      default: 15000.0
+      units: cost units (normalized deg-deg-days x depth/500)
+      source_code_path: src/siqva/validator.py
+    max_core_depth_dbar:
+      default: 2000.0
+      units: dbar
+      source_code_path: src/siqva/validator.py
+    siqva_max_full_rows:
+      env_var: SIQVA_MAX_FULL_ROWS
+      default: 60000
+      source_code_path: src/siqva/planner.py
+    siqva_max_chunks:
+      env_var: SIQVA_MAX_CHUNKS
+      default: 24
+      source_code_path: src/siqva/chunking.py
+    siqva_max_total_rows:
+      env_var: SIQVA_MAX_TOTAL_ROWS
+      default: 3000000
+      source_code_path: src/siqva/chunking.py
+plan_decisions:
+  origin: generated
+  source_code_path: src/siqva/planner.py, src/siqva/chunking.py
+  count: 4
+  entries:
+  - plan: full
+    description: Fetch entire requested dataset directly when estimated rows fit within
+      the single-request ceiling (SIQVA_MAX_FULL_ROWS=60,000).
+  - plan: chunked
+    description: Partition multi-month request into individual calendar months up
+      to SIQVA_MAX_CHUNKS=24 with independent Parquet caching (cumulative ceiling
+      SIQVA_MAX_TOTAL_ROWS=3,000,000).
+  - plan: sample
+    description: Select a representative, deterministic space-time stratified sample
+      of profiles for SAMPLE_OK visualization modules.
+  - plan: refuse
+    description: Refuse oversized execution for FULL_REQUIRED modules with actionable,
+      executable alternatives (narrower period, shallower layer, sub-region).
+sampling:
+  origin: generated
+  source_code_path: src/siqva/floatindex.py, src/siqva/analyzer.py
+  config:
+    sample_default: 12
+    sample_steps:
+    - 12
+    - 24
+    - 48
+    sample_max: 50
+    sample_label_template: 'Sample: {n_selected} of {n_available} profiles in this
+      region and period, selected evenly across space and time. Not representative
+      of the whole region.'
+    full_label_template: 'Full: all {n_profiles} profiles'
+    sample_notice_policy: Regional aggregate statistics and physics are strictly suppressed
+      on sample selections; only individual profile tracks and curves are rendered.
+supported_intents:
+  origin: generated
+  source_code_path: src/siqva/spec.py
+  count: 13
+  entries:
+  - intent: profile
+    enum_name: PROFILE
+  - intent: map
+    enum_name: MAP
+  - intent: ts
+    enum_name: TS
+  - intent: trend
+    enum_name: TREND
+  - intent: thermocline
+    enum_name: THERMOCLINE
+  - intent: tchp
+    enum_name: TCHP
+  - intent: acoustic
+    enum_name: ACOUSTIC
+  - intent: hovmoller
+    enum_name: HOVMOLLER
+  - intent: buoyancy
+    enum_name: BUOYANCY
+  - intent: ts_isopycnal
+    enum_name: TS_ISOPYCNAL
+  - intent: climatology
+    enum_name: CLIMATOLOGY
+  - intent: omz
+    enum_name: OMZ
+  - intent: drift
+    enum_name: DRIFT

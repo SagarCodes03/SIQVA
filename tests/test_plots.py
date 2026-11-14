@@ -172,6 +172,51 @@ def test_regional_climatology_envelope(sample_df):
     assert any("No observation data" in a.text for a in empty_fig.layout.annotations)
 
 
+def test_regional_climatology_suppresses_aggregates_on_sampled_fetch_result(sample_df):
+    """Proves regional climatology suppresses mean and envelope aggregates when is_sample is True."""
+    from siqva.fetcher import FetchResult, FetchStatus
+    from siqva.spec import DepthRange
+
+    # 1. Unsampled (full) result: contains regional mean and +/-1 sigma envelope
+    full_fig = plot_regional_climatology_envelope(sample_df, param="TEMP", is_sample=False)
+    trace_names_full = [t.name for t in full_fig.data]
+    assert "Regional ±1σ Envelope" in trace_names_full
+    assert "Regional Mean" in trace_names_full
+
+    # 2. Sampled FetchResult
+    fetch_result = FetchResult(
+        status=FetchStatus.SUCCESS,
+        data=sample_df,
+        is_cached=False,
+        effective_depth_range=DepthRange(min_depth=0.0, max_depth=500.0),
+        is_sample=True,
+        n_selected=2,
+        n_available=100,
+    )
+    assert fetch_result.is_sample is True
+
+    # 3. Call with is_sample=fetch_result.is_sample
+    sampled_fig = plot_regional_climatology_envelope(
+        fetch_result.data, param="TEMP", is_sample=fetch_result.is_sample
+    )
+    trace_names_sampled = [t.name for t in sampled_fig.data]
+
+    # Regional aggregate traces (mean and envelope) are strictly suppressed
+    assert "Regional ±1σ Envelope" not in trace_names_sampled
+    assert "Regional Mean" not in trace_names_sampled
+
+    # Per-profile traces are rendered instead
+    assert len(sampled_fig.data) > 0
+    for trace in sampled_fig.data:
+        assert "Profile" in (trace.name or "") or "WMO" in (trace.name or "")
+
+    # Explanatory annotation is added
+    assert any(
+        "Sample selection: regional mean and envelope suppressed" in a.text
+        for a in sampled_fig.layout.annotations
+    )
+
+
 def test_bgc_omz_profile(sample_df):
     """Proves BGC dissolved oxygen profile identifies hypoxic zone and handles missing DOXY cleanly."""
     # When DOXY is absent in standard hydrographic file

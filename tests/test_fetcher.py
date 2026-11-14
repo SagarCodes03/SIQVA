@@ -17,6 +17,7 @@ from siqva.fetcher import (
     FetchResult,
     FetchStatus,
     SnapshotProfileResult,
+    _build_empty_result,
     count_profiles_in_snapshot,
     fetch,
 )
@@ -763,6 +764,27 @@ def test_request_extending_past_fetch_date_is_partial_coverage(tmp_path):
     assert res.profile_count_verified is False
     assert res.coverage_status == CoverageStatus.PARTIAL
     assert mock_engine.call_count == 1
+
+
+def test_empty_recent_research_mode_message():
+    """Verify delayed-mode DMQC message for recent window in research mode specifies about 12 months."""
+    spec = QuerySpec(
+        region=BoundingBox(lon_min=-30.0, lon_max=-28.0, lat_min=32.0, lat_max=34.0),
+        date_range=DateRange(start=date(2026, 1, 1), end=date(2026, 6, 1)),
+        variables=[Variable.TEMP],
+        depth_range=DepthRange(min_depth=0.0, max_depth=200.0),
+        mode=DataMode.RESEARCH,
+        intent=Intent.PROFILE,
+    )
+    res = _build_empty_result(
+        spec=spec,
+        fetch_key="test_key",
+        effective_depth_range=spec.depth_range,
+        today=date(2026, 6, 15),
+    )
+    assert res.status == FetchStatus.EMPTY
+    assert "about 12 months" in res.error_message
+    assert "recent profiles are in real-time or adjusted mode and are not included in research mode" in res.error_message
 
 
 # --- Clearly marked live network test, skipped by default ---

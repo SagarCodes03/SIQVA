@@ -21,3 +21,7 @@ data/*.parquet
 data/llm_usage.json
 *.sqlite
 *.sqlite-journal
+
+# Knowledge Base raw sources and extracted text
+knowledge/sources/
+knowledge/text/

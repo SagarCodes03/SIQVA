@@ -35,13 +35,13 @@ from .spec import DataMode, Variable
 #      both real-time ('R'), adjusted real-time ('A'), and delayed-mode ('D') profiles.
 #    - Applies `filter_qc(QC_list=[1, 2])`:
 #      * Retains measurements with QC = 1 ("Good") and QC = 2 ("Probably Good").
-#      * Drops measurements with QC = 3 ("Probably Bad"), QC = 4 ("Bad"), QC = 0 ("No QC").
+#      * Drops measurements with all other QC flags (0, 3, 4, 5, 6, 7, 8, 9).
 #
 # 3. EXPERT MODE (`mode="expert"`):
 #    Source: `argopy.fetchers.ArgoDataFetcher.define_postprocessor()`
 #    - Workflow is `lambda x: x` (identity function).
 #    - No data mode filtering is performed (all of 'R', 'A', 'D' remain).
-#    - No QC filtering is performed (all QC flags 0, 1, 2, 3, 4, 5, 8, 9 remain intact).
+#    - No QC filtering is performed (all QC flags 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 remain intact).
 #    - Raw unadjusted variables and separate *_ADJUSTED columns are returned without merging.
 #
 # ==============================================================================
@@ -50,9 +50,9 @@ from .spec import DataMode, Variable
 def get_qc_filter_description(mode: DataMode) -> str:
     """Return explicit deterministic description of QC filter in effect for a given mode."""
     if mode == DataMode.RESEARCH:
-        return "Strict QC=1 only (good data); flags >1 and real-time records excluded."
+        return "Strict QC=1 only (good data); all other flags and real-time records excluded."
     elif mode == DataMode.STANDARD:
-        return "QC=1 (good) and QC=2 (probably good) retained; flags 0, 3, 4 excluded."
+        return "only QC flags 1 and 2 are retained; all other flags are excluded"
     elif mode == DataMode.EXPERT:
         return "No QC filtering applied; all QC flags (0-9) retained as measured."
     return "Custom QC filter"
