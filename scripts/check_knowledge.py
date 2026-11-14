@@ -245,13 +245,49 @@ def validate_notes(
         # Distinguish code-derived dictionary from document-derived list of notes
         if isinstance(data, dict):
             metadata = data.get("metadata", {})
-            if metadata.get("origin") != "generated":
+            origin = metadata.get("origin")
+            if origin not in ("generated", "code"):
                 errors.append(
-                    f"{yaml_path.name}: dictionary format expected origin: 'generated'."
+                    f"{yaml_path.name}: dictionary format expected origin: 'generated' or 'code'."
                 )
-            for key in data.keys():
-                if key != "metadata":
-                    all_note_ids.add(key)
+            if origin == "code":
+                if "developer_name" not in metadata:
+                    errors.append(
+                        f"{yaml_path.name}: missing 'developer_name' field in metadata."
+                    )
+                notes_list = data.get("notes", [])
+                if not isinstance(notes_list, list) or len(notes_list) == 0:
+                    errors.append(f"{yaml_path.name}: 'notes' must be a non-empty list.")
+                for idx, entry in enumerate(notes_list):
+                    if not isinstance(entry, dict):
+                        errors.append(f"{yaml_path.name}[{idx}]: entry must be a dict.")
+                        continue
+                    eid = entry.get("id", "").strip()
+                    if not eid:
+                        errors.append(f"{yaml_path.name}[{idx}]: missing note id.")
+                        continue
+                    all_note_ids.add(eid)
+                    ans = entry.get("answer", "")
+                    s_count = count_sentences(ans)
+                    if not (2 <= s_count <= 5):
+                        errors.append(
+                            f"{yaml_path.name}[{eid}]: answer sentence count ({s_count}) is outside allowed range (2-5 sentences)."
+                        )
+                    quotes = find_quotations(ans)
+                    if len(quotes) > 1:
+                        errors.append(
+                            f"{yaml_path.name}[{eid}]: answer contains {len(quotes)} quotations (maximum allowed is 1)."
+                        )
+                    for q in quotes:
+                        w_len = len(q.split())
+                        if w_len >= 15:
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: quotation has {w_len} words (must be under 15 words): '{q}'"
+                            )
+            else:
+                for key in data.keys():
+                    if key != "metadata":
+                        all_note_ids.add(key)
             continue
 
         if not isinstance(data, list):

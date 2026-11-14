@@ -1,0 +1,147 @@
+# Auto-generated code-derived narrative notes for SIQVA.
+# Generated directly from source code modules by scripts/build_own_sentences.py.
+# DO NOT EDIT MANUALLY; run 'python scripts/build_own_sentences.py' to regenerate.
+
+metadata:
+  origin: code
+  developer_name: ''
+  developer_affiliation: ''
+  developer_email: ''
+  generator_script: scripts/build_own_sentences.py
+  description: SIQVA system knowledge and meta-notes written in sentences, generated
+    directly from source code constants and documentation.
+notes:
+- id: siqva-sample-explanation
+  question_examples:
+  - What is a sample in SIQVA and why did I get one?
+  - Why did my query return a sample instead of all profiles?
+  - How are sample profiles selected in SIQVA?
+  answer: A sample in SIQVA is a space-time stratified selection of float profiles
+    chosen when a complete regional dataset exceeds safe data-size caps. The system
+    defaults to 12 profiles (with selectable steps of 12, 24, and 50) spread evenly
+    across latitude, longitude, and observation time. Samples allow responsive visual
+    exploration of profile shapes and water-column structure without overwhelming
+    ERDDAP servers or browser memory. To ensure scientific integrity, regional aggregate
+    statistics and physical oceanography calculations are strictly suppressed on sampled
+    results.
+  source_code_path: src/siqva/floatindex.py, src/siqva/analyzer.py, src/siqva/planner.py
+  origin: code
+- id: siqva-understood-as-depth
+  question_examples:
+  - What does 'Understood as' mean in SIQVA?
+  - Why is a default depth of 0 to 500 dbar applied?
+  - What do the tags like [rules] and [default] mean in the query interpretation?
+  answer: The 'Understood as' header displays the exact structured query parameters
+    interpreted from natural language, tagging each resolved parameter with provenance
+    labels such as [rules], [llm], or [default]. When a user does not specify a vertical
+    range, SIQVA automatically applies a default depth layer of 0 to 500 dbar. This
+    default focuses data fetching on the upper ocean where ocean-atmosphere interaction
+    occurs and sensor coverage is densest. Users can override this default at any
+    time by specifying custom depths up to the 2000 dbar core Argo limit.
+  source_code_path: src/siqva/interpretation.py, src/siqva/validator.py, src/siqva/analyzer.py
+  origin: code
+- id: siqva-qc-data-modes
+  question_examples:
+  - What quality control data modes does SIQVA offer?
+  - What is the difference between research, standard, and expert mode in SIQVA?
+  - Which QC flags are excluded in research and standard mode?
+  answer: 'SIQVA provides three explicit quality control data delivery modes: research,
+    standard, and expert. Research mode (delayed-mode only, QC=1 only, adjusted values
+    merged) enforces that strict qc=1 only (good data); all other flags and real-time
+    records excluded. Standard mode (real-time and delayed-mode, QC 1 and 2, adjusted
+    values merged) ensures that only QC flags 1 and 2 are retained; all other flags
+    are excluded. Expert mode (raw unadjusted data, all QC flags 0–9 included without
+    filtering) performs no qc filtering applied; all qc flags (0-9) retained as measured.'
+  source_code_path: src/siqva/qc.py, src/siqva/spec.py
+  origin: code
+- id: siqva-delayed-mode-timing
+  question_examples:
+  - Why is recent Argo data missing in research mode?
+  - How long does delayed-mode quality control take for Argo floats?
+  - Why are recent profiles only in real-time or adjusted mode?
+  answer: Recent Argo observations may appear missing when querying in research mode
+    because rigorous delayed-mode quality control takes about 12 months after profile
+    collection. During this 12-month period, national data centres accumulate regional
+    time series to perform expert scientific calibration and detect subtle salinity
+    sensor drift against reference climatologies. Recent profiles collected within
+    the past year are available only in real-time or adjusted mode. Users seeking
+    observations from the past 12 months should switch their query mode to standard
+    mode.
+  source_code_path: src/siqva/fetcher.py, src/siqva/qc.py
+  origin: code
+- id: siqva-data-sources-caching
+  question_examples:
+  - Where does SIQVA get its ocean data from?
+  - How does caching work in SIQVA?
+  - How fresh is the local float index snapshot?
+  answer: SIQVA retrieves real in situ ocean observations from international Argo
+    Global Data Assembly Centres through IFREMER ERDDAP data servers. Fetched datasets
+    are normalized, hashed with SHA-256, and cached locally in Apache Parquet format
+    alongside sidecar metadata files for instant reproducible re-use. Float availability
+    and spatial coverage are pre-screened using a local Parquet float index snapshot
+    that records platform numbers, cycle numbers, and surfacing coordinates. This
+    local snapshot prevents futile queries to remote servers when no floats operated
+    in the requested region.
+  source_code_path: src/siqva/fetcher.py, src/siqva/floatindex.py
+  origin: code
+- id: siqva-reproduce-query-card
+  question_examples:
+  - How do I reproduce a query card in SIQVA?
+  - What information is stored in a SIQVA query card?
+  - How does SIQVA generate Python scripts for re-running fetches?
+  answer: Every completed query in SIQVA produces a persistent, reproducible query
+    card stored in a local SQLite database. The query card records the exact bounding
+    box, date range, effective depth layer, delivery mode, library versions, fetch
+    timestamp, and a SHA-256 data hash of the retrieved observations. Clicking any
+    card in the query history instantly restores the metadata and re-renders plots
+    directly from the local Parquet cache without contacting remote servers. Each
+    query card also generates a self-contained, runnable Python script using argopy
+    that reproduces the fetch and quality filtering independently.
+  source_code_path: src/siqva/card.py
+  origin: code
+- id: siqva-llm-data-privacy
+  question_examples:
+  - Does the language model see my ocean data in SIQVA?
+  - What information is sent to the LLM in SIQVA?
+  - Are oceanographic numbers and statistics generated by an LLM in SIQVA?
+  answer: SIQVA strictly enforces an architectural boundary where the language model
+    never sees oceanographic data values, profile observations, or calculation results.
+    The language model receives only the user question text and schema validation
+    instructions to extract query parameters when deterministic rules leave fields
+    ambiguous. All analytical metrics, summary statistics, physical properties, and
+    visualizations are computed entirely by deterministic Python code. This design
+    guarantees mathematical honesty, prevents data hallucinations, and protects user
+    queries from external model data exposure.
+  source_code_path: src/siqva/llm_parser.py, src/siqva/rules_parser.py, src/siqva/analyzer.py
+  origin: code
+- id: siqva-known-limits
+  question_examples:
+  - What are the known limitations of SIQVA?
+  - Can SIQVA query regions that cross the 180 degree meridian?
+  - Are statistics in SIQVA area-weighted across the ocean?
+  answer: SIQVA operates with several explicit physical and geographic constraints
+    to guarantee reproducibility and prevent misleading results. Bounding boxes crossing
+    the 180-degree antimeridian where the minimum longitude exceeds the maximum longitude
+    are rejected with plain-language guidance. Argo floats drift freely with ocean
+    currents, resulting in naturally uneven spatial sampling across oceanic basins.
+    Furthermore, reported regional statistics are arithmetic means across profile
+    observations rather than area-weighted or volume-weighted oceanographic integrals,
+    and profile depths are capped at the core Argo limit of 2000 dbar.
+  source_code_path: src/siqva/validator.py, src/siqva/gazetteer.py, src/siqva/analyzer.py
+  origin: code
+- id: siqva-plan-decisions-refusal
+  question_examples:
+  - How does SIQVA decide whether to fetch full data, chunk, sample, or refuse?
+  - Why was my query refused as oversized?
+  - What are the thresholds for single-request and chunked queries?
+  answer: 'SIQVA''s query planner evaluates every request against four deterministic
+    execution plans: full fetch, calendar-month chunking, stratified sampling, or
+    refusal. Queries estimating up to 60,000 rows or fitting the single-request ceiling
+    (15,000 cost units) execute directly as a full fetch. Multi-month requests exceeding
+    the single-request cap are partitioned into up to 24 monthly chunks up to a cumulative
+    ceiling of 3,000,000 rows with independent Parquet caching. When an oversized
+    request targets an analytical module requiring complete data, SIQVA refuses execution
+    and provides three concrete, actionable narrowing alternatives: shorter duration,
+    shallower depth, or a sub-region.'
+  source_code_path: src/siqva/planner.py, src/siqva/chunking.py, src/siqva/validator.py
+  origin: code
