@@ -303,7 +303,7 @@ Based on `argopy` source code and documentation:
 2. **Standard Mode (`mode="standard"`)**:
    - Retains both real-time (`'R'`), adjusted real-time (`'A'`), and delayed-mode (`'D'`) profiles.
    - Merges adjusted fields when available.
-   - Retains measurements with `QC == 1` ("Good") and `QC == 2` ("Probably Good"). Flags `0`, `3`, and `4` are excluded.
+   - Retains measurements with `QC == 1` ("Good") and `QC == 2` ("Probably Good"); all other flags are excluded.
 3. **Expert Mode (`mode="expert"`)**:
    - Identity operation (`lambda x: x`).
    - No data mode filtering (raw `'R'`, `'A'`, `'D'` all present).

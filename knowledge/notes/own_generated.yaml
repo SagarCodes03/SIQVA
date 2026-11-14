@@ -231,12 +231,12 @@ data_modes:
   entries:
   - mode: research
     mode_description: delayed-mode only, QC=1 only, adjusted values merged
-    qc_filter_description: Strict QC=1 only (good data); flags >1 and real-time records
-      excluded.
+    qc_filter_description: Strict QC=1 only (good data); all other flags and real-time
+      records excluded.
   - mode: standard
     mode_description: real-time and delayed-mode, QC 1 and 2, adjusted values merged
-    qc_filter_description: QC=1 (good) and QC=2 (probably good) retained; flags 0,
-      3, 4 excluded.
+    qc_filter_description: only QC flags 1 and 2 are retained; all other flags are
+      excluded
   - mode: expert
     mode_description: raw unadjusted data, all QC flags 0–9 included without filtering
     qc_filter_description: No QC filtering applied; all QC flags (0-9) retained as
