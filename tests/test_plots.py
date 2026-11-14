@@ -217,6 +217,56 @@ def test_regional_climatology_suppresses_aggregates_on_sampled_fetch_result(samp
     )
 
 
+def test_sampled_fetch_result_does_not_draw_aggregates_or_trends(sample_df):
+    """Proves profile (and trend), T-S, and isopycnal plots do not draw mean/trendline/band from sampled data."""
+    from siqva.fetcher import FetchResult, FetchStatus
+    from siqva.spec import DepthRange, Variable
+
+    fetch_result = FetchResult(
+        status=FetchStatus.SUCCESS,
+        data=sample_df,
+        is_cached=False,
+        effective_depth_range=DepthRange(min_depth=0.0, max_depth=500.0),
+        is_sample=True,
+        n_selected=2,
+        n_available=100,
+    )
+    assert fetch_result.is_sample is True
+
+    # 1. Profile / Trend plot (plot_depth_profile handles both Intent.PROFILE and Intent.TREND)
+    fig_profile = plot_depth_profile(fetch_result.data, variable=Variable.TEMP)
+    trace_names_profile = [t.name or "" for t in fig_profile.data]
+    for name in trace_names_profile:
+        assert "mean" not in name.lower()
+        assert "trend" not in name.lower()
+        assert "envelope" not in name.lower()
+        assert "aggregate" not in name.lower()
+    # Traces must be per-profile
+    assert all("WMO" in name or "Profile" in name for name in trace_names_profile)
+
+    # 2. T-S diagram (plot_ts_diagram)
+    fig_ts = plot_ts_diagram(fetch_result.data)
+    trace_names_ts = [t.name or "" for t in fig_ts.data]
+    for name in trace_names_ts:
+        assert "mean" not in name.lower()
+        assert "trend" not in name.lower()
+        assert "envelope" not in name.lower()
+    # Only scatter observations
+    assert len(fig_ts.data) == 1
+    assert fig_ts.data[0].mode == "markers"
+
+    # 3. T-S with isopycnals (plot_ts_with_isopycnals)
+    fig_isopycnal = plot_ts_with_isopycnals(fetch_result.data)
+    trace_names_iso = [t.name or "" for t in fig_isopycnal.data]
+    for name in trace_names_iso:
+        assert "mean" not in name.lower()
+        assert "trend" not in name.lower()
+        assert "envelope" not in name.lower()
+    # Only isopycnal background contour and float observations scatter
+    assert any(t.type == "contour" for t in fig_isopycnal.data)
+    assert any(t.type in ("scatter", "scattergl") and t.mode == "markers" for t in fig_isopycnal.data)
+
+
 def test_bgc_omz_profile(sample_df):
     """Proves BGC dissolved oxygen profile identifies hypoxic zone and handles missing DOXY cleanly."""
     # When DOXY is absent in standard hydrographic file
