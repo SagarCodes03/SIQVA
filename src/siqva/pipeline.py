@@ -398,7 +398,9 @@ def _run_spec_impl(
     elif spec.intent == Intent.CLIMATOLOGY:
         try:
             param = "TEMP" if Variable.TEMP in spec.variables else ("PSAL" if Variable.PSAL in spec.variables else "TEMP")
-            figures["climatology"] = plot_regional_climatology_envelope(fetch_res.data, param=param)
+            figures["climatology"] = plot_regional_climatology_envelope(
+                fetch_res.data, param=param, is_sample=fetch_res.is_sample
+            )
         except Exception:
             pass
     elif spec.intent == Intent.OMZ:

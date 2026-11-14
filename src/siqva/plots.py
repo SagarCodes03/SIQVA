@@ -1481,11 +1481,17 @@ def plot_regional_climatology_envelope(
     target_wmo: str | int | None = None,
     param: str = "TEMP",
     max_depth: float = 500.0,
-    title: Optional[str] = None
+    title: Optional[str] = None,
+    is_sample: bool = False,
 ) -> go.Figure:
     """
     Computes the regional mean and ±1 SD shaded envelope across multiple profiles,
     overlaying a specific target profile to detect marine heatwaves or salinity anomalies.
+
+    When is_sample is True, regional aggregate curves (mean line and envelope) are
+    suppressed to prevent unrepresentative regional statistics, rendering individual
+    per-profile curves only.
+
     Expected columns: ['PRES', param, 'PLATFORM_NUMBER']
     """
     fig = go.Figure()
@@ -1539,51 +1545,98 @@ def plot_regional_climatology_envelope(
             invert_y=True
         )
 
-    df_clean["DEPTH_BIN"] = pd.cut(df_clean[col_pres], bins=depth_bins, labels=depth_bins[:-1] + 5)
-    stats = df_clean.groupby("DEPTH_BIN", observed=True)[col_param].agg(["mean", "std"]).dropna().reset_index()
-
-    depths = stats["DEPTH_BIN"].astype(float).values
-    mean_val = stats["mean"].values
-    std_val = stats["std"].fillna(0).values
-
-    if len(depths) > 0:
-        # ±1 Standard Deviation Shaded Envelope
-        fig.add_trace(go.Scatter(
-            x=np.concatenate([mean_val + std_val, (mean_val - std_val)[::-1]]),
-            y=np.concatenate([depths, depths[::-1]]),
-            fill="toself",
-            fillcolor="rgba(0, 240, 255, 0.18)",
-            line=dict(color="rgba(255,255,255,0)"),
-            name="Regional ±1σ Envelope",
-            hoverinfo="skip"
-        ))
-
-        # Regional Mean Curve
-        fig.add_trace(go.Scatter(
-            x=mean_val,
-            y=depths,
-            mode="lines",
-            line=dict(color="#00F0FF", width=2, dash="dash"),
-            name="Regional Mean"
-        ))
-
-    # Optional Target Float Profile Overlay
     plat_col = "PLATFORM_NUMBER" if "PLATFORM_NUMBER" in df_clean.columns else ("wmo_id" if "wmo_id" in df_clean.columns else None)
-    if target_wmo is not None and plat_col:
-        target_df = df_clean[df_clean[plat_col].astype(str) == str(target_wmo)].sort_values(col_pres)
-        if not target_df.empty:
+    cyc_col = "CYCLE_NUMBER" if "CYCLE_NUMBER" in df_clean.columns else None
+
+    if is_sample:
+        # Suppress aggregate (mean line and ±1σ envelope); render per-profile curves only
+        if plat_col and cyc_col:
+            profiles = list(df_clean.groupby([plat_col, cyc_col]))
+        elif plat_col:
+            profiles = list(df_clean.groupby(plat_col))
+        else:
+            profiles = [(("Single", "1"), df_clean)]
+
+        for p_id, group in profiles:
+            grp = group.dropna(subset=[col_pres, col_param]).sort_values(col_pres)
+            if grp.empty:
+                continue
+            label = f"WMO {p_id[0]} Cyc {p_id[1]}" if isinstance(p_id, tuple) else f"Profile {p_id}"
+            fig.add_trace(
+                go.Scatter(
+                    x=grp[col_param],
+                    y=grp[col_pres],
+                    mode="lines",
+                    name=label,
+                    line=dict(width=1.5),
+                    opacity=0.7,
+                )
+            )
+
+        fig.add_annotation(
+            text="Sample selection: regional mean and envelope suppressed; showing individual profiles only.",
+            xref="paper",
+            yref="paper",
+            x=0.02,
+            y=0.98,
+            xanchor="left",
+            yanchor="top",
+            showarrow=False,
+            font=dict(color=COLOR_AMBER, size=11),
+            bgcolor="rgba(10, 25, 40, 0.7)",
+            bordercolor=THEME_GRID,
+            borderwidth=1,
+        )
+    else:
+        df_clean["DEPTH_BIN"] = pd.cut(df_clean[col_pres], bins=depth_bins, labels=depth_bins[:-1] + 5)
+        stats = df_clean.groupby("DEPTH_BIN", observed=True)[col_param].agg(["mean", "std"]).dropna().reset_index()
+
+        depths = stats["DEPTH_BIN"].astype(float).values
+        mean_val = stats["mean"].values
+        std_val = stats["std"].fillna(0).values
+
+        if len(depths) > 0:
+            # ±1 Standard Deviation Shaded Envelope
             fig.add_trace(go.Scatter(
-                x=target_df[col_param],
-                y=target_df[col_pres],
-                mode="lines",
-                line=dict(color="#FF3366", width=3),
-                name=f"Float {target_wmo} (Target)"
+                x=np.concatenate([mean_val + std_val, (mean_val - std_val)[::-1]]),
+                y=np.concatenate([depths, depths[::-1]]),
+                fill="toself",
+                fillcolor="rgba(0, 240, 255, 0.18)",
+                line=dict(color="rgba(255,255,255,0)"),
+                name="Regional ±1σ Envelope",
+                hoverinfo="skip"
             ))
 
+            # Regional Mean Curve
+            fig.add_trace(go.Scatter(
+                x=mean_val,
+                y=depths,
+                mode="lines",
+                line=dict(color="#00F0FF", width=2, dash="dash"),
+                name="Regional Mean"
+            ))
+
+        # Optional Target Float Profile Overlay
+        if target_wmo is not None and plat_col:
+            target_df = df_clean[df_clean[plat_col].astype(str) == str(target_wmo)].sort_values(col_pres)
+            if not target_df.empty:
+                fig.add_trace(go.Scatter(
+                    x=target_df[col_param],
+                    y=target_df[col_pres],
+                    mode="lines",
+                    line=dict(color="#FF3366", width=3),
+                    name=f"Float {target_wmo} (Target)"
+                ))
+
     unit = "°C" if "TEMP" in param.upper() else ("PSU" if "PSAL" in param.upper() else "")
+    default_title = (
+        f"Individual Profiles ({param}) [Sample: Regional Aggregates Suppressed]"
+        if is_sample
+        else f"[STAT // ENVELOPE] Regional Mean, ±1σ Spread & Anomaly ({param})"
+    )
     return _apply_siqva_theme(
         fig,
-        title=title or f"[STAT // ENVELOPE] Regional Mean, ±1σ Spread & Anomaly ({param})",
+        title=title or default_title,
         xaxis_title=f"{param} ({unit})",
         yaxis_title="Depth / Pressure (dbar)",
         invert_y=True
