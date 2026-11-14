@@ -1,0 +1,589 @@
+"""Pure chat dispatcher, message models, and SQLite persistence for SIQVA (C1).
+
+Provides:
+- ChatMessage and ChatOption models
+- Pure dispatch(question, conversation_state, ...) routing user questions to assistant responses
+- SQLite persistence in table chat_messages using closing(sqlite3.connect(...)) pattern
+- Zero Streamlit imports; fully testable offline with mocked fetcher
+"""
+
+from __future__ import annotations
+
+from contextlib import closing
+from datetime import datetime, timezone
+import json
+from pathlib import Path
+import re
+import sqlite3
+from typing import Any, Optional
+import uuid
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from .card import DEFAULT_DB_PATH, _resolve_db_path, is_history_shared
+from .followup import ConversationState, try_resolve_followup
+from .interpretation import build_understood_from_spec, format_understood_as
+from .pipeline import PipelineResult, PipelineStatus, run, run_spec
+from .router import RouteTarget, route
+from .spec import DataMode
+
+MAX_QUESTION_LENGTH: int = 500
+MAX_STORED_MESSAGES: int = 100
+
+
+class ChatOption(BaseModel):
+    """Structured interactive alternative action inside a chat message."""
+
+    model_config = ConfigDict(frozen=True)
+
+    label: str
+    action_type: str = "query"  # "query", "plan_option", "clarification"
+    query_text: str = ""
+
+
+class ChatMessage(BaseModel):
+    """Immutable chat turn in the persistent conversation."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(default_factory=lambda: uuid.uuid4().hex[:16])
+    role: str  # "user" | "assistant"
+    kind: str  # "text" | "result" | "clarification" | "refusal" | "error" | "knowledge" | "options"
+    text: str
+    card_id: Optional[str] = None
+    understood_as: Optional[str] = None
+    options: list[ChatOption] = Field(default_factory=list)
+    created_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    )
+
+
+# ==============================================================================
+# GREETINGS & REFUSAL LOADERS (DYNAMIC FROM FILES)
+# ==============================================================================
+
+
+def _load_greetings_from_scope() -> dict[str, str]:
+    """Dynamically load fixed greeting and courtesy sentences from knowledge/scope.md."""
+    scope_path = Path("knowledge/scope.md")
+    greeting = (
+        "Hello! I am SIQVA, an assistant for exploring Argo ocean float data and "
+        "physical oceanography. How can I help you today?"
+    )
+    courtesy = "You are welcome! Let me know if you have more questions about Argo ocean data."
+    if scope_path.exists():
+        try:
+            content = scope_path.read_text(encoding="utf-8")
+            m_g = re.search(r'Fixed Greeting Reply Sentence:\s*\n\s*>\s*"(.*?)"', content)
+            if m_g:
+                greeting = m_g.group(1).strip()
+            m_c = re.search(r'Fixed Courtesy Reply Sentence:\s*\n\s*>\s*"(.*?)"', content)
+            if m_c:
+                courtesy = m_c.group(1).strip()
+        except Exception:
+            pass
+    return {"greeting": greeting, "courtesy": courtesy}
+
+
+def _load_refusal_categories() -> list[dict[str, Any]]:
+    """Dynamically load refusal categories and standard sentences from data/refusal_categories.json."""
+    cat_file = Path("data/refusal_categories.json")
+    if cat_file.exists():
+        try:
+            with open(cat_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("categories", [])
+        except Exception:
+            pass
+    return []
+
+
+# Refusal keyword triggers mapped to refusal category numbers (1-9)
+_REFUSAL_TRIGGERS: list[tuple[int, list[re.Pattern]]] = [
+    (
+        1,
+        [
+            re.compile(r"\b(forecast|predict|prediction|next week|next month|next year|late 202\d|in 202[7-9])\b", re.IGNORECASE),
+            re.compile(r"\b(will there be|will it cause|temperature.*be next)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        2,
+        [
+            re.compile(r"\b(why did cyclone|why did the .* form|did global warming (?:directly )?cause|caused by global warming)\b", re.IGNORECASE),
+            re.compile(r"\b(causal attribution|directly trigger cyclone)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        3,
+        [
+            re.compile(r"\b(satellite\s+sst|modis|era5|reanalysis|surface drifter|global drifter program|gdp drifter|hycom)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        4,
+        [
+            re.compile(r"\b(antibiotic|prescribe|open wound|medical advice|clinical advice|jellyfish sting|vibrio)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        5,
+        [
+            re.compile(r"\b(poem about|french revolution|world cup|fifa|who won|election|stock market)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        6,
+        [
+            re.compile(r"\b(woce|go-ship|glider|marine mammal|shipboard ctd|bottle data)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        7,
+        [
+            re.compile(r"\b(ship navigation|marine navigation|search and rescue|voyage planning|navigational hazard)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        8,
+        [
+            re.compile(r"\b(cod abundance|fish abundance|fish stock|fisheries management|coral reef ecology)\b", re.IGNORECASE),
+        ],
+    ),
+    (
+        9,
+        [
+            re.compile(r"\b(ignore (?:all )?previous instructions|system prompt|reveal internal|override (?:safety|validation))\b", re.IGNORECASE),
+        ],
+    ),
+]
+
+_GREETING_PATTERNS = [
+    re.compile(r"^\s*(hello|hi|hey|good\s+morning|good\s+afternoon|good\s+evening)\b", re.IGNORECASE),
+]
+
+_COURTESY_PATTERNS = [
+    re.compile(r"^\s*(thank\s+you|thanks|thx|much\s+appreciated)\b", re.IGNORECASE),
+]
+
+
+def _match_refusal(text: str) -> Optional[str]:
+    """Return standard refusal sentence if question matches a refusal category."""
+    cats = _load_refusal_categories()
+    cat_by_num = {c["category_number"]: c["refusal_sentence"] for c in cats if "category_number" in c}
+
+    for cat_num, patterns in _REFUSAL_TRIGGERS:
+        for pat in patterns:
+            if pat.search(text):
+                return cat_by_num.get(cat_num)
+    return None
+
+
+# ==============================================================================
+# SQLITE PERSISTENCE
+# ==============================================================================
+
+
+def _init_chat_db(conn: sqlite3.Connection) -> None:
+    """Initialize chat_messages table and indices in SQLite."""
+    with conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                session_id TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                message_id TEXT PRIMARY KEY,
+                role TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                text TEXT NOT NULL,
+                card_id TEXT,
+                understood_as TEXT,
+                options_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_session ON chat_messages (session_id, position)"
+        )
+
+
+def save_chat_message(
+    msg: ChatMessage,
+    session_id: str = "default",
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> None:
+    """Persist a single chat message to SQLite store."""
+    path = _resolve_db_path(db_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    with closing(sqlite3.connect(path)) as conn:
+        _init_chat_db(conn)
+        with conn:
+            cur = conn.execute(
+                "SELECT COALESCE(MAX(position), -1) + 1 FROM chat_messages WHERE session_id = ?",
+                (session_id,),
+            )
+            pos = cur.fetchone()[0]
+
+            options_json = json.dumps([opt.model_dump() for opt in msg.options], ensure_ascii=False)
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO chat_messages (
+                    session_id, position, message_id, role, kind, text, card_id, understood_as, options_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    pos,
+                    msg.id,
+                    msg.role,
+                    msg.kind,
+                    msg.text,
+                    msg.card_id,
+                    msg.understood_as,
+                    options_json,
+                    msg.created_at,
+                ),
+            )
+
+
+def load_chat_messages(
+    session_id: str = "default",
+    limit: int = MAX_STORED_MESSAGES,
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> list[ChatMessage]:
+    """Load ordered chat messages for a session from SQLite store."""
+    path = _resolve_db_path(db_path)
+    if not path.exists():
+        return []
+
+    messages: list[ChatMessage] = []
+
+    with closing(sqlite3.connect(path)) as conn:
+        _init_chat_db(conn)
+        query = (
+            "SELECT message_id, role, kind, text, card_id, understood_as, options_json, created_at "
+            "FROM chat_messages WHERE session_id = ? ORDER BY position ASC LIMIT ?"
+        )
+        cur = conn.execute(query, (session_id, limit))
+
+        for row in cur.fetchall():
+            m_id, role, kind, text, card_id, understood_as, opt_json, created_at = row
+            opts: list[ChatOption] = []
+            if opt_json:
+                try:
+                    raw_opts = json.loads(opt_json)
+                    opts = [ChatOption(**o) for o in raw_opts]
+                except Exception:
+                    pass
+            messages.append(
+                ChatMessage(
+                    id=m_id,
+                    role=role,
+                    kind=kind,
+                    text=text,
+                    card_id=card_id,
+                    understood_as=understood_as,
+                    options=opts,
+                    created_at=created_at,
+                )
+            )
+    return messages
+
+
+def clear_chat_messages(
+    session_id: str = "default",
+    db_path: Path | str = DEFAULT_DB_PATH,
+) -> None:
+    """Delete chat messages for a session from SQLite store."""
+    path = _resolve_db_path(db_path)
+    if not path.exists():
+        return
+
+    with closing(sqlite3.connect(path)) as conn:
+        _init_chat_db(conn)
+        with conn:
+            conn.execute("DELETE FROM chat_messages WHERE session_id = ?", (session_id,))
+
+
+# ==============================================================================
+# PURE DISPATCHER
+# ==============================================================================
+
+
+def _extract_understood_as(res: PipelineResult) -> Optional[str]:
+    """Extract deterministic 'Understood as' line from a pipeline result."""
+    if res.parse_outcome is not None and getattr(res.parse_outcome, "understood", None) is not None:
+        try:
+            return format_understood_as(res.parse_outcome.understood, res.parse_outcome.provenance)
+        except Exception:
+            pass
+    if res.spec is not None:
+        try:
+            understood, prov = build_understood_from_spec(res.spec)
+            return format_understood_as(understood, prov)
+        except Exception:
+            pass
+    return None
+
+
+def dispatch(
+    question: str,
+    conversation_state: Optional[ConversationState] = None,
+    mode: Optional[DataMode] = None,
+    max_request_size: Optional[float] = None,
+    force_refresh: bool = False,
+    session_id: Optional[str] = None,
+    fetcher_fn: Any = None,
+    on_result: Optional[Any] = None,
+) -> tuple[list[ChatMessage], ConversationState]:
+    """Pure dispatcher: routes a user question to assistant responses without Streamlit dependencies.
+
+    Args:
+        question: User query string.
+        conversation_state: Prior conversation context for follow-up query resolution.
+        mode: Explicit DataMode override (defaults to research).
+        max_request_size: Optional size cap override.
+        force_refresh: Bypass Parquet cache if True.
+        session_id: Session identifier for multi-session isolation.
+        fetcher_fn: Optional fetcher callable or class for offline testing.
+        on_result: Optional callback invoked with the raw PipelineResult if a pipeline was executed.
+
+    Returns:
+        tuple[list[ChatMessage], ConversationState]: Generated assistant messages and updated state.
+    """
+    c_state = conversation_state or ConversationState()
+    q_clean = question.strip()
+
+    # 1. Safety length cap check (must be rejected before any other work)
+    if len(q_clean) > MAX_QUESTION_LENGTH:
+        msg = ChatMessage(
+            role="assistant",
+            kind="error",
+            text=f"Your question is too long ({len(q_clean)} characters). Please condense your query to under {MAX_QUESTION_LENGTH} characters.",
+        )
+        return [msg], c_state
+
+    # 2. Conversational greetings and courtesy checks
+    greetings = _load_greetings_from_scope()
+    for pat in _GREETING_PATTERNS:
+        if pat.match(q_clean):
+            msg = ChatMessage(role="assistant", kind="text", text=greetings["greeting"])
+            return [msg], c_state
+
+    for pat in _COURTESY_PATTERNS:
+        if pat.match(q_clean):
+            msg = ChatMessage(role="assistant", kind="text", text=greetings["courtesy"])
+            return [msg], c_state
+
+    # 3. Standard refusal check (Categories 1-9)
+    pure_refusal = _match_refusal(q_clean)
+    if pure_refusal:
+        msg = ChatMessage(role="assistant", kind="refusal", text=pure_refusal)
+        return [msg], c_state
+
+    # 4. Follow-up check against existing ConversationState
+    if c_state.last_spec is not None:
+        followup = try_resolve_followup(q_clean, c_state)
+        if followup.resolved and followup.spec is not None:
+            target_spec = followup.spec
+            if mode is not None and target_spec.mode != mode:
+                target_spec = target_spec.model_copy(update={"mode": mode})
+
+            res = run_spec(
+                target_spec,
+                fetcher_fn=fetcher_fn,
+                force_refresh=force_refresh,
+                question=q_clean,
+                max_request_size=max_request_size,
+                session_id=session_id,
+            )
+            if on_result is not None:
+                try:
+                    on_result(res)
+                except Exception:
+                    pass
+            return _convert_pipeline_result(res, q_clean, c_state, append_refusal=pure_refusal)
+
+    # 5. Routing classification
+    route_res = route(q_clean)
+
+    if route_res.target == RouteTarget.META:
+        card = None
+        if c_state.last_card_id:
+            from .card import load_card
+            card = load_card(c_state.last_card_id, session_id=session_id)
+        if card is not None:
+            text = (
+                f"Last query: **{card.spec.intent.value.title()}** in {card.region_name} | "
+                f"Mode: **{card.mode.value}** | Profiles: **{card.profile_count:,}** | Rows: **{card.row_count:,}** | "
+                f"argopy: `{card.argopy_version}` | xarray: `{card.xarray_version}`"
+            )
+        else:
+            text = "No query has been run in this session yet."
+        msg = ChatMessage(role="assistant", kind="text", text=text)
+        return [msg], c_state
+
+    if route_res.target == RouteTarget.GLOSSARY:
+        from .glossary import lookup_glossary
+
+        entity = route_res.extracted_entity or q_clean
+        gloss = lookup_glossary(entity)
+        if gloss.found and gloss.entry is not None:
+            e = gloss.entry
+            text = f"**{e.canonical_name}** (`{e.term}`)\n\n{e.definition}"
+            if e.formula:
+                text += f"\n\n*Formula*: `{e.formula}`"
+            text += f"\n\n*Source*: {e.source}"
+            msg = ChatMessage(role="assistant", kind="knowledge", text=text)
+        elif gloss.found and gloss.entry is None:
+            text = f"**{gloss.term_name or entity}**: {gloss.message}"
+            if gloss.source_citation:
+                text += f"\n\n*Preliminary citation*: {gloss.source_citation}"
+            msg = ChatMessage(role="assistant", kind="knowledge", text=text)
+        else:
+            msg = ChatMessage(
+                role="assistant",
+                kind="knowledge",
+                text="Knowledge answers are not available yet.",
+            )
+        return [msg], c_state
+
+    # Check for knowledge route (general conceptual question)
+    is_conceptual = bool(
+        re.search(r"^\s*(what is|what are|how does|why does|how do|explain|tell me about)\b", q_clean, re.IGNORECASE)
+    )
+    if is_conceptual:
+        try:
+            import importlib
+            k_mod = importlib.import_module("siqva.knowledge")
+            if hasattr(k_mod, "answer"):
+                ans_text = k_mod.answer(q_clean)
+                msg = ChatMessage(role="assistant", kind="knowledge", text=ans_text)
+                return [msg], c_state
+        except ImportError:
+            pass
+        msg = ChatMessage(
+            role="assistant",
+            kind="knowledge",
+            text="Knowledge answers are not available yet.",
+        )
+        return [msg], c_state
+
+    # 6. Primary Data Pipeline (DATA_FETCH, OPERATION, COMPARISON, CLARIFICATION)
+    res = run(
+        question=q_clean,
+        fetcher_fn=fetcher_fn,
+        force_refresh=force_refresh,
+        max_request_size=max_request_size,
+        session_id=session_id,
+    )
+    if res.spec and mode is not None and res.spec.mode != mode:
+        res = run_spec(
+            res.spec.model_copy(update={"mode": mode}),
+            fetcher_fn=fetcher_fn,
+            force_refresh=force_refresh,
+            question=q_clean,
+            max_request_size=max_request_size,
+            session_id=session_id,
+        )
+
+    if on_result is not None:
+        try:
+            on_result(res)
+        except Exception:
+            pass
+
+    return _convert_pipeline_result(res, q_clean, c_state, append_refusal=pure_refusal)
+
+
+def _convert_pipeline_result(
+    res: PipelineResult,
+    question: str,
+    c_state: ConversationState,
+    append_refusal: Optional[str] = None,
+) -> tuple[list[ChatMessage], ConversationState]:
+    """Convert a PipelineResult into a ChatMessage and update ConversationState."""
+    understood_as = _extract_understood_as(res)
+    new_state = c_state
+    if res.spec is not None:
+        new_state = c_state.with_new_query(
+            res.spec,
+            question=question,
+            card_id=res.card.card_id if res.card else None,
+        )
+
+    # 1. OVERSIZED -> options message
+    if res.status == PipelineStatus.OVERSIZED or (res.plan_decision and res.plan_decision.plan.value == "refuse"):
+        err_msg = res.error_message or "Query exceeds safe single-request data limits."
+        options: list[ChatOption] = []
+        if res.plan_decision and res.plan_decision.options:
+            for opt in res.plan_decision.options:
+                options.append(ChatOption(label=opt.label, action_type="plan_option", query_text=opt.description or opt.label))
+
+        msg = ChatMessage(
+            role="assistant",
+            kind="options",
+            text=err_msg,
+            understood_as=understood_as,
+            options=options,
+        )
+        return [msg], new_state
+
+    # 2. CLARIFICATION_NEEDED -> clarification message
+    if res.status == PipelineStatus.CLARIFICATION_NEEDED:
+        err_msg = res.error_message or "Clarification needed for this query."
+        options: list[ChatOption] = []
+        if res.clarification and res.clarification.suggestions:
+            for opt_text in res.clarification.suggestions:
+                options.append(ChatOption(label=opt_text, action_type="clarification", query_text=opt_text))
+
+        msg = ChatMessage(
+            role="assistant",
+            kind="clarification",
+            text=err_msg,
+            understood_as=understood_as,
+            options=options,
+        )
+        return [msg], new_state
+
+    # 3. ERROR -> error message
+    if res.status == PipelineStatus.ERROR:
+        ref_id = uuid.uuid4().hex[:8]
+        err_text = res.error_message or f"An error occurred while processing the request (Ref: {ref_id})."
+        msg = ChatMessage(
+            role="assistant",
+            kind="error",
+            text=err_text,
+            understood_as=understood_as,
+        )
+        return [msg], new_state
+
+    # 4. SUCCESS -> result message
+    summary_text = ""
+    if res.analysis and res.analysis.summary:
+        summary_text = res.analysis.summary
+    elif res.card:
+        summary_text = f"Retrieved {res.card.row_count:,} rows across {res.card.profile_count:,} profiles for {res.card.region_name}."
+    else:
+        summary_text = "Query completed successfully."
+
+    # If this was a mixed request (e.g. data + forecast), append standard refusal notice
+    if append_refusal:
+        summary_text += f"\n\n*Note*: An out-of-scope portion of your query was omitted: {append_refusal}"
+
+    options: list[ChatOption] = []
+    if res.plan_decision and res.plan_decision.options:
+        for opt in res.plan_decision.options:
+            options.append(ChatOption(label=opt.label, action_type="plan_option", query_text=opt.description or opt.label))
+
+    msg = ChatMessage(
+        role="assistant",
+        kind="result",
+        text=summary_text,
+        card_id=res.card.card_id if res.card else None,
+        understood_as=understood_as,
+        options=options,
+    )
+    return [msg], new_state

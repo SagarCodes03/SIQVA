@@ -75,9 +75,12 @@ src/siqva/
   glossary.py      # scientific term lookup with literature citations and verification flag
   router.py        # query intent router (data, op, compare, glossary, meta)
   followup.py      # conversational state and query edits (salinity, year, region)
+  chat.py          # message model (ChatMessage, ChatOption), SQLite persistence, pure dispatcher
   plots.py         # profile, map, T-S templates
   card.py          # query card + generated script + re-run/diff
-app/ui.py          # Streamlit
+app/
+  ui.py            # Streamlit multi-page shell & sidebar navigation
+  chat_ui.py       # persistent scrollable chat interface, dual-mode result rendering
 benchmark/         # questions + reference specs + scorer
 tests/
 ```
@@ -143,6 +146,7 @@ The validator enforces: valid bbox, date order, allowed variables, and a maximum
 - `list_cards()` deduplicates entries by `(spec_hash, mode)` returning newest cards.
 - Sidebar history label format: `"{question} · {created_at[:10]} · {region_name}"` (question truncated to 40 characters, falling back to `"{Intent} query"`).
 - Clicking a history entry restores card metadata, spec, generated script, and re-renders plots and analysis from local Parquet cache (if parquet is missing, displays metadata and a re-run prompt). Optional `session_id` isolates history when `SIQVA_SHARED_HISTORY=0`.
+- Persistent chat interface: scrollable thread where new questions append rather than replacing earlier turns. Messages persist in SQLite (`data/cards.sqlite`, table `chat_messages` with `session_id` isolation). Newest result auto-renders full charts; older results render compact summaries with on-demand 'Show plots' toggles using `restore_card_result` from local Parquet cache without remote calls.
 - Re-run recomputes the fetch and compares hashes. If data differs, report a
   diff summary (e.g. new delayed-mode corrections). A change is not an error.
 - Cached results must be labelled as cached in the UI.

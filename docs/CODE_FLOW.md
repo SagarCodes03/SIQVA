@@ -99,8 +99,10 @@ User Question (Natural Language)
 | `src/siqva/physics.py` | Implements deterministic TEOS-10 thermodynamic and acoustic physical properties (MLD, ILD, BLT, Z20, Z26, TCHP, sound speed, SLD, SOFAR axis) using `gsw`. Executed strictly on-demand for physics intents; water-mass classification permanently removed; tracks skipped profiles via `SkippedProfileInfo`. |
 | `src/siqva/plots.py` | Generates interactive Plotly visualizations (depth profiles, spatial trajectories, T-S diagrams, thermocline/barrier layers, cyclone TCHP, sound speed) under the Deep Ocean dark theme. |
 | `src/siqva/card.py` | Constructs immutable `QueryCard` provenance records, persists them to SQLite, generates reproducible Python scripts, and computes data diff summaries upon re-run. |
+| `src/siqva/chat.py` | Pure chat message models (`ChatMessage`, `ChatOption`), conversational dispatcher (`dispatch()`), greeting and refusal handlers, and SQLite message persistence (`save_chat_message`, `load_chat_messages`, `clear_chat_messages`). |
 | `src/siqva/pipeline.py` | Chains parsing, validation, data fetching, QC auditing, analysis, visualization, and card persistence into a single end-to-end entry point. |
-| `app/ui.py` | Streamlit web application providing natural-language search, interactive multi-mode graph builders, query card inspection, and script downloads. |
+| `app/ui.py` | Streamlit web application providing shell layout, sidebar navigation (`Chat`, `Plot Graph`, `Compare Runs`), delivery mode selector, and quick template triggers. |
+| `app/chat_ui.py` | Persistent scrollable chat conversation interface (`render_chat_page()`), dual-mode result rendering (full plots for newest, compact for older), on-demand plot toggles, and safe user-turn execution. |
 
 ---
 
@@ -696,7 +698,38 @@ Under unexpected exceptions, `PipelineResult` catches errors, generates a safe u
 
 ---
 
-## 14. Benchmark Evaluation Harness
+## 15. Persistent Chat Conversation Interface
+
+### Overview
+The Query interface operates as a persistent, scrollable conversation thread (`app/chat_ui.py`) where successive user questions append to the conversation history instead of wiping and replacing earlier turns.
+
+### Key Architectural Characteristics
+1. **Message Data Model (`src/siqva/chat.py`)**:
+   - `ChatMessage`: Immutable record (`id`, `role`, `kind`, `text`, `card_id`, `understood_as`, `options`, `created_at`).
+   - `kind` enumerates: `text`, `result`, `clarification`, `options`, `refusal`, `knowledge`, `error`.
+   - Result messages store ONLY `card_id`; heavy Plotly figures and xarray datasets are never embedded in message objects or serialized to SQLite.
+
+2. **SQLite Message Persistence**:
+   - Table `chat_messages` in `data/cards.sqlite` with columns `(session_id, position, message_id, role, kind, text, card_id, understood_as, options_json, created_at)`.
+   - Position index provides deterministic sequential ordering within each session.
+   - When `SIQVA_SHARED_HISTORY=0`, sessions are strictly isolated by `session_id`.
+   - Browser reloads restore full conversation threads automatically via `st.query_params["session_id"]`.
+
+3. **Dual-Mode Rendering Engine**:
+   - **Newest Result**: Auto-renders full interactive Plotly charts (profiles, trajectories, T-S diagrams), analytical tabs, and interactive sample actions (e.g. "Bigger sample", "Run full").
+   - **Older Results**: Render as compact single-line summaries with an on-demand `"Show plots"` / `"Hide plots"` toggle button.
+   - **On-Demand Local Restoration**: Clicking `"Show plots"` calls `restore_card_result(card)`, rebuilding visualizations directly from local Parquet cache without remote network queries or re-executing pipelines.
+   - Benchmark rerun latency across 10 stored messages is ~57.4 ms.
+
+4. **Pure Dispatcher Boundary**:
+   - `siqva.chat.dispatch(question, ...)` provides a pure Python dispatch pipeline with zero Streamlit dependencies, allowing headless CLI, API, or automated test invocation.
+   - Conversational state transitions (e.g. follow-up variable swap *"what about salinity?"*) update `ConversationState` cleanly.
+
+5. **Safety & Injection Defense**:
+   - Hard 500-character input length limit prevents context exhaustion.
+   - All user inputs and text placed into HTML are strictly escaped via `html.escape()`.
+   - Raw exception tracebacks are intercepted; user-facing messages report clean failure summaries with reference IDs.
+
 
 - **Scope & Disclaimer**: Regression smoke test on 20 development questions written by the developers; not an independent evaluation.
 - **Dataset**: `benchmark/questions.jsonl` contains 20 curated seed questions covering all 6 intent targets (`data_fetch`, `operation`, `comparison`, `glossary`, `meta`, `clarification`), marked with `"split": "dev"`.
