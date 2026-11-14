@@ -99,10 +99,14 @@ def test_own_sentences_notes_and_code_constants():
         "siqva-llm-data-privacy",
         "siqva-known-limits",
         "siqva-plan-decisions-refusal",
+        "siqva-refusal-categories",
     ]
     for eid in expected_ids:
         assert eid in notes, f"Missing expected sentence note: {eid}"
         assert notes[eid]["origin"] == "code"
+        assert notes[eid]["verified"] is False
+        assert notes[eid]["checked_on"] == ""
+        assert isinstance(notes[eid]["claims"], list) and len(notes[eid]["claims"]) > 0
         assert len(notes[eid]["question_examples"]) >= 2
         assert len(notes[eid]["answer"]) > 50
 
@@ -112,7 +116,7 @@ def test_own_sentences_notes_and_code_constants():
     assert str(SAMPLE_MAX) in sample_ans
 
     depth_ans = notes["siqva-understood-as-depth"]["answer"]
-    assert "0 to 500 dbar" in depth_ans
+    assert ("0–500 dbar" in depth_ans or "0 to 500 dbar" in depth_ans)
     assert str(int(MAX_DEPTH_DBAR)) in depth_ans
 
     plan_ans = notes["siqva-plan-decisions-refusal"]["answer"]
@@ -122,4 +126,8 @@ def test_own_sentences_notes_and_code_constants():
     assert f"{DEFAULT_MAX_TOTAL_ROWS:,}" in plan_ans
 
     privacy_ans = notes["siqva-llm-data-privacy"]["answer"]
-    assert "never sees oceanographic data" in privacy_ans
+    assert "never included in prompts or sent to any language model" in privacy_ans
+
+    refusal_ans = notes["siqva-refusal-categories"]["answer"]
+    assert "nine refusal categories" in refusal_ans
+

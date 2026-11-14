@@ -267,6 +267,31 @@ def validate_notes(
                         errors.append(f"{yaml_path.name}[{idx}]: missing note id.")
                         continue
                     all_note_ids.add(eid)
+
+                    # Verification rule: Own notes MUST have verified: false and checked_on
+                    is_verified = entry.get("verified")
+                    if is_verified is True:
+                        errors.append(
+                            f"{yaml_path.name}[{eid}]: 'verified' is set to True. "
+                            "Agents may NEVER set verified: true on own notes (only the owner may verify)."
+                        )
+                    elif is_verified is not False:
+                        errors.append(
+                            f"{yaml_path.name}[{eid}]: 'verified' must be boolean False."
+                        )
+
+                    if "checked_on" not in entry:
+                        errors.append(
+                            f"{yaml_path.name}[{eid}]: missing 'checked_on' field."
+                        )
+
+                    # Claims list must be a non-empty list
+                    claims = entry.get("claims")
+                    if not isinstance(claims, list) or len(claims) == 0:
+                        errors.append(
+                            f"{yaml_path.name}[{eid}]: 'claims' must be a non-empty list mapping statements/numbers to code paths and constants."
+                        )
+
                     ans = entry.get("answer", "")
                     s_count = count_sentences(ans)
                     if not (2 <= s_count <= 5):
@@ -283,6 +308,15 @@ def validate_notes(
                         if w_len >= 15:
                             errors.append(
                                 f"{yaml_path.name}[{eid}]: quotation has {w_len} words (must be under 15 words): '{q}'"
+                            )
+
+                    # Disallow marketing and promotional words in own notes
+                    banned_words = ["strictly", "rigorous", "guarantees", "ensures integrity", "ensure integrity"]
+                    ans_lower = ans.lower()
+                    for bw in banned_words:
+                        if bw in ans_lower:
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: answer contains forbidden marketing word/phrase '{bw}'."
                             )
             else:
                 for key in data.keys():
