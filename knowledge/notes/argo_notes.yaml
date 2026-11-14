@@ -563,3 +563,138 @@
   - argo-data-policy-and-citation
   verified: false
   checked_on: ''
+- id: argo-vocabulary-float-profile-cycle-wmo
+  question_examples:
+  - What is the difference between a float, a cycle, and a profile in Argo?
+  - What is a WMO number for an Argo float?
+  - How are Argo cycles numbered?
+  answer: 'Every profiling float in the Argo program is assigned a unique platform
+    number designated by the World Meteorological Organization (WMO). Each recurring
+    dive-and-ascent mission executed by the float is indexed sequentially by a float
+    cycle number. Cycle numbers begin with 0 for the initial launch cycle and continue
+    with 1 for the float''s first complete profile cycle. An individual profile consists
+    of the series of physical measurements collected by the float as it rises through
+    the water column during that cycle.
+
+    '
+  source_id: argo-user-manual
+  section_or_page: 'Page 23, Section 2.2.1 "Reference table 1: platform numbers" & Section 2.2.3'
+  source_version: '3.44.0'
+  retrieved_on: '2026-11-14'
+  limits: Covers standard Core-Argo platform numbering and profile file naming; specialized
+    multi-profile auxiliary files and intermediate parking measurements follow sub-cycle schemes.
+  related:
+  - float-cycle-and-depth
+  - core-argo-parameters
+  - argo-one-paragraph
+  verified: false
+  checked_on: ''
+- id: realtime-qc-tests
+  question_examples:
+  - What real-time QC tests are performed on Argo profiles?
+  - How does Argo check data quality before sending it to the GTS?
+  - What do the automated real-time Argo quality tests check?
+  answer: 'Before ocean profiles are distributed in real time across the Global Telecommunication
+    System (GTS), data assembly centres subject every profile to an automated battery
+    of quality control tests. Early automated checks evaluate metadata and trajectory
+    plausibility, including platform identification, impossible date, impossible location,
+    position on land, and impossible drift speed. Sensor observation integrity is
+    verified through global and regional range boundaries, pressure increasing checks,
+    and vertical spike tests on temperature and salinity. Advanced automated checks
+    detect physical anomalies through the density inversion test, stuck value test,
+    digit rollover test, frozen profile test, and deepest pressure test.
+
+    '
+  source_id: argo-qc-ctd
+  section_or_page: 'Pages 11–17, Section 2.1.2 "Quality control tests on vertical profiles"'
+  source_version: '3.9'
+  retrieved_on: '2026-11-14'
+  limits: Covers automated 24-hour real-time tests for core CTD vertical profiles;
+    does not cover delayed-mode scientific sensor drift calibration or auxiliary BGC sensor tests.
+  related:
+  - realtime-vs-delayed-qc
+  - qc-flag-scale
+  - delayed-mode-timing
+  verified: false
+  checked_on: ''
+- id: argo-measurement-accuracy
+  question_examples:
+  - How accurate are temperature, salinity, and pressure measurements from Argo floats?
+  - What is the accuracy of Argo CTD data?
+  - What is the difference in accuracy between real-time and delayed-mode salinity?
+  answer: 'In Argo profile data, temperature measurements have an accuracy of plus
+    or minus 0.002 degrees Celsius, and pressure measurements are accurate to plus
+    or minus 2.4 dbar. Real-time salinity measurements from newly deployed instruments
+    are initially accurate to plus or minus 0.01 psu before sensor drift accumulates.
+    At a later stage, delayed-mode scientific adjustments by human experts correct
+    for sensor drift and thermal lag errors using shipboard reference data. Estimated
+    post-adjustment salinity uncertainties are recorded in the PSAL_ADJUSTED_ERROR
+    fields, while measurements deemed bad and unadjustable are assigned QC flags 3
+    or 4.
+
+    '
+  source_id: argo-faq
+  section_or_page: 'Section "*  How accurate is the Argo data?"'
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Applies to standard Sea-Bird core CTD sensors on 2000m profiling floats;
+    does not cover specialized Deep Argo sensors down to 6000m or auxiliary biogeochemical sensors.
+  related:
+  - core-argo-parameters
+  - adjusted-vs-raw-variables
+  - realtime-vs-delayed-qc
+  verified: false
+  checked_on: ''
+- id: argo-data-access-gdac
+  question_examples:
+  - Where can I access official Argo NetCDF data files?
+  - How are files organized on the Argo GDAC servers?
+  - How do I cite Argo data using a monthly snapshot DOI?
+  answer: 'Official Argo NetCDF data files are distributed globally through two mirror
+    Global Data Assembly Centres (GDACs) located in France and the USA. The GDAC repositories
+    organize observations into three main directory hierarchies: dac sorted by data
+    centre, geo sorted by ocean basin, and latest_data containing recent profiles.
+    Each month since the start of 2014, a complete snapshot of the GDAC archive is
+    preserved and assigned a unique DOI for citation in scientific research. In addition
+    to direct FTP and HTTP downloads, synchronization services via rsync and web interfaces
+    such as ERDDAP provide programmatic data access.
+
+    '
+  source_id: argo-data-gdacs
+  section_or_page: 'Section "GDAC data", Section "HTTP and FTP Access", Section "via DOI"'
+  source_version: ''
+  retrieved_on: '2026-11-14'
+  limits: Covers primary global GDAC access routes; regional portals and localized
+    gridded reanalyses may offer alternate download protocols.
+  related:
+  - argo-data-policy-and-citation
+  - data-modes-rad
+  verified: false
+  checked_on: ''
+- id: bgc-oxygen-sensors-coverage
+  question_examples:
+  - Which Argo floats carry oxygen sensors?
+  - Why is dissolved oxygen data less common in Argo than temperature and salinity?
+  - What is the target size of the BGC-Argo array?
+  answer: 'Dissolved oxygen observations in Argo are collected by specialized optical
+    sensors deployed on Biogeochemical (BGC) floats rather than standard core floats.
+    While the core Argo array maintains nearly 4000 autonomous floats measuring physical
+    properties, the BGC-Argo program targets a smaller global network of 1000 floats.
+    Sustaining a 1000-float biogeochemical array requires deploying approximately 250
+    floats per year with an estimated annual program cost near 25 million US dollars.
+    Because biogeochemical multi-sensor floats entail substantially higher operational
+    costs, oxygen profiles are less widely distributed across historical Argo datasets
+    than core temperature and salinity.
+
+    '
+  source_id: roemmich2019
+  section_or_page: Pages 11–12, Section "BGC-Argo"
+  source_version: 'Vol. 6, Art. 439'
+  retrieved_on: '2026-11-14'
+  limits: Covers global BGC-Argo array planning and oxygen optode sensors; localized
+    pilot arrays in regional seas may feature higher local oxygen float density.
+  related:
+  - core-argo-parameters
+  - argo-array-size-and-coverage
+  verified: false
+  checked_on: ''
