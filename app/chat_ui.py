@@ -298,7 +298,7 @@ def render_chat_page(
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
                             with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"clarify_opt_btn_{msg.id}_{idx}", use_container_width=True):
+                                if st.button(f"> {opt.label}", key=f"opt_btn_{msg.id}_{idx}", use_container_width=True):
                                     handle_user_turn(opt.query_text or opt.label)
                                     st.rerun()
 
@@ -309,7 +309,7 @@ def render_chat_page(
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
                             with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"plan_opt_btn_{msg.id}_{idx}", use_container_width=True):
+                                if st.button(f"> {opt.label}", key=f"opt_btn_plan_{msg.id}_{idx}", use_container_width=True):
                                     handle_user_turn(opt.query_text or opt.label)
                                     st.rerun()
 
