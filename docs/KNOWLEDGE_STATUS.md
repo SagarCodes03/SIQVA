@@ -7,14 +7,14 @@ Current status of the SIQVA trusted knowledge base preparation.
 - [x] **K0. Setup**: Directory structure created (`knowledge/sources`, `knowledge/text`, `knowledge/notes`), `.gitignore` updated, `knowledge/manifest.csv` initialized with 19 sources, `knowledge/README.md` created.
 - [x] **K1. Retrieve missing sources**: Retrieved 9 web sources within allowed hosts with a 5s politeness delay and request caps; 3 sources could not be retrieved and require manual download by owner.
 - [x] **K2. Extract text**: `scripts/extract_sources.py` created and verified. Extracted all 16 present sources into `knowledge/text/` with `=== PAGE n ===` and `=== SECTION: heading ===` markers.
-- [ ] **K3. Notes generated from our own code**: `scripts/build_own_notes.py` generating `knowledge/notes/own_generated.yaml` with regression test.
+- [x] **K3. Notes generated from our own code**: `scripts/build_own_notes.py` created and verified. Generates `knowledge/notes/own_generated.yaml` from code modules with regression test `tests/test_own_notes.py`.
 - [ ] **K4. Draft source-derived notes**: `knowledge/notes/argo_notes.yaml` with grounded notes citing page/section numbers (`verified: false`).
 - [ ] **K5. Scope, questions, checker, review tool**: `knowledge/scope.md`, `knowledge/questions.jsonl` (40 dev questions), `scripts/check_knowledge.py`, `scripts/review_note.py`, tests.
 - [ ] **K6. Status and finish**: Summary report, checklist for owner verification, push `task-knowledge`.
 
 ---
 
-## Sources Summary (Stage K2)
+## Sources Summary (Stage K3)
 
 - Total defined sources: 19
 - Present locally & extracted: 16
@@ -41,6 +41,18 @@ Current status of the SIQVA trusted knowledge base preparation.
   1. `argo-gdac-doi` (`https://doi.org/10.17882/42182`): Redirects to `seanoe.org` (outside allowed hosts).
   2. `mld-deboyer2004` (`https://doi.org/10.1029/2004JC002378`): Redirects to Wiley Online Library (`agupubs.onlinelibrary.wiley.com`, commercial paywall).
   3. `teos10-manual` (`https://repository.oceanbestpractices.org/handle/11329/286`): OceanBestPractices repository requires client-side JavaScript execution to reach the IOC Manual 56 PDF.
+
+---
+
+## Code-Generated Notes Summary (Stage K3)
+
+`knowledge/notes/own_generated.yaml` records:
+- 9 supported canonical regions with approximate bounding boxes and aliases (`src/siqva/gazetteer.py`)
+- 13 module capability profiles with data needs and default depths (`src/siqva/capabilities.py`)
+- 3 data modes with exact mode descriptions and QC filter rules (`src/siqva/qc.py`)
+- 4 planner decision kinds (`FULL`, `CHUNKED`, `SAMPLE`, `REFUSE`) (`src/siqva/planner.py`)
+- Space-time sampling configuration and label template (`src/siqva/floatindex.py`, `src/siqva/analyzer.py`)
+- 13 supported intent enums (`src/siqva/spec.py`)
 
 ---
 
