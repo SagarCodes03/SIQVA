@@ -290,9 +290,15 @@ def _extract_variables(text: str) -> Optional[list[Variable]]:
     clean_text = re.sub(r"\b(depth\s+profile|at\s+depth)\b", "", lower)
     words = re.findall(r"\b[a-zA-Z]+\b", clean_text)
     found: set[Variable] = set()
+    from rapidfuzz import fuzz
     for w in words:
         if w in _VARIABLE_SYNONYMS:
             found.add(_VARIABLE_SYNONYMS[w])
+        elif len(w) >= 5:
+            for syn, var in _VARIABLE_SYNONYMS.items():
+                if len(syn) >= 5 and fuzz.ratio(w, syn) >= 85:
+                    found.add(var)
+                    break
 
     if not found:
         return None

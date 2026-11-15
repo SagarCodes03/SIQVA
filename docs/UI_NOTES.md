@@ -98,3 +98,77 @@ Verified against installed static bundle (`site-packages/streamlit/static/static
   - Tracks `streamed_msg_ids` in `st.session_state` so subsequent reruns never replay the stream.
   - Animated typing indicator styles supporting `prefers-reduced-motion` media queries.
   - `st.chat_input` disabled while streaming.
+
+---
+
+## 5. MLOps, Telemetry, and Guardrail Audit (U3 Investigation)
+
+### Provenance and Origin
+- **Commit**: `e5cb9dd93869e9b5c63a1b33e04e2a8f3fea6a4c` (Sun Nov 15 16:47:35 2026 +0530)
+- **Author**: Sangeen (`sangeensingh2006@gmail.com`)
+- **Stated Purpose**: Implements a lightweight MLOps workflow for query classification, data lineage via SHA-256 dataset hashing, calibrated TF-IDF + LinearSVC guardrail classifier, local SQLite telemetry tracking, and CI/CD quality gate (`tests/test_mlops_gate.py`).
+
+### Privacy and Telemetry Findings
+1. **What is recorded**:
+   - `timestamp`: UTC ISO 8601 string.
+   - `query_text`: The user's verbatim natural language query string. (If the user query mentions specific ocean regions or coordinates, those appear in the query string).
+   - `predicted_class`: Output class label (e.g. `DATA_QUERY`, `CONCEPT_QUERY`, `ADVERSARIAL_INJECTION`, `REFUSAL_OUT_OF_SCOPE`).
+   - `confidence`: Calibrated classification probability (float, 0.0 to 1.0).
+   - `oov_ratio`: Out-of-vocabulary token ratio against training vocabulary.
+   - `latency_ms`: Classification runtime in milliseconds.
+   - `flagged_for_review`: Binary integer (0 or 1) indicating active learning triage.
+2. **What is NOT recorded**:
+   - **No profile data**: Profile values, salinity, temperature, pressure records, or Parquet datasets are NEVER logged.
+   - **No file paths**: File paths on host or client machine are not logged.
+   - **No API keys / secrets**: LLM keys, environment variables, or secrets are NEVER stored or passed to the telemetry table.
+3. **Where it is stored**:
+   - Stored in a local SQLite file at `data/telemetry.sqlite` (table `inference_logs`).
+   - Database is local-only; file pattern `*.sqlite` is ignored in `.gitignore`.
+4. **Network and Cloud Communication**:
+   - **Zero external communication**: Model inference uses local `joblib` artifacts (`models/guardrail_prod.joblib`); database logging uses standard Python `sqlite3`. Nothing leaves the machine.
+5. **Dependencies**:
+   - `scikit-learn`, `joblib`, `numpy` (already installed in virtual environment).
+6. **Test Coverage**:
+   - Tested in `tests/test_mlops_gate.py` (verifying macro F1 >= 0.90, latency < 5 ms, injection blocking, and drift tracking).
+
+### Gating and Administrative Controls
+- **Admin Gating Requirement**: The MLOps page (`active_page == "mlops"`), the sidebar navigation button (`● MLOps & Telemetry`), and the sidebar guardrail toggle (`MLflow Guardrail`) are **completely hidden** unless the environment variable `SIQVA_ADMIN=1` is explicitly set.
+- **Runtime Suppression**: When `SIQVA_ADMIN` is unset or not `"1"`:
+  - `is_guardrail_enabled()` returns `False` immediately.
+  - `GuardrailRouter` does NOT create or open `data/telemetry.sqlite`.
+  - No predictions or telemetry logs are executed or written to disk.
+  - Visitors and regular users see only the standard oceanographic interface.
+
+---
+
+## 6. Owner Visual Checklist (Manual Verification)
+
+Because Playwright and browser binaries are not installed in the execution environment, automated browser screenshots could not be taken. The following manual inspection checklist covers visual layout and overflow verification across window sizes:
+
+1. **Normal and Narrow Windows (1400 px, 1000 px, 600 px)**:
+   - [ ] At 1400 px: Centered 900 px chat container with balanced margins.
+   - [ ] At 1000 px: Header buttons (`🗑️ Clear`, `➕ New`) remain on a single line (`white-space: nowrap`) without wrapping.
+   - [ ] At 600 px: Responsive wrap on message bubbles; user bubble right-aligned (max 82% width), assistant bubble left-aligned (max 95% width).
+2. **Long Link and Continuous Strings**:
+   - [ ] Submit a message containing a 200+ character URL or continuous hash (e.g. `https://example.com/` + 180 chars).
+   - [ ] Verify URL wraps cleanly within message boundary (`overflow-wrap: anywhere`) without horizontal page blow-out.
+3. **Clarification Messages**:
+   - [ ] Submit `"temperature in the Arabian Sea"`.
+   - [ ] Verify message shows a single clean warning sentence naming what is missing + one example.
+   - [ ] Verify no duplicated text or repeated sentence headers.
+   - [ ] Verify targeted year pills `['2026', '2025', '2024', '2023', '2022']` render cleanly, wrapping without button overflow.
+   - [ ] Click a year pill (e.g. `2025`); verify turn appends as user query and runs.
+4. **Out-of-Scope Refusal**:
+   - [ ] Submit `"how to build a llm"`, `"write me a python script"`, or `"best pizza recipe"`.
+   - [ ] Verify question is refused immediately with Category 5 refusal sentence (`"SIQVA only answers questions regarding physical oceanography..."`).
+   - [ ] Verify it is NOT clarified or treated as a data query.
+5. **Empty State Gallery**:
+   - [ ] Open fresh chat session; verify empty state displays centered title and 6 clean starter buttons in a 2x3 grid.
+   - [ ] Verify cache status indicators (`• cached`) render neatly.
+6. **Typing Dots & Word-Level Streaming**:
+   - [ ] With `SIQVA_STREAM=1`, verify word-level streaming flows smoothly on newest assistant response.
+   - [ ] Verify typing dots animate during execution.
+   - [ ] With `SIQVA_STREAM=0`, verify response appears instantly without delay or streaming.
+   - [ ] On rerun, verify previous turns do not replay streaming animations.
+7. **Button Labels**:
+   - [ ] Verify all button labels are <= 28 characters with full descriptions in hover tooltips.

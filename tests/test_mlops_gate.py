@@ -14,7 +14,19 @@ from pathlib import Path
 
 import pytest
 
-from siqva.mlops_guardrail import GuardrailRouter, get_model_metadata, get_telemetry_summary
+from siqva.mlops_guardrail import GuardrailRouter, get_model_metadata, get_telemetry_summary, is_guardrail_enabled
+
+
+@pytest.fixture(autouse=True)
+def enable_admin_for_mlops(monkeypatch):
+    """Enable SIQVA_ADMIN=1 for MLOps tests by default."""
+    monkeypatch.setenv("SIQVA_ADMIN", "1")
+
+
+def test_mlops_disabled_by_default_without_admin(monkeypatch):
+    """Verify that without SIQVA_ADMIN=1, MLOps is completely disabled."""
+    monkeypatch.delenv("SIQVA_ADMIN", raising=False)
+    assert is_guardrail_enabled() is False
 
 
 def test_model_metadata_quality_gate():

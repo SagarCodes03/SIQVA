@@ -64,15 +64,56 @@ def load_chat_css() -> None:
             logger.warning(f"Failed to load chat.css: {e}")
 
 
+def short_label(text: str, max_chars: int = 28) -> str:
+    """Shorten button label to at most max_chars, cutting at a word boundary."""
+    s = text.strip()
+    if len(s) <= max_chars:
+        return s
+    truncated = s[:max_chars]
+    last_space = truncated.rfind(" ")
+    if last_space > 0:
+        candidate = truncated[:last_space].rstrip()
+    else:
+        candidate = s[:max_chars - 1]
+    if len(candidate) + 1 <= max_chars:
+        return candidate + "…"
+    return candidate[:max_chars - 1] + "…"
+
+
 def format_provenance_chips(understood_text: str) -> str:
-    """Format provenance labels [rules], [llm], [default] into clean markdown code chips."""
-    return (
-        understood_text
-        .replace("[rules]", "`rules`")
-        .replace("[llm]", "`llm`")
-        .replace("[LLM]", "`llm`")
-        .replace("[default]", "`default`")
-    )
+    """Format provenance labels into clean markdown code chips, hiding default chips."""
+    if not understood_text or not understood_text.strip():
+        return ""
+
+    prefix = "Understood as: "
+    has_prefix = understood_text.startswith(prefix)
+    body = understood_text[len(prefix):] if has_prefix else understood_text
+
+    raw_parts = [p.strip() for p in body.split(";") if p.strip()]
+    kept_parts: list[str] = []
+    defaults_found: list[str] = []
+
+    for part in raw_parts:
+        if "[default]" in part:
+            field_name = part.split(":")[0].strip().lower()
+            if field_name not in defaults_found:
+                defaults_found.append(field_name)
+        else:
+            p_formatted = (
+                part.replace("[rules]", "`rules`")
+                .replace("[llm]", "`llm`")
+                .replace("[LLM]", "`llm`")
+            )
+            kept_parts.append(p_formatted)
+
+    if not kept_parts:
+        return ""
+
+    result = "; ".join(kept_parts)
+    if defaults_found:
+        result = f"{result} (defaults: {', '.join(defaults_found)})"
+
+    return f"{prefix}{result}" if has_prefix else result
 
 
 def is_example_cached(question: str) -> bool:
@@ -285,7 +326,8 @@ def render_chat_page(
             st.rerun()
 
     # 2. Header Bar
-    top_col, right_col = st.columns([12, 3])
+    st.markdown('<div class="siqva-chat-header">', unsafe_allow_html=True)
+    top_col, right_col = st.columns([10, 5])
     with top_col:
         render_top_bar_fn(
             "SIQVA",
@@ -295,14 +337,14 @@ def render_chat_page(
     with right_col:
         c_clear, c_new = st.columns(2)
         with c_clear:
-            if st.button("Clear chat", key="top_clear_chat_btn", use_container_width=True, help="Clear conversation history"):
+            if st.button("🗑️ Clear", key="top_clear_chat_btn", use_container_width=True, help="Clear conversation history"):
                 clear_chat_messages(session_id=session_id)
                 st.session_state["chat_messages"] = []
                 st.session_state["conversation_state"] = ConversationState()
                 st.session_state["pipeline_res"] = None
                 st.rerun()
         with c_new:
-            if st.button("New chat", key="top_new_chat_btn", use_container_width=True, help="Start a new chat session"):
+            if st.button("➕ New", key="top_new_chat_btn", use_container_width=True, help="Start a new chat session"):
                 new_sid = uuid.uuid4().hex[:12]
                 st.session_state["session_id"] = new_sid
                 st.query_params["session_id"] = new_sid
@@ -310,6 +352,7 @@ def render_chat_page(
                 st.session_state["conversation_state"] = ConversationState()
                 st.session_state["pipeline_res"] = None
                 st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
 
@@ -332,9 +375,11 @@ def render_chat_page(
                 st.markdown(html.escape(msg.text))
         elif msg.role == "assistant":
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-                # Always render deterministic Understood as line if present
+                # Render deterministic Understood as line if present and non-empty
                 if msg.understood_as:
-                    st.caption(format_provenance_chips(html.escape(msg.understood_as)))
+                    f_chips = format_provenance_chips(html.escape(msg.understood_as))
+                    if f_chips:
+                        st.caption(f_chips)
 
                 should_stream = (
                     msg.id == newest_assistant_id
@@ -364,7 +409,8 @@ def render_chat_page(
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
                             with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"opt_btn_know_{msg.id}_{idx}", use_container_width=True):
+                                s_lbl = short_label(opt.label, max_chars=28)
+                                if st.button(s_lbl, key=f"opt_btn_know_{msg.id}_{idx}", use_container_width=True, help=opt.label):
                                     if opt.action_type == "sources":
                                         st.session_state["show_sources_expander"] = True
                                         st.session_state["active_page"] = "sources"
@@ -379,13 +425,31 @@ def render_chat_page(
                 elif msg.kind == "clarification":
                     st.warning(html.escape(msg.text))
                     if msg.options:
-                        st.markdown("**Suggestions — Click to proceed:**")
-                        cols = st.columns(min(len(msg.options), 3))
-                        for idx, opt in enumerate(msg.options):
-                            with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"opt_btn_{msg.id}_{idx}", use_container_width=True):
-                                    handle_user_turn(opt.query_text or opt.label)
-                                    st.rerun()
+                        pill_options = [opt.label for opt in msg.options]
+                        pill_map = {opt.label: (opt.query_text or opt.label) for opt in msg.options}
+                        pill_key = f"clarify_pills_{msg.id}"
+
+                        if hasattr(st, "pills"):
+                            def _on_clarify_pill_change(pk=pill_key, p_map=pill_map):
+                                selected_val = st.session_state.get(pk)
+                                if selected_val and selected_val in p_map:
+                                    handle_user_turn(p_map[selected_val])
+
+                            st.pills(
+                                "Clarification choices",
+                                options=pill_options,
+                                key=pill_key,
+                                on_change=_on_clarify_pill_change,
+                                label_visibility="collapsed",
+                            )
+                        else:
+                            cols = st.columns(min(len(msg.options), 3))
+                            for idx, opt in enumerate(msg.options):
+                                with cols[idx % min(len(msg.options), 3)]:
+                                    s_lbl = short_label(opt.label, max_chars=28)
+                                    if st.button(s_lbl, key=f"opt_btn_{msg.id}_{idx}", use_container_width=True, help=opt.label):
+                                        handle_user_turn(opt.query_text or opt.label)
+                                        st.rerun()
 
                 elif msg.kind == "options":
                     st.error(html.escape(msg.text))
@@ -394,7 +458,8 @@ def render_chat_page(
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
                             with cols[idx % min(len(msg.options), 3)]:
-                                if st.button(f"> {opt.label}", key=f"opt_btn_plan_{msg.id}_{idx}", use_container_width=True):
+                                s_lbl = short_label(opt.label, max_chars=28)
+                                if st.button(s_lbl, key=f"opt_btn_plan_{msg.id}_{idx}", use_container_width=True, help=opt.label):
                                     handle_user_turn(opt.query_text or opt.label)
                                     st.rerun()
 
@@ -478,8 +543,8 @@ def render_chat_page(
             for c_idx, (sq_text, sq_label, is_cached) in enumerate(row_items):
                 with cols[c_idx]:
                     tag = " • cached" if is_cached else ""
-                    btn_text = f"{sq_label}{tag}"
-                    if st.button(btn_text, key=f"quick_starter_{r_idx}_{c_idx}", use_container_width=True):
+                    btn_text = short_label(f"{sq_label}{tag}", max_chars=28)
+                    if st.button(btn_text, key=f"quick_starter_{r_idx}_{c_idx}", use_container_width=True, help=sq_text):
                         handle_user_turn(sq_text)
                         st.rerun()
 

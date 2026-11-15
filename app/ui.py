@@ -63,6 +63,11 @@ from siqva.spec import (
     get_location_info,
 )
 
+try:
+    from app.chat_ui import format_provenance_chips, short_label
+except ImportError:
+    from chat_ui import format_provenance_chips, short_label
+
 # ---------------------------------------------------------------------------
 # Streamlit Page Configuration (Zero Emojis)
 # ---------------------------------------------------------------------------
@@ -928,16 +933,26 @@ def _render_pipeline_result(
     prefix = key_prefix if key_prefix else (res.card.card_id if (res.card and res.card.card_id) else "live")
 
     if show_understood:
-        if res.parse_outcome is not None:
-            st.caption(
-                format_understood_as(
+        understood_str = None
+        if res.parse_outcome is not None and getattr(res.parse_outcome, "understood", None) is not None:
+            prov = getattr(res.parse_outcome, "provenance", {}) or {}
+            has_q = any(
+                isinstance(v, str) and (v.startswith("rules") or v.startswith("llm"))
+                for k, v in prov.items()
+                if k in ("region", "date_range", "variables", "intent")
+            )
+            if has_q:
+                understood_str = format_understood_as(
                     res.parse_outcome.understood,
                     res.parse_outcome.provenance,
                 )
-            )
         elif res.spec is not None:
             understood, provenance = build_understood_from_spec(res.spec)
-            st.caption(format_understood_as(understood, provenance))
+            understood_str = format_understood_as(understood, provenance)
+        if understood_str:
+            formatted_u = format_provenance_chips(understood_str)
+            if formatted_u:
+                st.caption(formatted_u)
 
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
@@ -954,7 +969,8 @@ def _render_pipeline_result(
             sug_cols = st.columns(min(len(clarification.suggestions), 3))
             for idx, sug in enumerate(clarification.suggestions):
                 with sug_cols[idx % len(sug_cols)]:
-                    if st.button(f"> {sug}", key=f"clarify_sug_{prefix}_{idx}", use_container_width=True):
+                    s_lbl = short_label(sug, max_chars=28)
+                    if st.button(s_lbl, key=f"clarify_sug_{prefix}_{idx}", use_container_width=True, help=sug):
                         with st.spinner("Executing suggested spec..."):
                             st.session_state["pipeline_res"] = run(question=sug, force_refresh=False, max_request_size=_ui_max_request_size())
                             st.rerun()
@@ -977,7 +993,8 @@ def _render_pipeline_result(
                 cols = st.columns(min(len(opts), 3))
                 for idx, opt in enumerate(opts):
                     with cols[idx % len(cols)]:
-                        if st.button(f"> {opt.label}", key=f"plan_opt_{prefix}_{idx}", use_container_width=True, help=opt.description):
+                        s_lbl = short_label(opt.label, max_chars=28)
+                        if st.button(s_lbl, key=f"plan_opt_{prefix}_{idx}", use_container_width=True, help=opt.description or opt.label):
                             with st.spinner(f"Executing: {opt.label}..."):
                                 new_res = run_spec(opt.spec, force_refresh=False, max_request_size=_ui_max_request_size())
                                 if st.session_state.get("active_page") == "query":
@@ -1216,11 +1233,12 @@ def _render_pipeline_result(
                 act_cols = st.columns(min(len(action_items), 4))
                 for a_idx, act in enumerate(action_items):
                     with act_cols[a_idx % len(act_cols)]:
+                        s_lbl = short_label(act["label"], max_chars=28)
                         st.button(
-                            act["label"],
+                            s_lbl,
                             key=f"sample_act_{prefix}_{a_idx}",
                             use_container_width=True,
-                            help=act.get("help"),
+                            help=act.get("help") or act["label"],
                             on_click=_on_sample_action_click,
                             args=(act,),
                         )
@@ -1410,11 +1428,12 @@ with st.sidebar:
 
     st.divider()
 
+    is_admin = os.environ.get("SIQVA_ADMIN", "0").strip() == "1"
     is_query = st.session_state["active_page"] == "query"
     is_plots = st.session_state["active_page"] == "plots"
     is_compare = st.session_state["active_page"] == "compare"
     is_sources = st.session_state["active_page"] == "sources"
-    is_mlops = st.session_state["active_page"] == "mlops"
+    is_mlops = is_admin and (st.session_state["active_page"] == "mlops")
 
     q_label = "●  New chat" if is_query else "○  New chat"
     p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
@@ -1460,33 +1479,12 @@ with st.sidebar:
         st.session_state["active_page"] = "sources"
         st.rerun()
 
-    if st.button(m_label, use_container_width=True, key="nav_mlops_btn"):
-        st.session_state["active_page"] = "mlops"
-        st.rerun()
+    if is_admin:
+        if st.button(m_label, use_container_width=True, key="nav_mlops_btn"):
+            st.session_state["active_page"] = "mlops"
+            st.rerun()
 
     st.divider()
-    c_new_chat, c_clear_chat = st.columns(2)
-    with c_new_chat:
-        if st.button("+ New", key="sidebar_new_chat_btn", use_container_width=True, help="Start new chat"):
-            import uuid
-            new_sid = uuid.uuid4().hex[:12]
-            st.session_state["session_id"] = new_sid
-            st.query_params["session_id"] = new_sid
-            st.session_state["chat_messages"] = []
-            st.session_state["conversation_state"] = ConversationState()
-            st.session_state["pipeline_res"] = None
-            st.session_state["active_page"] = "query"
-            st.rerun()
-    with c_clear_chat:
-        if st.button("Clear", key="sidebar_clear_chat_btn", use_container_width=True, help="Clear chat"):
-            from siqva.chat import clear_chat_messages
-            clear_chat_messages(session_id=st.session_state.get("session_id", "default"))
-            st.session_state["chat_messages"] = []
-            st.session_state["conversation_state"] = ConversationState()
-            st.session_state["pipeline_res"] = None
-            st.session_state["active_page"] = "query"
-            st.rerun()
-
     st.markdown(
         "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>DELIVERY MODE</div>",
         unsafe_allow_html=True,
@@ -1499,16 +1497,17 @@ with st.sidebar:
         key="sidebar_delivery_mode_selector",
     )
 
-    st.markdown(
-        "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>MLOPS GUARDRAIL</div>",
-        unsafe_allow_html=True,
-    )
-    st.session_state["enable_mlops_guardrail"] = st.toggle(
-        "MLflow Guardrail",
-        value=st.session_state.get("enable_mlops_guardrail", True),
-        key="sidebar_guardrail_toggle",
-        help="Toggle MLflow guardrail classification, drift tracking, and active learning logging on/off.",
-    )
+    if is_admin:
+        st.markdown(
+            "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>MLOPS GUARDRAIL</div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state["enable_mlops_guardrail"] = st.toggle(
+            "MLflow Guardrail",
+            value=st.session_state.get("enable_mlops_guardrail", True),
+            key="sidebar_guardrail_toggle",
+            help="Toggle MLflow guardrail classification, drift tracking, and active learning logging on/off.",
+        )
 
     st.markdown(
         "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 6px 2px;'>QUICK TEMPLATES</div>",
@@ -1524,7 +1523,8 @@ with st.sidebar:
         ("acoustic sound speed profile in Arabian Sea January 2022", "SOFAR: Arabian Sea"),
     ]
     for idx, (t_text, t_label) in enumerate(s_templates):
-        if st.button(f"> {t_label}", key=f"sidebar_template_{idx}", use_container_width=True):
+        s_lbl = short_label(t_label, max_chars=28)
+        if st.button(s_lbl, key=f"sidebar_template_{idx}", use_container_width=True, help=t_label):
             handle_user_turn(t_text)
             st.session_state["active_page"] = "query"
             st.rerun()
@@ -1541,10 +1541,13 @@ with st.sidebar:
 
     if recent_cards:
         for c in recent_cards:
+            full_lbl = format_history_label(c)
+            s_lbl = short_label(full_lbl, max_chars=28)
             if st.button(
-                format_history_label(c),
+                s_lbl,
                 key=f"hist_{c.card_id}",
                 use_container_width=True,
+                help=full_lbl,
             ):
                 st.session_state["loaded_card_id"] = c.card_id
                 st.session_state["active_page"] = "query"
@@ -1871,6 +1874,9 @@ elif st.session_state["active_page"] == "sources":
 # PAGE 5: MLOPS GOVERNANCE & TELEMETRY
 # ---------------------------------------------------------------------------
 elif st.session_state["active_page"] == "mlops":
+    if os.environ.get("SIQVA_ADMIN", "0").strip() != "1":
+        st.session_state["active_page"] = "query"
+        st.rerun()
     c_mhead, c_mtog = st.columns([3, 1])
     with c_mhead:
         _render_top_bar(

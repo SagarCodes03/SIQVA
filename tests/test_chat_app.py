@@ -114,13 +114,16 @@ def test_chat_clarification_button_click_without_overwriting(tmp_path, sample_fe
         assert clarif_msg.kind == "clarification"
         assert len(clarif_msg.options) > 0
 
-        # Click the first suggestion button (e.g. '> 2023' or similar)
-        opt_btns = [b for b in at.button if b.key.startswith("opt_btn_")]
-        assert len(opt_btns) > 0
-        first_btn = opt_btns[0]
-        chosen_label = first_btn.label.replace("> ", "").strip()
-
-        first_btn.click().run(timeout=30)
+        # Click the first suggestion pill or button
+        if len(at.pills) > 0:
+            chosen_label = at.pills[0].options[0]
+            at.pills[0].select(chosen_label).run(timeout=30)
+        else:
+            opt_btns = [b for b in at.button if b.key.startswith("opt_btn_")]
+            assert len(opt_btns) > 0
+            first_btn = opt_btns[0]
+            chosen_label = first_btn.label.replace("> ", "").strip()
+            first_btn.click().run(timeout=30)
         assert len(at.exception) == 0
 
         # Conversation must now have 4 messages, retaining earlier turns

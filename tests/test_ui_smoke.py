@@ -194,7 +194,7 @@ def test_ui_s7_hovmoller_indian_ocean_refuse_with_options():
 
     # Verify structured options buttons are rendered
     btn_labels = [b.label for b in at.button]
-    assert any("> Sub-region:" in lbl or "> View float position map" in lbl for lbl in btn_labels)
+    assert any("Sub-region:" in lbl or "View float position map" in lbl for lbl in btn_labels)
 
 
 def test_ui_s7_float_map_metadata_only():

@@ -28,3 +28,6 @@ mlruns/
 # Knowledge Base raw sources and extracted text
 knowledge/sources/
 knowledge/text/
+
+# UI Check screenshots
+scripts/ui_screens/
