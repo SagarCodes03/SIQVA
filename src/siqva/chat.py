@@ -313,7 +313,24 @@ def clear_chat_messages(
 
 
 def _extract_understood_as(res: PipelineResult) -> Optional[str]:
-    """Extract deterministic 'Understood as' line from a pipeline result."""
+    """Extract deterministic 'Understood as' line from a pipeline result.
+
+    Returns None if no query field came from the question (provenance rules or llm).
+    """
+    prov: dict[str, str] = {}
+    if res.parse_outcome is not None and getattr(res.parse_outcome, "provenance", None):
+        prov = dict(res.parse_outcome.provenance)
+    elif res.spec is not None:
+        _, prov = build_understood_from_spec(res.spec)
+
+    has_question_field = any(
+        isinstance(v, str) and (v.startswith("rules") or v.startswith("llm"))
+        for k, v in prov.items()
+        if k in ("region", "date_range", "variables", "intent")
+    )
+    if not has_question_field:
+        return None
+
     if res.parse_outcome is not None and getattr(res.parse_outcome, "understood", None) is not None:
         try:
             return format_understood_as(res.parse_outcome.understood, res.parse_outcome.provenance)
@@ -321,11 +338,127 @@ def _extract_understood_as(res: PipelineResult) -> Optional[str]:
             pass
     if res.spec is not None:
         try:
-            understood, prov = build_understood_from_spec(res.spec)
-            return format_understood_as(understood, prov)
+            understood, prov_built = build_understood_from_spec(res.spec)
+            return format_understood_as(understood, prov_built)
         except Exception:
             pass
     return None
+
+
+def _load_welcome_example_options() -> list[ChatOption]:
+    """Load 4 example pills from data/examples.json."""
+    ex_file = Path(__file__).resolve().parent.parent.parent / "data" / "examples.json"
+    options: list[ChatOption] = []
+    if ex_file.exists():
+        try:
+            with open(ex_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            for ex in data.get("examples", [])[:4]:
+                lbl = ex.get("label", "").replace("[", "").replace("]", "").replace("//", "·").strip()
+                if len(lbl) > 28:
+                    lbl = lbl[:27] + "…"
+                options.append(
+                    ChatOption(
+                        label=lbl or ex["region"],
+                        action_type="clarification",
+                        query_text=ex["question"],
+                    )
+                )
+        except Exception:
+            pass
+    if not options:
+        options = [
+            ChatOption(label="MLD · Bay of Bengal", action_type="clarification", query_text="thermocline and barrier layer in Bay of Bengal April 2022"),
+            ChatOption(label="TCHP · Arabian Sea", action_type="clarification", query_text="cyclone heat potential tchp in Arabian Sea May 2022"),
+            ChatOption(label="SOFAR · Arabian Sea", action_type="clarification", query_text="acoustic sound speed profile in Arabian Sea January 2022"),
+            ChatOption(label="T-S · Bay of Bengal", action_type="clarification", query_text="temperature and salinity profiles in Bay of Bengal January 2022"),
+        ]
+    return options
+
+
+def _build_clarification_message_and_options(
+    question: str,
+    res: PipelineResult,
+) -> tuple[str, list[ChatOption], Optional[str]]:
+    """Build a clean single-sentence clarification message and targeted pills per Step 2."""
+    from datetime import date
+
+    prov = getattr(res.parse_outcome, "provenance", {}) or {}
+    clarification = res.clarification
+
+    missing = list(clarification.missing_fields) if clarification and clarification.missing_fields else []
+    ambiguous = list(clarification.ambiguous_fields) if clarification and clarification.ambiguous_fields else []
+
+    has_any_signal = any(
+        isinstance(v, str) and (v.startswith("rules") or v.startswith("llm"))
+        for k, v in prov.items()
+        if k in ("region", "date_range", "variables", "intent")
+    )
+
+    # 1. Nothing understood: 4 welcome examples from data/examples.json, no "Understood as"
+    if not has_any_signal:
+        msg_text = "Please specify an ocean region, variable, and time period (e.g. 'temperature in the Arabian Sea in 2022')."
+        return msg_text, _load_welcome_example_options(), None
+
+    understood_as = _extract_understood_as(res)
+
+    # 2. Unsupported or ambiguous region
+    if ambiguous or (clarification and any("unsupported" in s.lower() or "pacific" in s.lower() for s in clarification.suggestions)):
+        msg_text = "The requested region is unsupported; please choose a supported basin or coordinates (e.g. 'in the Arabian Sea')."
+        region_names = ["Arabian Sea", "Bay of Bengal", "Indian Ocean", "North Atlantic", "Mediterranean Sea", "Nino 3.4"]
+        options = []
+        for r_name in region_names:
+            q_text = re.sub(r"\bin\s+[a-zA-Z0-9_\s\+\-]+", f"in {r_name}", question, flags=re.IGNORECASE) if "in " in question.lower() else f"{question} in {r_name}"
+            options.append(ChatOption(label=r_name, action_type="clarification", query_text=q_text))
+        return msg_text, options, understood_as
+
+    # 3. Only date_range / year missing
+    if "date_range" in missing and "region" not in missing and "variables" not in missing:
+        msg_text = "Please specify a year or date range (e.g. 'in 2022')."
+        curr_year = date.today().year
+        year_options = [str(curr_year - i) for i in range(5)]
+        options = [
+            ChatOption(label=y, action_type="clarification", query_text=f"{question} in {y}")
+            for y in year_options
+        ]
+        return msg_text, options, understood_as
+
+    # 4. Region missing
+    if "region" in missing and "variables" not in missing:
+        if "date_range" in missing:
+            msg_text = "Please specify a region and date range (e.g. 'temperature in the Arabian Sea in 2022')."
+            region_names = ["Arabian Sea", "Bay of Bengal", "Indian Ocean", "North Atlantic", "Mediterranean Sea"]
+            options = [
+                ChatOption(label=r_name, action_type="clarification", query_text=f"{question} in {r_name} in 2022")
+                for r_name in region_names
+            ]
+        else:
+            msg_text = "Please specify a region or coordinates (e.g. 'in the Arabian Sea')."
+            region_names = ["Arabian Sea", "Bay of Bengal", "Indian Ocean", "North Atlantic", "Mediterranean Sea", "Nino 3.4"]
+            options = [
+                ChatOption(label=r_name, action_type="clarification", query_text=f"{question} in {r_name}")
+                for r_name in region_names
+            ]
+        return msg_text, options, understood_as
+
+    # 5. Variables missing
+    if "variables" in missing:
+        msg_text = "Please specify an ocean variable such as temperature or salinity (e.g. 'temperature in the Arabian Sea in 2022')."
+        options = [
+            ChatOption(label=v, action_type="clarification", query_text=f"{v.lower()} {question}")
+            for v in ["TEMP", "PSAL", "PRES"]
+        ]
+        return msg_text, options, understood_as
+
+    # Generic fallback
+    missing_desc = ", ".join(missing) if missing else "required query parameters"
+    msg_text = f"Please specify {missing_desc} (e.g. 'temperature in the Arabian Sea in 2022')."
+    curr_year = date.today().year
+    options = [
+        ChatOption(label=str(curr_year - i), action_type="clarification", query_text=f"{question} in {curr_year - i}")
+        for i in range(5)
+    ]
+    return msg_text, options, understood_as
 
 
 def dispatch(
@@ -546,18 +679,16 @@ def _convert_pipeline_result(
 
     # 2. CLARIFICATION_NEEDED -> clarification message
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
-        err_msg = res.error_message or "Clarification needed for this query."
-        options: list[ChatOption] = []
-        if res.clarification and res.clarification.suggestions:
-            for opt_text in res.clarification.suggestions:
-                options.append(ChatOption(label=opt_text, action_type="clarification", query_text=opt_text))
-
+        clarify_text, clarify_options, clarify_understood = _build_clarification_message_and_options(
+            question=question,
+            res=res,
+        )
         msg = ChatMessage(
             role="assistant",
             kind="clarification",
-            text=err_msg,
-            understood_as=understood_as,
-            options=options,
+            text=clarify_text,
+            understood_as=clarify_understood,
+            options=clarify_options,
         )
         return [msg], new_state
 

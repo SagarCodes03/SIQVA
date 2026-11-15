@@ -398,14 +398,31 @@ def render_chat_page(
                 elif msg.kind == "clarification":
                     st.warning(html.escape(msg.text))
                     if msg.options:
-                        st.markdown("**Suggestions — Click to proceed:**")
-                        cols = st.columns(min(len(msg.options), 3))
-                        for idx, opt in enumerate(msg.options):
-                            with cols[idx % min(len(msg.options), 3)]:
-                                s_lbl = short_label(opt.label, max_chars=28)
-                                if st.button(s_lbl, key=f"opt_btn_{msg.id}_{idx}", use_container_width=True, help=opt.label):
-                                    handle_user_turn(opt.query_text or opt.label)
-                                    st.rerun()
+                        pill_options = [opt.label for opt in msg.options]
+                        pill_map = {opt.label: (opt.query_text or opt.label) for opt in msg.options}
+                        pill_key = f"clarify_pills_{msg.id}"
+
+                        if hasattr(st, "pills"):
+                            def _on_clarify_pill_change(pk=pill_key, p_map=pill_map):
+                                selected_val = st.session_state.get(pk)
+                                if selected_val and selected_val in p_map:
+                                    handle_user_turn(p_map[selected_val])
+
+                            st.pills(
+                                "Clarification choices",
+                                options=pill_options,
+                                key=pill_key,
+                                on_change=_on_clarify_pill_change,
+                                label_visibility="collapsed",
+                            )
+                        else:
+                            cols = st.columns(min(len(msg.options), 3))
+                            for idx, opt in enumerate(msg.options):
+                                with cols[idx % min(len(msg.options), 3)]:
+                                    s_lbl = short_label(opt.label, max_chars=28)
+                                    if st.button(s_lbl, key=f"opt_btn_{msg.id}_{idx}", use_container_width=True, help=opt.label):
+                                        handle_user_turn(opt.query_text or opt.label)
+                                        st.rerun()
 
                 elif msg.kind == "options":
                     st.error(html.escape(msg.text))
