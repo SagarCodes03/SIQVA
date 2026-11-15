@@ -81,14 +81,39 @@ def short_label(text: str, max_chars: int = 28) -> str:
 
 
 def format_provenance_chips(understood_text: str) -> str:
-    """Format provenance labels [rules], [llm], [default] into clean markdown code chips."""
-    return (
-        understood_text
-        .replace("[rules]", "`rules`")
-        .replace("[llm]", "`llm`")
-        .replace("[LLM]", "`llm`")
-        .replace("[default]", "`default`")
-    )
+    """Format provenance labels into clean markdown code chips, hiding default chips."""
+    if not understood_text or not understood_text.strip():
+        return ""
+
+    prefix = "Understood as: "
+    has_prefix = understood_text.startswith(prefix)
+    body = understood_text[len(prefix):] if has_prefix else understood_text
+
+    raw_parts = [p.strip() for p in body.split(";") if p.strip()]
+    kept_parts: list[str] = []
+    defaults_found: list[str] = []
+
+    for part in raw_parts:
+        if "[default]" in part:
+            field_name = part.split(":")[0].strip().lower()
+            if field_name not in defaults_found:
+                defaults_found.append(field_name)
+        else:
+            p_formatted = (
+                part.replace("[rules]", "`rules`")
+                .replace("[llm]", "`llm`")
+                .replace("[LLM]", "`llm`")
+            )
+            kept_parts.append(p_formatted)
+
+    if not kept_parts:
+        return ""
+
+    result = "; ".join(kept_parts)
+    if defaults_found:
+        result = f"{result} (defaults: {', '.join(defaults_found)})"
+
+    return f"{prefix}{result}" if has_prefix else result
 
 
 def is_example_cached(question: str) -> bool:
@@ -350,9 +375,11 @@ def render_chat_page(
                 st.markdown(html.escape(msg.text))
         elif msg.role == "assistant":
             with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-                # Always render deterministic Understood as line if present
+                # Render deterministic Understood as line if present and non-empty
                 if msg.understood_as:
-                    st.caption(format_provenance_chips(html.escape(msg.understood_as)))
+                    f_chips = format_provenance_chips(html.escape(msg.understood_as))
+                    if f_chips:
+                        st.caption(f_chips)
 
                 should_stream = (
                     msg.id == newest_assistant_id

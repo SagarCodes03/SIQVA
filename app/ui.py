@@ -64,9 +64,9 @@ from siqva.spec import (
 )
 
 try:
-    from app.chat_ui import short_label
+    from app.chat_ui import format_provenance_chips, short_label
 except ImportError:
-    from chat_ui import short_label
+    from chat_ui import format_provenance_chips, short_label
 
 # ---------------------------------------------------------------------------
 # Streamlit Page Configuration (Zero Emojis)
@@ -933,16 +933,26 @@ def _render_pipeline_result(
     prefix = key_prefix if key_prefix else (res.card.card_id if (res.card and res.card.card_id) else "live")
 
     if show_understood:
-        if res.parse_outcome is not None:
-            st.caption(
-                format_understood_as(
+        understood_str = None
+        if res.parse_outcome is not None and getattr(res.parse_outcome, "understood", None) is not None:
+            prov = getattr(res.parse_outcome, "provenance", {}) or {}
+            has_q = any(
+                isinstance(v, str) and (v.startswith("rules") or v.startswith("llm"))
+                for k, v in prov.items()
+                if k in ("region", "date_range", "variables", "intent")
+            )
+            if has_q:
+                understood_str = format_understood_as(
                     res.parse_outcome.understood,
                     res.parse_outcome.provenance,
                 )
-            )
         elif res.spec is not None:
             understood, provenance = build_understood_from_spec(res.spec)
-            st.caption(format_understood_as(understood, provenance))
+            understood_str = format_understood_as(understood, provenance)
+        if understood_str:
+            formatted_u = format_provenance_chips(understood_str)
+            if formatted_u:
+                st.caption(formatted_u)
 
     if res.status == PipelineStatus.CLARIFICATION_NEEDED:
         clarification: ClarificationNeeded = res.clarification
