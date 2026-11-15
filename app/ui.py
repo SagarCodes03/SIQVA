@@ -1483,28 +1483,6 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    c_new_chat, c_clear_chat = st.columns(2)
-    with c_new_chat:
-        if st.button("+ New", key="sidebar_new_chat_btn", use_container_width=True, help="Start new chat"):
-            import uuid
-            new_sid = uuid.uuid4().hex[:12]
-            st.session_state["session_id"] = new_sid
-            st.query_params["session_id"] = new_sid
-            st.session_state["chat_messages"] = []
-            st.session_state["conversation_state"] = ConversationState()
-            st.session_state["pipeline_res"] = None
-            st.session_state["active_page"] = "query"
-            st.rerun()
-    with c_clear_chat:
-        if st.button("Clear", key="sidebar_clear_chat_btn", use_container_width=True, help="Clear chat"):
-            from siqva.chat import clear_chat_messages
-            clear_chat_messages(session_id=st.session_state.get("session_id", "default"))
-            st.session_state["chat_messages"] = []
-            st.session_state["conversation_state"] = ConversationState()
-            st.session_state["pipeline_res"] = None
-            st.session_state["active_page"] = "query"
-            st.rerun()
-
     st.markdown(
         "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>DELIVERY MODE</div>",
         unsafe_allow_html=True,
