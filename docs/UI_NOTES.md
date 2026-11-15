@@ -138,3 +138,37 @@ Verified against installed static bundle (`site-packages/streamlit/static/static
   - `GuardrailRouter` does NOT create or open `data/telemetry.sqlite`.
   - No predictions or telemetry logs are executed or written to disk.
   - Visitors and regular users see only the standard oceanographic interface.
+
+---
+
+## 6. Owner Visual Checklist (Manual Verification)
+
+Because Playwright and browser binaries are not installed in the execution environment, automated browser screenshots could not be taken. The following manual inspection checklist covers visual layout and overflow verification across window sizes:
+
+1. **Normal and Narrow Windows (1400 px, 1000 px, 600 px)**:
+   - [ ] At 1400 px: Centered 900 px chat container with balanced margins.
+   - [ ] At 1000 px: Header buttons (`🗑️ Clear`, `➕ New`) remain on a single line (`white-space: nowrap`) without wrapping.
+   - [ ] At 600 px: Responsive wrap on message bubbles; user bubble right-aligned (max 82% width), assistant bubble left-aligned (max 95% width).
+2. **Long Link and Continuous Strings**:
+   - [ ] Submit a message containing a 200+ character URL or continuous hash (e.g. `https://example.com/` + 180 chars).
+   - [ ] Verify URL wraps cleanly within message boundary (`overflow-wrap: anywhere`) without horizontal page blow-out.
+3. **Clarification Messages**:
+   - [ ] Submit `"temperature in the Arabian Sea"`.
+   - [ ] Verify message shows a single clean warning sentence naming what is missing + one example.
+   - [ ] Verify no duplicated text or repeated sentence headers.
+   - [ ] Verify targeted year pills `['2026', '2025', '2024', '2023', '2022']` render cleanly, wrapping without button overflow.
+   - [ ] Click a year pill (e.g. `2025`); verify turn appends as user query and runs.
+4. **Out-of-Scope Refusal**:
+   - [ ] Submit `"how to build a llm"`, `"write me a python script"`, or `"best pizza recipe"`.
+   - [ ] Verify question is refused immediately with Category 5 refusal sentence (`"SIQVA only answers questions regarding physical oceanography..."`).
+   - [ ] Verify it is NOT clarified or treated as a data query.
+5. **Empty State Gallery**:
+   - [ ] Open fresh chat session; verify empty state displays centered title and 6 clean starter buttons in a 2x3 grid.
+   - [ ] Verify cache status indicators (`• cached`) render neatly.
+6. **Typing Dots & Word-Level Streaming**:
+   - [ ] With `SIQVA_STREAM=1`, verify word-level streaming flows smoothly on newest assistant response.
+   - [ ] Verify typing dots animate during execution.
+   - [ ] With `SIQVA_STREAM=0`, verify response appears instantly without delay or streaming.
+   - [ ] On rerun, verify previous turns do not replay streaming animations.
+7. **Button Labels**:
+   - [ ] Verify all button labels are <= 28 characters with full descriptions in hover tooltips.

@@ -116,7 +116,13 @@ tests/
   - Intent: keyword rules, LLM as tie-breaker.
 - Query interpretation ("Understood as"):
   - `src/siqva/interpretation.py` formats resolved fields with provenance labels (`[rules]`, `[llm]`, `[default]`).
-  - Rendered in Streamlit UI via `st.caption(...)` above both successful results and clarification requests.
+  - Rendered in Streamlit UI via `st.caption(...)` above successful results and clarification requests ONLY when at least one field came from the question; hidden when nothing is understood. Provenance chips display as clean code chips; `[default]` chips are hidden and summarized at the end (e.g. `(defaults: depth, mode)`).
+- In-domain gate (`src/siqva/router.py` / `src/siqva/chat.py`):
+  - Pure rules require at least one domain signal (known region/coords, variable, plot/intent, statistic, Argo/ocean keyword, or follow-up phrase) before treating as a data query.
+  - Rapidfuzz fuzzy matching (threshold 85 on words >= 5 characters) handles typos such as `temparature`.
+  - Non-marine questions with no domain signal (e.g. `how to build a llm`) receive the Category 5 refusal sentence immediately without clarification, after small talk (greetings, courtesy including `ok`).
+  - Clarification messages show a single plain sentence naming what is missing plus one example (zero duplicate text), with wrapping choices in `st.pills` (years, regions, variables, or 4 seed examples). Button labels are strictly capped to 28 characters (`short_label`).
+  - MLOps guardrail and telemetry monitors are isolated behind `SIQVA_ADMIN=1` (hidden from sidebar and disabled by default).
 - LLM calls: temperature 0.0, JSON output.
   - Swappable backends: `SIQVA_LLM_BACKEND = openai_compatible | ollama | none` (defaults to `none` rules-only when credentials/model are unconfigured).
   - Hosted `openai_compatible` backend: exactly one call per question, with schema/instructions covering ONLY the fields rules left missing or ambiguous. Rules-resolved fields are never overridden.

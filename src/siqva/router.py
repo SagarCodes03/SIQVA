@@ -33,6 +33,7 @@ DOMAIN_KEYWORDS_5PLUS = {
     # Argo platforms & floats
     "float", "floats", "drifter", "drifters", "platform", "platforms",
     "profiling", "coriolis", "argovis", "erddap", "incois", "delayed",
+    "quality",
     # Oceanography
     "ocean", "oceanic", "seawater", "marine", "depth", "surface", "subsurface",
     "hydrography", "current", "currents", "equatorial", "water", "waters",
@@ -45,7 +46,7 @@ DOMAIN_KEYWORDS_5PLUS = {
 }
 
 SHORT_DOMAIN_TOKENS_REGEX = re.compile(
-    r"\b(?:temp|psal|pres|dbar|degc|doxy|mld|ild|blt|z20|z26|tchp|sofar|sld|ts|t-s|wmo|argo|sea|seas|gdac|dac|gsw)\b|"
+    r"\b(?:qc|ctd|adcp|teos|bgc|temp|psal|pres|dbar|degc|doxy|mld|ild|blt|z20|z26|tchp|sofar|sld|ts|t-s|wmo|argo|sea|seas|gdac|dac|gsw)\b|"
     r"\b\d+\s*[NSns]\b|\b\d+\s*[EWew]\b|\b(?:lat|lon|latitude|longitude|bbox)\b|"
     r"[-+]?\d+\.?\d*,\s*[-+]?\d+\.?\d*",
     re.IGNORECASE,
