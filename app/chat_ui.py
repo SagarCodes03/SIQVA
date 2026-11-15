@@ -287,6 +287,18 @@ def render_chat_page(
                 elif msg.kind == "knowledge":
                     # Scientific concept text with markdown formatting
                     st.markdown(msg.text)
+                    if msg.options:
+                        cols = st.columns(min(len(msg.options), 3))
+                        for idx, opt in enumerate(msg.options):
+                            with cols[idx % min(len(msg.options), 3)]:
+                                if st.button(f"> {opt.label}", key=f"opt_btn_know_{msg.id}_{idx}", use_container_width=True):
+                                    if opt.action_type == "sources":
+                                        st.session_state["show_sources_expander"] = True
+                                        st.session_state["active_page"] = "sources"
+                                        st.rerun()
+                                    else:
+                                        handle_user_turn(opt.query_text or opt.label)
+                                        st.rerun()
 
                 elif msg.kind == "error":
                     st.error(html.escape(msg.text))

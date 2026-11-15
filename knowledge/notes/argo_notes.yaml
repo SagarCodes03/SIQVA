@@ -25,13 +25,20 @@
   - float-cycle-and-depth
   - argo-array-size-and-coverage
   - core-argo-parameters
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: float-cycle-and-depth
+  aliases:
+  - how-floats-work
+  - how-do-floats-work
   question_examples:
   - How does an Argo float work and how deep does it go?
   - What is the standard float mission cycle?
   - How long does an Argo float profile take?
+  - How do floats work?
+  - How does a float work?
   answer: 'The standard Argo float operates on a recurring 10-day mission cycle that
     begins by sinking from the surface to a parking drift depth of 1000 meters. The
     float drifts passively with deep currents at 1000 meters for roughly 9 days before
@@ -55,16 +62,22 @@
   - argo-one-paragraph
   - core-argo-parameters
   - float-telemetry-and-surface
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: qc-flag-scale
   aliases:
   - qc-flag-1-definition
   - qc-flag-4-definition
+  - qc
+  - quality-control
   question_examples:
   - What do the Argo quality control flags mean?
   - Explain the 0 to 9 Argo QC flag scale.
   - What is the difference between flag 1 and flag 4 in Argo?
+  - What is QC in Argo?
+  - What is quality control?
   answer: 'Argo quality control evaluates individual observation levels on a numerical
     scale from 0 to 9 as specified in Reference table 2 of the Argo User''s Manual.
     Flag 0 indicates no QC was performed, flag 1 represents good data where all real-time
@@ -88,8 +101,10 @@
   - profile-quality-flags
   - data-modes-rad
   - adjusted-vs-raw-variables
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: data-modes-rad
   question_examples:
   - What are data modes R, A, and D in Argo?
@@ -116,8 +131,10 @@
   - qc-flag-scale
   - adjusted-vs-raw-variables
   - delayed-mode-timing
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: delayed-mode-timing
   question_examples:
   - Why are recent Argo profiles not in delayed mode?
@@ -142,8 +159,10 @@
   related:
   - data-modes-rad
   - realtime-vs-delayed-qc
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: realtime-vs-delayed-qc
   question_examples:
   - What is the difference between real-time and delayed-mode QC in Argo?
@@ -168,8 +187,10 @@
   - data-modes-rad
   - qc-flag-scale
   - delayed-mode-timing
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: profile-quality-flags
   question_examples:
   - What do the profile quality flags A through F mean?
@@ -196,8 +217,10 @@
   related:
   - qc-flag-scale
   - data-modes-rad
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: adjusted-vs-raw-variables
   question_examples:
   - What is the difference between TEMP and TEMP_ADJUSTED?
@@ -220,8 +243,10 @@
   related:
   - data-modes-rad
   - qc-flag-scale
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argopy-user-modes-overview
   question_examples:
   - What are the user modes in argopy?
@@ -245,8 +270,10 @@
   related:
   - data-modes-rad
   - qc-flag-scale
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argo-data-policy-and-citation
   question_examples:
   - How do I cite Argo float data in a paper?
@@ -271,8 +298,10 @@
   related:
   - argo-one-paragraph
   - argo-gdac-structure
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: what-is-teos-10
   question_examples:
   - What is TEOS-10 and why is it used in oceanography?
@@ -300,8 +329,10 @@
   - practical-vs-absolute-salinity
   - conservative-temperature
   - gsw-sound-speed-inputs
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: practical-vs-absolute-salinity
   question_examples:
   - What is the difference between Practical Salinity and Absolute Salinity?
@@ -327,8 +358,10 @@
   - what-is-teos-10
   - conservative-temperature
   - gsw-sound-speed-inputs
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: conservative-temperature
   question_examples:
   - What inputs does Conservative Temperature accompany in GSW?
@@ -352,8 +385,10 @@
   - what-is-teos-10
   - practical-vs-absolute-salinity
   - gsw-sound-speed-inputs
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: gsw-sound-speed-inputs
   question_examples:
   - What inputs are needed to calculate sound speed in GSW?
@@ -380,8 +415,10 @@
   - what-is-teos-10
   - conservative-temperature
   - practical-vs-absolute-salinity
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: noaa-cpc-nino-definitions
   question_examples:
   - What are the geographic boundaries of the Nino regions?
@@ -405,8 +442,10 @@
     from 160°East to 150°West.
   related:
   - argo-one-paragraph
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argo-array-size-and-coverage
   question_examples:
   - How many floats are in the Argo array?
@@ -430,8 +469,10 @@
   related:
   - argo-one-paragraph
   - float-cycle-and-depth
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: float-telemetry-and-surface
   question_examples:
   - How do Argo floats send their data back to land?
@@ -459,8 +500,10 @@
   related:
   - float-cycle-and-depth
   - argo-one-paragraph
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: core-argo-parameters
   question_examples:
   - What parameters do core Argo floats measure?
@@ -484,8 +527,10 @@
   related:
   - float-cycle-and-depth
   - bgc-argo-parameters
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: bgc-argo-parameters
   question_examples:
   - What parameters do BGC Argo floats measure?
@@ -511,8 +556,10 @@
   related:
   - core-argo-parameters
   - argo-one-paragraph
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: deep-argo-depth
   question_examples:
   - How deep do Deep Argo floats dive?
@@ -537,8 +584,10 @@
   related:
   - float-cycle-and-depth
   - argo-array-size-and-coverage
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argo-gdac-structure
   question_examples:
   - What are the Argo GDACs and where are they located?
@@ -561,8 +610,10 @@
   related:
   - argo-one-paragraph
   - argo-data-policy-and-citation
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argo-vocabulary-float-profile-cycle-wmo
   question_examples:
   - What is the difference between a float, a cycle, and a profile in Argo?
@@ -587,8 +638,10 @@
   - float-cycle-and-depth
   - core-argo-parameters
   - argo-one-paragraph
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: realtime-qc-tests
   question_examples:
   - What real-time QC tests are performed on Argo profiles?
@@ -615,8 +668,10 @@
   - realtime-vs-delayed-qc
   - qc-flag-scale
   - delayed-mode-timing
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argo-measurement-accuracy
   question_examples:
   - How accurate are temperature, salinity, and pressure measurements from Argo floats?
@@ -643,8 +698,10 @@
   - core-argo-parameters
   - adjusted-vs-raw-variables
   - realtime-vs-delayed-qc
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: argo-data-access-gdac
   question_examples:
   - Where can I access official Argo NetCDF data files?
@@ -669,8 +726,10 @@
   related:
   - argo-data-policy-and-citation
   - data-modes-rad
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"
 - id: bgc-oxygen-sensors-coverage
   question_examples:
   - Which Argo floats carry oxygen sensors?
@@ -696,5 +755,7 @@
   related:
   - core-argo-parameters
   - argo-array-size-and-coverage
-  verified: false
-  checked_on: ''
+  verified: true
+  checked_on: '2026-11-15'
+  verified_by: owner
+  applied_via: "agent on owner's written instruction"

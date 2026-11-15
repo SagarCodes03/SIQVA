@@ -1413,12 +1413,14 @@ with st.sidebar:
     is_query = st.session_state["active_page"] == "query"
     is_plots = st.session_state["active_page"] == "plots"
     is_compare = st.session_state["active_page"] == "compare"
+    is_sources = st.session_state["active_page"] == "sources"
 
     q_label = "●  Query" if is_query else "○  Query"
     p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
     c_label = "●  Compare Runs" if is_compare else "○  Compare Runs"
+    s_label = "●  Sources" if is_sources else "○  Sources"
 
-    active_nav_key = "nav_query_btn" if is_query else ("nav_plot_btn" if is_plots else "nav_compare_btn")
+    active_nav_key = "nav_query_btn" if is_query else ("nav_plot_btn" if is_plots else ("nav_compare_btn" if is_compare else "nav_sources_btn"))
     st.markdown(
         f"""
         <style>
@@ -1450,6 +1452,10 @@ with st.sidebar:
 
     if st.button(c_label, use_container_width=True, key="nav_compare_btn"):
         st.session_state["active_page"] = "compare"
+        st.rerun()
+
+    if st.button(s_label, use_container_width=True, key="nav_sources_btn"):
+        st.session_state["active_page"] = "sources"
         st.rerun()
 
     st.divider()
@@ -1528,6 +1534,25 @@ with st.sidebar:
                 st.rerun()
     else:
         st.caption("• no recorded sessions")
+
+    st.divider()
+    with st.expander("Grounded Sources", expanded=st.session_state.get("show_sources_expander", False)):
+        try:
+            from siqva.knowledge import list_sources
+            src_list = list_sources()
+            for s_idx, src in enumerate(src_list):
+                s_title = src.get("title", "Untitled")
+                s_link = src.get("link") or src.get("url")
+                s_ver = src.get("version") or "N/A"
+                s_ret = src.get("retrieved_on") or "N/A"
+                s_lic = src.get("license") or src.get("license_as_seen") or "N/A"
+                link_md = f"[{s_title}]({s_link})" if s_link else s_title
+                st.markdown(
+                    f"**{link_md}**\n\n- Version: `{s_ver}`\n- Retrieved: `{s_ret}`\n- License: `{s_lic}`",
+                    unsafe_allow_html=False,
+                )
+        except Exception:
+            st.caption("Unable to load sources manifest.")
 
     if os.environ.get("SIQVA_DEBUG") in ("1", "true", "True"):
         st.divider()
@@ -1796,3 +1821,30 @@ elif st.session_state["active_page"] == "compare":
                 st.plotly_chart(_style_fig(res_b.figures[fig_key_b]), use_container_width=True, theme=None, key=f"compare_chart_b_{card_b.card_id}")
             else:
                 st.info("No figure available for Run B")
+
+
+# ---------------------------------------------------------------------------
+# PAGE 4: GROUNDED SOURCES (Literature, Standards, and System Manifest)
+# ---------------------------------------------------------------------------
+elif st.session_state["active_page"] == "sources":
+    _render_top_bar(
+        "SIQVA // GROUNDED SOURCES",
+        "Authoritative peer-reviewed literature, specifications, and code sources",
+        "settings_sources_btn",
+    )
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    try:
+        from siqva.knowledge import list_sources
+        sources = list_sources()
+        table_rows = []
+        for s in sources:
+            table_rows.append({
+                "Title": s.get("title", "Untitled"),
+                "Version": s.get("version") or "N/A",
+                "Retrieved On": s.get("retrieved_on") or "N/A",
+                "License": s.get("license") or s.get("license_as_seen") or "N/A",
+                "Link": s.get("link") or s.get("url") or "N/A",
+            })
+        st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+    except Exception as e:
+        st.error(f"Failed to load sources: {e}")

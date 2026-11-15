@@ -1,4 +1,8 @@
 {
+  "greeting": "Hello! I am SIQVA, an assistant for exploring Argo ocean float data and physical oceanography. How can I help you today?",
+  "courtesy": "You are welcome! Let me know if you have more questions about Argo ocean data.",
+  "not_in_notes": "I cannot answer this specific question because it is not covered in my verified knowledge notes. Please refer directly to official Argo and TEOS-10 documentation listed on the app's Sources page.",
+  "language": "SIQVA currently supports English queries only. Please submit your question about Argo data in English.",
   "categories": [
     {
       "category_number": 1,
