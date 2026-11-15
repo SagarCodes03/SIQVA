@@ -39,6 +39,14 @@
       "intent": "profile",
       "region": "Arabian Sea",
       "date": "January 2022"
+    },
+    {
+      "id": "sal_bob_2022",
+      "label": "[SAL // BAY OF BENGAL]",
+      "question": "salinity profiles in Bay of Bengal June 2022",
+      "intent": "profile",
+      "region": "Bay of Bengal",
+      "date": "June 2022"
     }
   ]
 }

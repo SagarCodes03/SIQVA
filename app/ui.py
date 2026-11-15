@@ -1415,7 +1415,7 @@ with st.sidebar:
     is_compare = st.session_state["active_page"] == "compare"
     is_sources = st.session_state["active_page"] == "sources"
 
-    q_label = "●  Query" if is_query else "○  Query"
+    q_label = "●  New chat" if is_query else "○  New chat"
     p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
     c_label = "●  Compare Runs" if is_compare else "○  Compare Runs"
     s_label = "●  Sources" if is_sources else "○  Sources"
