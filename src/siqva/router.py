@@ -16,8 +16,95 @@ import re
 from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
+from rapidfuzz import fuzz
 
 from .glossary import load_glossary
+
+DOMAIN_FUZZY_THRESHOLD: int = 85
+
+DOMAIN_KEYWORDS_5PLUS = {
+    # Variables & physics
+    "temperature", "salinity", "pressure", "celsius", "oxygen", "density",
+    "thermocline", "isotherm", "isothermal", "barrier", "stratification",
+    "acoustic", "cyclone",
+    # Intents & plots
+    "profile", "profiles", "section", "sections", "hovmoller", "trajectory",
+    "trajectories", "velocity", "contour", "diagram",
+    # Argo platforms & floats
+    "float", "floats", "drifter", "drifters", "platform", "platforms",
+    "profiling", "coriolis", "argovis", "erddap", "incois", "delayed",
+    # Oceanography
+    "ocean", "oceanic", "seawater", "marine", "depth", "surface", "subsurface",
+    "hydrography", "current", "currents", "equatorial", "water", "waters",
+    "basin", "basins",
+    # Regions
+    "arabian", "bengal", "indian", "atlantic", "pacific", "mediterranean",
+    "southern", "arctic",
+    # Stats
+    "anomaly", "anomalies", "average", "maximum", "minimum", "median",
+}
+
+SHORT_DOMAIN_TOKENS_REGEX = re.compile(
+    r"\b(?:temp|psal|pres|dbar|degc|doxy|mld|ild|blt|z20|z26|tchp|sofar|sld|ts|t-s|wmo|argo|sea|seas|gdac|dac|gsw)\b|"
+    r"\b\d+\s*[NSns]\b|\b\d+\s*[EWew]\b|\b(?:lat|lon|latitude|longitude|bbox)\b|"
+    r"[-+]?\d+\.?\d*,\s*[-+]?\d+\.?\d*",
+    re.IGNORECASE,
+)
+
+FOLLOWUP_DOM_PHRASES = (
+    "same for",
+    "what about",
+    "how about",
+    "switch to",
+    "change to",
+    "do it for",
+    "now in",
+    "now for",
+    "versus",
+    "vs",
+    "compare",
+)
+
+
+def has_domain_signal(question: str, state: Optional[Any] = None) -> bool:
+    """Return True if the question contains at least one oceanographic or Argo domain signal.
+
+    Applies deterministic regex rules and fuzzy keyword matching using rapidfuzz with threshold >= 85
+    for words with 5+ characters to accommodate typos (e.g. 'temparature').
+    """
+    q = question.strip().lower()
+    if not q:
+        return False
+
+    # Active follow-up reference
+    if state is not None and getattr(state, "last_spec", None) is not None:
+        for fp in FOLLOWUP_DOM_PHRASES:
+            if fp in q:
+                return True
+
+    # 1. Regex check on short tokens, units, coordinates, and acronyms
+    if SHORT_DOMAIN_TOKENS_REGEX.search(q):
+        return True
+
+    # 2. Check follow-up phrases
+    for fp in FOLLOWUP_DOM_PHRASES:
+        if fp in q:
+            return True
+
+    # 3. Known region names from gazetteer
+    from .gazetteer import KNOWN_REGIONS
+    for reg_name in KNOWN_REGIONS:
+        if reg_name.lower() in q:
+            return True
+
+    # 4. Fuzzy match on words >= 5 characters (rapidfuzz >= DOMAIN_FUZZY_THRESHOLD)
+    words = re.findall(r"[a-zA-Z]{5,}", q)
+    for w in words:
+        for kw in DOMAIN_KEYWORDS_5PLUS:
+            if fuzz.ratio(w, kw) >= DOMAIN_FUZZY_THRESHOLD:
+                return True
+
+    return False
 
 
 class RouteTarget(str, Enum):

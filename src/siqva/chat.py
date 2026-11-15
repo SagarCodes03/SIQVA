@@ -24,7 +24,7 @@ from .card import DEFAULT_DB_PATH, _resolve_db_path, is_history_shared
 from .followup import ConversationState, try_resolve_followup
 from .interpretation import build_understood_from_spec, format_understood_as
 from .pipeline import PipelineResult, PipelineStatus, run, run_spec
-from .router import RouteTarget, route
+from .router import RouteTarget, has_domain_signal, route
 from .spec import DataMode
 
 MAX_QUESTION_LENGTH: int = 500
@@ -164,6 +164,7 @@ _GREETING_PATTERNS = [
 
 _COURTESY_PATTERNS = [
     re.compile(r"^\s*(thank\s+you|thanks|thx|much\s+appreciated)\b", re.IGNORECASE),
+    re.compile(r"^\s*(ok|okay|cool|great|got\s+it)[\.!\s]*$", re.IGNORECASE),
 ]
 
 
@@ -578,6 +579,14 @@ def dispatch(
         else:
             text = "No query has been run in this session yet."
         msg = ChatMessage(role="assistant", kind="text", text=text)
+        return [msg], c_state
+
+    # 5.5 In-domain gate (pure rules): require at least one ocean/Argo domain signal
+    if not has_domain_signal(q_clean, state=c_state):
+        cats = _load_refusal_categories()
+        cat5 = next((c["refusal_sentence"] for c in cats if c.get("category_number") == 5), None)
+        ref_msg = cat5 or "SIQVA only answers questions regarding physical oceanography and the international Argo float array; general non-marine topics are not supported."
+        msg = ChatMessage(role="assistant", kind="refusal", text=ref_msg)
         return [msg], c_state
 
     # 6. Knowledge & Glossary route (Grounded verbatim answers, 0 LLM calls)
