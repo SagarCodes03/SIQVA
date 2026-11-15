@@ -31,10 +31,14 @@ TELEMETRY_DB = Path("data/telemetry.sqlite")
 def is_guardrail_enabled() -> bool:
     """Check if MLOps guardrail and telemetry logging are enabled.
 
-    Enabled by default, can be toggled off via:
+    Requires SIQVA_ADMIN=1. When off (default), nothing runs or writes to DB.
+    When SIQVA_ADMIN=1, can be toggled off via:
     - Environment variable: SIQVA_MLOPS_GUARDRAIL=0
     - Streamlit session state: st.session_state["enable_mlops_guardrail"] = False
     """
+    if os.environ.get("SIQVA_ADMIN", "0").strip() != "1":
+        return False
+
     env_val = os.environ.get("SIQVA_MLOPS_GUARDRAIL", "1").strip().lower()
     if env_val in ("0", "false", "no", "off"):
         return False
@@ -64,7 +68,8 @@ class GuardrailRouter:
                 self.pipe = joblib.load(self.model_path)
             except Exception:
                 self.pipe = None
-        self._init_db()
+        if is_guardrail_enabled():
+            self._init_db()
 
     def _init_db(self) -> None:
         """Initialize telemetry database table and indices."""
