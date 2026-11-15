@@ -177,6 +177,10 @@ Answers statistical questions without LLM hallucinations:
 
 ### Persistent Chat Conversation Interface (`chat.py`, `app/chat_ui.py`)
 - **Scrollable Conversation Thread**: Replaces the single-turn query terminal with a persistent, scrollable chat thread (`st.chat_message`). Users can scroll up to review previous turns and results without losing context.
+- **Deep Ocean Theme & Layout**: Centered 900px column layout (`chat.css`) adhering to Deep Ocean palette (teal `#2EC4B6`, canvas `#0B1F2A`, panels `#12303F`, text `#E6F1F5`). Enforces overflow wrapping and responsiveness across links, code spans, dataframes, tables, and Plotly charts.
+- **Custom Theme Avatars**: Replaces default red face and orange robot avatars with custom oceanic wave (assistant) and neutral silhouette (user) avatars (`app/assets/`).
+- **Word-Level Streaming & Indicators**: Streaming presentation effect via `src/siqva/streaming.py` with bounded pacing (`SIQVA_STREAM`), animated typing indicator, and rerun replay suppression.
+- **Empty State Gallery**: 6 pre-validated example queries from `data/examples.json` with dynamic cache-status badges.
 - **SQLite Persistence & Multi-Session Isolation**: Conversation messages are persisted in SQLite (`data/cards.sqlite`) in the `chat_messages` table with sequential ordering. Browser refreshes restore conversation state automatically via `st.query_params["session_id"]`.
 - **Dual-Mode Result Rendering**: The newest query result auto-renders complete interactive Plotly visualizations, metric cards, and plan actions. Older results display compact summaries with an on-demand "Show plots" toggle that restores figures from local Parquet cache without remote queries.
 - **Pure Dispatcher & Conversational Follow-Ups**: `src/siqva/chat.py` cleanly separates dispatching and routing from UI rendering, supporting conversational parameter swaps (*"what about salinity?"*, *"now in 2023"*), suggestions, and plan choices.

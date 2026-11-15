@@ -1,12 +1,16 @@
-"""Persistent chat interface and rendering for SIQVA Query Page (C1).
+"""Persistent chat interface and rendering for SIQVA Query Page (C1 & U1/U2).
 
 Provides:
-- Scrollable chat message rendering with st.chat_message
-- Full auto-render of tabs/plots/card ONLY for the newest result
-- Compact summaries with on-demand 'Show plots' toggle for earlier results
-- Interactive buttons for clarification options, plan options, and quick templates
-- Bottom-pinned st.chat_input and compatibility query dock
-- SQLite and st.session_state synchronization
+- Scrollable chat message rendering with st.chat_message with custom oceanic/user avatars.
+- Deep Ocean styling with centered 900px column layout and overflow prevention.
+- Word-level streaming for answer text on newest messages with rerun replay suppression.
+- Deterministic 'Understood as' line formatted with provenance code chips.
+- 6-button empty state gallery with cache-status badges.
+- Full auto-render of tabs/plots/card ONLY for the newest result.
+- Compact summaries with on-demand 'Show plots' toggle for earlier results.
+- Interactive buttons for clarification options, plan options, and quick templates.
+- Bottom-pinned st.chat_input and compatibility query dock.
+- SQLite and st.session_state synchronization.
 """
 
 from __future__ import annotations
@@ -40,8 +44,51 @@ from siqva.followup import ConversationState
 from siqva.gazetteer import KNOWN_REGIONS
 from siqva.llm_parser import is_hosted_backend_active
 from siqva.spec import DataMode, DepthRange
+from siqva.streaming import is_streaming_enabled, stream_text
 
 logger = logging.getLogger(__name__)
+
+ASSETS_DIR = Path(__file__).resolve().parent / "assets"
+USER_AVATAR = str(ASSETS_DIR / "user_avatar.png")
+ASSISTANT_AVATAR = str(ASSETS_DIR / "assistant_avatar.png")
+
+
+def load_chat_css() -> None:
+    """Inject Deep Ocean chat stylesheet into the Streamlit app view."""
+    css_path = ASSETS_DIR / "chat.css"
+    if css_path.exists():
+        try:
+            css_content = css_path.read_text(encoding="utf-8")
+            st.markdown(f"<style>\n{css_content}\n</style>", unsafe_allow_html=True)
+        except Exception as e:
+            logger.warning(f"Failed to load chat.css: {e}")
+
+
+def format_provenance_chips(understood_text: str) -> str:
+    """Format provenance labels [rules], [llm], [default] into clean markdown code chips."""
+    return (
+        understood_text
+        .replace("[rules]", "`rules`")
+        .replace("[llm]", "`llm`")
+        .replace("[LLM]", "`llm`")
+        .replace("[default]", "`default`")
+    )
+
+
+def is_example_cached(question: str) -> bool:
+    """Check if a seed example's query parquet exists in the local cache directory."""
+    try:
+        from siqva.fetcher import DEFAULT_CACHE_DIR
+        from siqva.parser import parse_detailed
+
+        outcome = parse_detailed(question, allow_llm=False)
+        if outcome.spec is not None:
+            fetch_key = outcome.spec.fetch_key()
+            parquet_path = Path(DEFAULT_CACHE_DIR) / f"{fetch_key}.parquet"
+            return parquet_path.exists()
+    except Exception:
+        pass
+    return False
 
 
 def init_chat_session() -> str:
@@ -80,6 +127,10 @@ def init_chat_session() -> str:
 
     if "query_input_key" not in st.session_state:
         st.session_state["query_input_key"] = 0
+
+    # 5. Initialize set of streamed message IDs to prevent replay on rerun
+    if "streamed_msg_ids" not in st.session_state:
+        st.session_state["streamed_msg_ids"] = set()
 
     return session_id
 
@@ -205,6 +256,7 @@ def render_chat_page(
     render_top_bar_fn: Callable[[str, str, str], None],
 ) -> None:
     """Render the persistent scrollable chat conversation interface."""
+    load_chat_css()
     session_id = init_chat_session()
 
     # 1. Handle sidebar history card restoration if selected
@@ -236,8 +288,8 @@ def render_chat_page(
     top_col, right_col = st.columns([12, 3])
     with top_col:
         render_top_bar_fn(
-            "SIQVA // CHAT TERMINAL",
-            "Ask questions about Argo ocean data via deterministic QC-explicit spec engine",
+            "SIQVA",
+            "Argo ocean float question answering & physical oceanography",
             "settings_placeholder_btn",
         )
     with right_col:
@@ -267,26 +319,47 @@ def render_chat_page(
     result_ids = [m.id for m in chat_messages if m.role == "assistant" and (m.kind == "result" or m.card_id is not None)]
     newest_result_id = result_ids[-1] if result_ids else None
 
+    # Find newest assistant message overall for streaming
+    assistant_ids = [m.id for m in chat_messages if m.role == "assistant"]
+    newest_assistant_id = assistant_ids[-1] if assistant_ids else None
+
+    streamed_ids = st.session_state.setdefault("streamed_msg_ids", set())
+
     # 3. Render Conversation Messages
     for msg in chat_messages:
         if msg.role == "user":
-            with st.chat_message("user"):
+            with st.chat_message("user", avatar=USER_AVATAR):
                 st.markdown(html.escape(msg.text))
         elif msg.role == "assistant":
-            with st.chat_message("assistant"):
+            with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
                 # Always render deterministic Understood as line if present
                 if msg.understood_as:
-                    st.caption(html.escape(msg.understood_as))
+                    st.caption(format_provenance_chips(html.escape(msg.understood_as)))
+
+                should_stream = (
+                    msg.id == newest_assistant_id
+                    and msg.id not in streamed_ids
+                    and is_streaming_enabled()
+                )
 
                 if msg.kind == "text":
-                    st.markdown(html.escape(msg.text))
+                    if should_stream:
+                        st.write_stream(stream_text(msg.text))
+                        streamed_ids.add(msg.id)
+                    else:
+                        st.markdown(html.escape(msg.text))
 
                 elif msg.kind == "refusal":
                     st.warning(html.escape(msg.text))
 
                 elif msg.kind == "knowledge":
-                    # Scientific concept text with markdown formatting
-                    st.markdown(msg.text)
+                    if should_stream:
+                        st.write_stream(stream_text(msg.text))
+                        streamed_ids.add(msg.id)
+                    else:
+                        # Scientific concept text with markdown formatting
+                        st.markdown(msg.text)
+
                     if msg.options:
                         cols = st.columns(min(len(msg.options), 3))
                         for idx, opt in enumerate(msg.options):
@@ -326,6 +399,7 @@ def render_chat_page(
                                     st.rerun()
 
                 elif msg.kind == "result":
+                    streamed_ids.add(msg.id)
                     is_newest = (msg.id == newest_result_id)
                     if is_newest:
                         # Auto-render full plots and tabs for newest result
@@ -345,7 +419,7 @@ def render_chat_page(
                                     res,
                                     key_prefix=f"{msg.id}_{card.card_id}",
                                     show_understood=False,
-                                )
+                                 )
                             else:
                                 st.markdown(html.escape(msg.text))
                         else:
@@ -354,45 +428,60 @@ def render_chat_page(
                         # Compact summary + Show plots button for older results
                         render_compact_summary(msg, render_pipeline_result_fn, session_id)
 
-    # 4. If conversation is empty, display Quick Query Starter Templates
+    # 4. If conversation is empty, display Quick Query Starter Templates (6 examples)
     if not chat_messages:
-        st.markdown("<div style='height: 15vh;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 10vh;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
-            <div style='text-align: center; color: #94A3B8; margin-bottom: 24px;'>
-                <div style='font-size: 1.25rem; font-weight: 700; color: #E2E8F0; margin-bottom: 6px;'>Explore Argo Ocean Float Data</div>
-                <div style='font-size: 0.85rem;'>Ask natural-language questions about global ocean profiles, thermoclines, salinity, and sound speed.</div>
+            <div style='text-align: center; color: #8EABC0; margin-bottom: 24px;'>
+                <div style='font-size: 1.35rem; font-weight: 700; color: #E6F1F5; margin-bottom: 6px;'>Explore Argo Ocean Float Data</div>
+                <div style='font-size: 0.88rem; max-width: 520px; margin: 0 auto; line-height: 1.5;'>Ask natural-language questions about global ocean profiles, thermoclines, salinity, and sound speed.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         st.markdown(
-            "<div style='margin-bottom: 8px; color: #64748B; font-size: 0.70rem; letter-spacing: 0.06em; font-weight: 600;'>QUICK QUERY TEMPLATES</div>",
+            "<div style='margin-bottom: 8px; color: #8EABC0; font-size: 0.72rem; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;'>Example Queries</div>",
             unsafe_allow_html=True,
         )
         ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"
-        sample_queries = []
+        sample_queries: list[tuple[str, str, bool]] = []
         if ex_file.exists():
             try:
                 with open(ex_file, "r", encoding="utf-8") as f:
                     ex_data = json.load(f)
-                sample_queries = [(e["question"], e["label"]) for e in ex_data.get("examples", [])]
+                for e in ex_data.get("examples", []):
+                    q_text = e["question"]
+                    raw_label = e.get("label", "")
+                    clean_label = raw_label.replace("[", "").replace("]", "").replace("//", "·").strip()
+                    cached = is_example_cached(q_text)
+                    sample_queries.append((q_text, clean_label, cached))
             except Exception:
                 pass
         if not sample_queries:
             sample_queries = [
-                ("thermocline and barrier layer in Bay of Bengal April 2022", "[MLD // BAY OF BENGAL]"),
-                ("cyclone heat potential tchp in Arabian Sea May 2022", "[TCHP // ARABIAN SEA]"),
-                ("acoustic sound speed profile in Arabian Sea January 2022", "[SOFAR // ARABIAN SEA]"),
+                ("thermocline and barrier layer in Bay of Bengal April 2022", "MLD · BAY OF BENGAL", True),
+                ("cyclone heat potential tchp in Arabian Sea May 2022", "TCHP · ARABIAN SEA", False),
+                ("acoustic sound speed profile in Arabian Sea January 2022", "SOFAR · ARABIAN SEA", False),
+                ("temperature and salinity profiles in Bay of Bengal January 2022", "T-S · BAY OF BENGAL", False),
+                ("temperature profiles in Arabian Sea January 2022", "TEMP · ARABIAN SEA 2022", False),
+                ("salinity profiles in Bay of Bengal June 2022", "SAL · BAY OF BENGAL", False),
             ]
 
-        num_cols = min(3, len(sample_queries))
-        q_cols = st.columns(num_cols)
-        for idx, (sq_text, sq_label) in enumerate(sample_queries[:num_cols]):
-            with q_cols[idx]:
-                if st.button(sq_label, key=f"quick_starter_{idx}", use_container_width=True):
-                    handle_user_turn(sq_text)
-                    st.rerun()
+        # 6 example buttons in 2 rows of 3 columns
+        row1 = sample_queries[:3]
+        row2 = sample_queries[3:6]
+        for r_idx, row_items in enumerate([row1, row2]):
+            if not row_items:
+                continue
+            cols = st.columns(len(row_items))
+            for c_idx, (sq_text, sq_label, is_cached) in enumerate(row_items):
+                with cols[c_idx]:
+                    tag = " • cached" if is_cached else ""
+                    btn_text = f"{sq_label}{tag}"
+                    if st.button(btn_text, key=f"quick_starter_{r_idx}_{c_idx}", use_container_width=True):
+                        handle_user_turn(sq_text)
+                        st.rerun()
 
     # 5. Advanced Constraints & Compatibility Dock (allows pinning region/WMO/depth and maintains compatibility)
     with st.expander("Advanced Query Constraints & Pinning (Optional)", expanded=False):
@@ -436,7 +525,11 @@ def render_chat_page(
         st.button("Send Query ↑", key="send_query_btn", type="primary", on_click=_on_send_query_click)
 
     # 6. Bottom Pinned Chat Input (ChatGPT / Claude style)
-    chat_prompt = st.chat_input("Ask an oceanographic question (e.g. thermocline in Bay of Bengal April 2022)...")
+    is_streaming = bool(st.session_state.get("is_streaming", False))
+    chat_prompt = st.chat_input(
+        "Ask an oceanographic question (e.g. thermocline in Bay of Bengal April 2022)...",
+        disabled=is_streaming,
+    )
     if chat_prompt:
         handle_user_turn(chat_prompt)
         st.rerun()
