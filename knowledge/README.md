@@ -47,16 +47,44 @@ knowledge/
 
 ## How to Verify a Note
 
-1. Inspect the note in `knowledge/notes/argo_notes.yaml`.
-2. Run the note review helper tool:
+### Meaning of "Verified" in SIQVA
+In SIQVA, **verified** denotes rigorous human attestation:
+1. Every factual sentence in the note has been reviewed against its audit evidence file (`knowledge/notes/evidence/<id>.md`) and original source text.
+2. Every number, threshold, QC flag, and unit matches authoritative documentation.
+3. Zero hallucination or ungrounded synthesis is guaranteed.
+
+### Authority
+**Only the repository owner** may verify notes (`verified_by: "owner"`). Automated tools or coding agents may never set `verified: true` on their own judgment.
+
+### Verification Tooling (`scripts/verify_note.py`)
+All verification is performed and tracked via `scripts/verify_note.py`, which guarantees text-preserving edits (preserving all comments, quoting, and formatting in YAML/JSON):
+
+1. **List all knowledge entries and their status**:
    ```bash
-   python scripts/review_note.py <note_id>
+   python scripts/verify_note.py --list
    ```
-   This displays the drafted note side-by-side with the surrounding extracted source text at the cited page or section.
-3. If the note accurately represents the source text:
-   - Change `verified: false` to `verified: true`.
-   - Set `checked_on: "YYYY-MM-DD"`.
-4. If the note is inaccurate or unsupported, revise or discard it.
+2. **Review and verify a single note**:
+   ```bash
+   python scripts/verify_note.py <note_id>
+   ```
+   Prints the note's answer, evidence lines, source version, and retrieval date. Prompts the owner to type `<note_id>` to confirm verification (`verified: true`, `checked_on: YYYY-MM-DD`, `verified_by: "owner"`).
+3. **Batch verify reviewed notes**:
+   ```bash
+   python scripts/verify_note.py --ids id1,id2,id3
+   ```
+   Requires explicit typing of `I reviewed these N notes`. Wildcards and bulk keywords are strictly rejected.
+4. **Unverify a note**:
+   ```bash
+   python scripts/verify_note.py --unverify <note_id>
+   ```
+
+### Validation Rules (`scripts/check_knowledge.py`)
+`scripts/check_knowledge.py` strictly enforces:
+- `verified: true` is allowed ONLY when `checked_on` is a valid ISO date (`YYYY-MM-DD`).
+- `verified_by` must equal `"owner"`.
+- Document notes must have an existing evidence file with no `NO SUPPORT FOUND` markings.
+- System code notes must have non-empty `claims` lists mapping to real code symbols.
+- Citations in answers display `checked <date>` and omit `[Unverified note]`. Unverified notes are hidden in production unless `SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED=1`.
 
 ## How to Re-Run Extraction and Validation
 

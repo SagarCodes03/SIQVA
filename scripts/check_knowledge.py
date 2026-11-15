@@ -19,6 +19,7 @@ Exits with code 0 on success, code 1 on validation errors.
 from __future__ import annotations
 
 import csv
+import datetime
 import json
 import re
 import sys
@@ -27,6 +28,17 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+
+def is_valid_iso_date(date_str: str) -> bool:
+    """Validate that date_str is a non-empty YYYY-MM-DD date."""
+    if not isinstance(date_str, str) or not date_str.strip():
+        return False
+    try:
+        datetime.date.fromisoformat(date_str.strip())
+        return True
+    except ValueError:
+        return False
 
 
 def count_sentences(text: str) -> int:
@@ -268,21 +280,38 @@ def validate_notes(
                         continue
                     all_note_ids.add(eid)
 
-                    # Verification rule: Own notes MUST have verified: false and checked_on
+                    # Verification rule: Own notes verified: true allowed only with valid checked_on, verified_by: "owner", and non-empty claims
                     is_verified = entry.get("verified")
-                    if is_verified is True:
-                        errors.append(
-                            f"{yaml_path.name}[{eid}]: 'verified' is set to True. "
-                            "Agents may NEVER set verified: true on own notes (only the owner may verify)."
-                        )
-                    elif is_verified is not False:
-                        errors.append(
-                            f"{yaml_path.name}[{eid}]: 'verified' must be boolean False."
-                        )
+                    checked_on = str(entry.get("checked_on") or "").strip()
+                    verified_by = str(entry.get("verified_by") or "").strip()
+                    applied_via = entry.get("applied_via")
 
-                    if "checked_on" not in entry:
+                    if is_verified is True:
+                        if not is_valid_iso_date(checked_on):
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: verified is True but checked_on is not a valid YYYY-MM-DD date ('{checked_on}')."
+                            )
+                        if verified_by != "owner":
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: verified is True but verified_by must be 'owner' (got '{verified_by}')."
+                            )
+                        claims = entry.get("claims")
+                        if not isinstance(claims, list) or len(claims) == 0:
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: verified is True but claims list is missing or empty."
+                            )
+                        if applied_via is not None and not isinstance(applied_via, str):
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: applied_via must be a string."
+                            )
+                    elif is_verified is False:
+                        if "checked_on" not in entry:
+                            errors.append(
+                                f"{yaml_path.name}[{eid}]: missing 'checked_on' field."
+                            )
+                    else:
                         errors.append(
-                            f"{yaml_path.name}[{eid}]: missing 'checked_on' field."
+                            f"{yaml_path.name}[{eid}]: 'verified' must be boolean True or False."
                         )
 
                     # Claims list must be a non-empty list
@@ -376,16 +405,38 @@ def validate_notes(
                     f"{yaml_path.name}[{note_id}]: missing required fields: {sorted(missing_fields)}"
                 )
 
-            # Verification rule: Document-derived notes MUST have verified: false
+            # Verification rule: Document-derived notes verified: true allowed only with valid checked_on, verified_by: "owner", and existing evidence file
             is_verified = note.get("verified")
+            checked_on = str(note.get("checked_on") or "").strip()
+            verified_by = str(note.get("verified_by") or "").strip()
+            applied_via = note.get("applied_via")
+
             if is_verified is True:
+                if not is_valid_iso_date(checked_on):
+                    errors.append(
+                        f"{yaml_path.name}[{note_id}]: verified is True but checked_on is not a valid YYYY-MM-DD date ('{checked_on}')."
+                    )
+                if verified_by != "owner":
+                    errors.append(
+                        f"{yaml_path.name}[{note_id}]: verified is True but verified_by must be 'owner' (got '{verified_by}')."
+                    )
+                ev_file = evidence_dir / f"{note_id}.md"
+                if not ev_file.exists():
+                    errors.append(
+                        f"{yaml_path.name}[{note_id}]: verified is True but evidence file '{ev_file.name}' is missing."
+                    )
+                if applied_via is not None and not isinstance(applied_via, str):
+                    errors.append(
+                        f"{yaml_path.name}[{note_id}]: applied_via must be a string."
+                    )
+            elif is_verified is False:
+                if "checked_on" not in note:
+                    errors.append(
+                        f"{yaml_path.name}[{note_id}]: missing 'checked_on' field."
+                    )
+            else:
                 errors.append(
-                    f"{yaml_path.name}[{note_id}]: 'verified' is set to True. "
-                    "Agents may NEVER set verified: true on document notes (only the owner may verify)."
-                )
-            elif is_verified is not False:
-                errors.append(
-                    f"{yaml_path.name}[{note_id}]: 'verified' must be boolean False."
+                    f"{yaml_path.name}[{note_id}]: 'verified' must be boolean True or False."
                 )
 
             # Source citation must match manifest
@@ -553,6 +604,9 @@ def check_knowledge_base(repo_root: Path | None = None) -> list[str]:
     return all_errors
 
 
+check_knowledge = check_knowledge_base
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     print("=" * 60)
@@ -578,10 +632,31 @@ def main() -> int:
 
     evidence_files = list((notes_dir / "evidence").glob("*.md"))
 
+    # Count verified vs unverified notes
+    verified_count = 0
+    unverified_count = 0
+    for y_file in sorted(notes_dir.glob("*.yaml")):
+        with open(y_file, "r", encoding="utf-8") as f:
+            y_data = yaml.safe_load(f)
+        if isinstance(y_data, list):
+            for n in y_data:
+                if isinstance(n, dict):
+                    if n.get("verified") is True:
+                        verified_count += 1
+                    else:
+                        unverified_count += 1
+        elif isinstance(y_data, dict) and y_data.get("metadata", {}).get("origin") == "code":
+            for n in y_data.get("notes", []):
+                if isinstance(n, dict):
+                    if n.get("verified") is True:
+                        verified_count += 1
+                    else:
+                        unverified_count += 1
+
     print("\n[PASSED] Knowledge base verification successful!")
     print(f"  - Sources in manifest: {len(sources)}")
     print(f"  - Registered note concepts & aliases: {len(note_ids)}")
-    print(f"  - Verified flag: all document-derived notes are verified: false")
+    print(f"  - Verified notes: {verified_count} verified, {unverified_count} unverified")
     print(f"  - Evidence audit files: {len(evidence_files)} verified (0 'NO SUPPORT FOUND')")
     print(f"  - Questions verified: {q_count}")
     return 0

@@ -56,6 +56,9 @@ class KnowledgeCitation(BaseModel):
     section_or_page: str = ""
     url_or_doi: str = ""
     retrieved_on: str = ""
+    checked_on: str = ""
+    verified_by: str = ""
+    applied_via: str = ""
     code_paths: list[str] = Field(default_factory=list)
 
 
@@ -73,7 +76,28 @@ class KnowledgeEntry(BaseModel):
     related: list[str] = Field(default_factory=list)
     origin: str  # "document" | "code" | "literature"
     verified: bool = False
+    checked_on: str = ""
+    verified_by: str = ""
+    applied_via: str = ""
     citation: KnowledgeCitation
+
+
+def format_citation(citation: KnowledgeCitation, status: str = "verified") -> str:
+    """Format a KnowledgeCitation into clean markdown with optional 'checked <date>' for verified notes."""
+    if citation.url_or_doi:
+        link_part = f"[{citation.title}]({citation.url_or_doi})"
+    else:
+        link_part = citation.title
+
+    details: list[str] = []
+    if citation.section_or_page:
+        details.append(citation.section_or_page)
+    if citation.checked_on and status == "verified":
+        details.append(f"checked {citation.checked_on}")
+
+    if details:
+        return f"{link_part} ({', '.join(details)})"
+    return link_part
 
 
 class KnowledgeAnswer(BaseModel):
@@ -272,6 +296,9 @@ def load_knowledge_entries(
             m_row = manifest[src_id]
             ver = item.get("source_version") or m_row.get("version", "")
             ret_on = item.get("retrieved_on") or m_row.get("retrieved_on", "")
+            checked_on = str(item.get("checked_on") or "")
+            verified_by = str(item.get("verified_by") or "")
+            applied_via = str(item.get("applied_via") or "")
             cit = KnowledgeCitation(
                 source_id=src_id,
                 title=m_row.get("title", ""),
@@ -279,6 +306,9 @@ def load_knowledge_entries(
                 section_or_page=item.get("section_or_page", ""),
                 url_or_doi=m_row.get("url_or_doi", ""),
                 retrieved_on=ret_on,
+                checked_on=checked_on,
+                verified_by=verified_by,
+                applied_via=applied_via,
             )
 
             entry = KnowledgeEntry(
@@ -291,6 +321,9 @@ def load_knowledge_entries(
                 related=item.get("related", []),
                 origin="document",
                 verified=bool(item.get("verified", False)),
+                checked_on=checked_on,
+                verified_by=verified_by,
+                applied_via=applied_via,
                 citation=cit,
             )
             entries.append(entry)
@@ -304,6 +337,9 @@ def load_knowledge_entries(
             note_id = item.get("id", "").strip()
             src_paths_raw = item.get("source_code_path", "")
             code_paths = [p.strip() for p in src_paths_raw.split(",") if p.strip()]
+            checked_on = str(item.get("checked_on") or "")
+            verified_by = str(item.get("verified_by") or "")
+            applied_via = str(item.get("applied_via") or "")
 
             cit = KnowledgeCitation(
                 source_id="siqva-code",
@@ -312,6 +348,9 @@ def load_knowledge_entries(
                 section_or_page=src_paths_raw,
                 url_or_doi="",
                 retrieved_on="2026-11-14",
+                checked_on=checked_on,
+                verified_by=verified_by,
+                applied_via=applied_via,
                 code_paths=code_paths,
             )
 
@@ -325,6 +364,9 @@ def load_knowledge_entries(
                 related=item.get("related", []),
                 origin="code",
                 verified=bool(item.get("verified", False)),
+                checked_on=checked_on,
+                verified_by=verified_by,
+                applied_via=applied_via,
                 citation=cit,
             )
             entries.append(entry)
@@ -342,6 +384,9 @@ def load_knowledge_entries(
                 cit_author = src_meta.get("author", "")
                 cit_year = str(src_meta.get("year", ""))
                 full_title = f"{cit_author} ({cit_year}), {cit_title}" if cit_author else cit_title
+                checked_on = str(t.get("checked_on") or "")
+                verified_by = str(t.get("verified_by") or "")
+                applied_via = str(t.get("applied_via") or "")
 
                 cit = KnowledgeCitation(
                     source_id=f"glossary-{t_term.lower()}",
@@ -350,6 +395,9 @@ def load_knowledge_entries(
                     section_or_page=src_meta.get("journal", ""),
                     url_or_doi=src_meta.get("url_or_doi", ""),
                     retrieved_on="2026-11-14",
+                    checked_on=checked_on,
+                    verified_by=verified_by,
+                    applied_via=applied_via,
                 )
 
                 ans_text = t.get("definition", "").strip()
@@ -370,6 +418,9 @@ def load_knowledge_entries(
                     related=[],
                     origin="literature",
                     verified=bool(t.get("verified", False)),
+                    checked_on=checked_on,
+                    verified_by=verified_by,
+                    applied_via=applied_via,
                     citation=cit,
                 )
                 entries.append(entry)

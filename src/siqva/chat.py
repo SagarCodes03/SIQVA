@@ -443,16 +443,8 @@ def dispatch(
             prefix = "[Unverified note]\n\n" if ans.status == "unverified" else ""
             sources_md = ""
             if ans.citations:
-                cits = []
-                for cit in ans.citations:
-                    if cit.url_or_doi:
-                        link_part = f"[{cit.title}]({cit.url_or_doi})"
-                    else:
-                        link_part = cit.title
-                    if cit.section_or_page:
-                        cits.append(f"{link_part} ({cit.section_or_page})")
-                    else:
-                        cits.append(link_part)
+                from .knowledge import format_citation
+                cits = [format_citation(cit, status=ans.status) for cit in ans.citations]
                 sources_md = f"\n\n*Sources*: {'; '.join(cits)}"
             full_text = f"{prefix}{ans.text}{sources_md}"
 
