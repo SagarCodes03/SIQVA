@@ -307,8 +307,7 @@ def test_ui_s7_sample_budget_exceeded(tmp_path):
 
     with patch("argopy.DataFetcher", MockProfileEngine), \
          patch("siqva.fetcher.DEFAULT_CACHE_DIR", tmp_path / "cache"), \
-         patch("siqva.fetcher.get_wall_clock_budget", return_value=0.001), \
-         patch("siqva.fetcher.time.sleep"):  # no delay
+         patch("siqva.fetcher.get_wall_clock_budget", return_value=0.001):
         # Patch monotonic so after 3 profiles it reports past budget
         real_monotonic = [0.0]
         call_count = [0]
@@ -318,7 +317,7 @@ def test_ui_s7_sample_budget_exceeded(tmp_path):
                 return 0.0
             return 100.0  # budget exceeded
 
-        with patch("time.monotonic", side_effect=fake_monotonic):
+        with patch("siqva.fetcher.time.monotonic", side_effect=fake_monotonic):
             at = AppTest.from_file(UI_PATH)
             at.run(timeout=30)
             assert len(at.exception) == 0

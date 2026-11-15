@@ -45,7 +45,7 @@ class RouteResult(BaseModel):
 
 # Regular expressions for deterministic rules-first classification
 GLOSSARY_PATTERNS = [
-    re.compile(r"^\s*(?:what\s+is|what\s+are|define|explain|meaning\s+of|definition\s+of)\s+([a-zA-Z0-9_\-\s\+]+)\??$", re.IGNORECASE),
+    re.compile(r"^\s*(?:what\s+is|what\s+are|define|explain|meaning\s+of|definition\s+of|how\s+does|how\s+do|why\s+does|why\s+do)\s+([a-zA-Z0-9_\-\s\+]+)\??$", re.IGNORECASE),
     re.compile(r"^\s*(?:tell\s+me\s+about)\s+([a-zA-Z0-9_\-\s\+]+)\??$", re.IGNORECASE),
 ]
 

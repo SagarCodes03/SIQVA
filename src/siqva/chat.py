@@ -377,9 +377,12 @@ def dispatch(
             msg = ChatMessage(role="assistant", kind="text", text=greetings["courtesy"])
             return [msg], c_state
 
-    # 3. Standard refusal check (Categories 1-9)
+    # 3. Standard refusal check (Categories 1-9) vs Mixed Request
     pure_refusal = _match_refusal(q_clean)
-    if pure_refusal:
+    from .knowledge import is_data_query
+    is_mixed = bool(pure_refusal and is_data_query(q_clean))
+
+    if pure_refusal and not is_mixed:
         msg = ChatMessage(role="assistant", kind="refusal", text=pure_refusal)
         return [msg], c_state
 
@@ -404,7 +407,10 @@ def dispatch(
                     on_result(res)
                 except Exception:
                     pass
-            return _convert_pipeline_result(res, q_clean, c_state, append_refusal=pure_refusal)
+            msgs, new_state = _convert_pipeline_result(res, q_clean, c_state)
+            if is_mixed and pure_refusal:
+                msgs.append(ChatMessage(role="assistant", kind="refusal", text=pure_refusal))
+            return msgs, new_state
 
     # 5. Routing classification
     route_res = route(q_clean)
@@ -425,53 +431,50 @@ def dispatch(
         msg = ChatMessage(role="assistant", kind="text", text=text)
         return [msg], c_state
 
-    if route_res.target == RouteTarget.GLOSSARY:
-        from .glossary import lookup_glossary
-
-        entity = route_res.extracted_entity or q_clean
-        gloss = lookup_glossary(entity)
-        if gloss.found and gloss.entry is not None:
-            e = gloss.entry
-            text = f"**{e.canonical_name}** (`{e.term}`)\n\n{e.definition}"
-            if e.formula:
-                text += f"\n\n*Formula*: `{e.formula}`"
-            text += f"\n\n*Source*: {e.source}"
-            msg = ChatMessage(role="assistant", kind="knowledge", text=text)
-        elif gloss.found and gloss.entry is None:
-            text = f"**{gloss.term_name or entity}**: {gloss.message}"
-            if gloss.source_citation:
-                text += f"\n\n*Preliminary citation*: {gloss.source_citation}"
-            msg = ChatMessage(role="assistant", kind="knowledge", text=text)
-        else:
-            msg = ChatMessage(
-                role="assistant",
-                kind="knowledge",
-                text="Knowledge answers are not available yet.",
-            )
-        return [msg], c_state
-
-    # Check for knowledge route (general conceptual question)
+    # 6. Knowledge & Glossary route (Grounded verbatim answers, 0 LLM calls)
     is_conceptual = bool(
-        re.search(r"^\s*(what is|what are|how does|why does|how do|explain|tell me about)\b", q_clean, re.IGNORECASE)
+        re.search(r"^\s*(what is|what are|how does|how do|why does|why do|explain|tell me about)\b", q_clean, re.IGNORECASE)
     )
-    if is_conceptual:
-        try:
-            import importlib
-            k_mod = importlib.import_module("siqva.knowledge")
-            if hasattr(k_mod, "answer"):
-                ans_text = k_mod.answer(q_clean)
-                msg = ChatMessage(role="assistant", kind="knowledge", text=ans_text)
-                return [msg], c_state
-        except ImportError:
-            pass
-        msg = ChatMessage(
-            role="assistant",
-            kind="knowledge",
-            text="Knowledge answers are not available yet.",
-        )
-        return [msg], c_state
+    if (route_res.target == RouteTarget.GLOSSARY or is_conceptual) and not is_data_query(q_clean):
+        from .knowledge import answer as knowledge_answer
 
-    # 6. Primary Data Pipeline (DATA_FETCH, OPERATION, COMPARISON, CLARIFICATION)
+        ans = knowledge_answer(q_clean)
+        if ans.kind == "answer":
+            prefix = "[Unverified note]\n\n" if ans.status == "unverified" else ""
+            sources_md = ""
+            if ans.citations:
+                cits = []
+                for cit in ans.citations:
+                    if cit.url_or_doi:
+                        link_part = f"[{cit.title}]({cit.url_or_doi})"
+                    else:
+                        link_part = cit.title
+                    if cit.section_or_page:
+                        cits.append(f"{link_part} ({cit.section_or_page})")
+                    else:
+                        cits.append(link_part)
+                sources_md = f"\n\n*Sources*: {'; '.join(cits)}"
+            full_text = f"{prefix}{ans.text}{sources_md}"
+
+            options: list[ChatOption] = []
+            if len(ans.note_ids) > 1:
+                for nid in ans.note_ids[1:3]:
+                    label = nid.replace("-", " ").title()
+                    options.append(ChatOption(label=label, action_type="knowledge", query_text=f"what is {label.lower()}"))
+
+            msg = ChatMessage(role="assistant", kind="knowledge", text=full_text, options=options)
+            return [msg], c_state
+
+        elif ans.kind == "refusal":
+            msg = ChatMessage(role="assistant", kind="refusal", text=ans.text)
+            return [msg], c_state
+
+        elif ans.kind == "not_in_notes":
+            opt = ChatOption(label="See sources", action_type="sources", query_text="")
+            msg = ChatMessage(role="assistant", kind="knowledge", text=ans.text, options=[opt])
+            return [msg], c_state
+
+    # 7. Primary Data Pipeline (DATA_FETCH, OPERATION, COMPARISON, CLARIFICATION)
     res = run(
         question=q_clean,
         fetcher_fn=fetcher_fn,
@@ -495,14 +498,16 @@ def dispatch(
         except Exception:
             pass
 
-    return _convert_pipeline_result(res, q_clean, c_state, append_refusal=pure_refusal)
+    msgs, new_state = _convert_pipeline_result(res, q_clean, c_state)
+    if is_mixed and pure_refusal:
+        msgs.append(ChatMessage(role="assistant", kind="refusal", text=pure_refusal))
+    return msgs, new_state
 
 
 def _convert_pipeline_result(
     res: PipelineResult,
     question: str,
     c_state: ConversationState,
-    append_refusal: Optional[str] = None,
 ) -> tuple[list[ChatMessage], ConversationState]:
     """Convert a PipelineResult into a ChatMessage and update ConversationState."""
     understood_as = _extract_understood_as(res)
@@ -568,10 +573,6 @@ def _convert_pipeline_result(
         summary_text = f"Retrieved {res.card.row_count:,} rows across {res.card.profile_count:,} profiles for {res.card.region_name}."
     else:
         summary_text = "Query completed successfully."
-
-    # If this was a mixed request (e.g. data + forecast), append standard refusal notice
-    if append_refusal:
-        summary_text += f"\n\n*Note*: An out-of-scope portion of your query was omitted: {append_refusal}"
 
     options: list[ChatOption] = []
     if res.plan_decision and res.plan_decision.options:

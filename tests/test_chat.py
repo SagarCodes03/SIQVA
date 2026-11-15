@@ -186,7 +186,8 @@ def test_dispatch_conceptual_knowledge():
     msgs, _ = dispatch("what is an argo float?")
     assert len(msgs) == 1
     assert msgs[0].kind == "knowledge"
-    assert "Knowledge answers are not available yet." in msgs[0].text
+    assert "not covered in my verified knowledge notes" in msgs[0].text
+    assert any(opt.action_type == "sources" for opt in msgs[0].options)
 
 
 def test_dispatch_meta_route():
@@ -196,12 +197,16 @@ def test_dispatch_meta_route():
     assert "No query has been run" in msgs[0].text
 
 
-def test_dispatch_glossary_route():
+def test_dispatch_glossary_route(monkeypatch):
+    monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "1")
+    from siqva.knowledge import reset_knowledge_index
+    reset_knowledge_index()
+
     msgs, _ = dispatch("what is MLD?")
     assert len(msgs) == 1
     assert msgs[0].kind == "knowledge"
-    assert "MLD" in msgs[0].text
-    assert "de Boyer" in msgs[0].text
+    assert "density" in msgs[0].text.lower() or "mixed layer" in msgs[0].text.lower()
+    assert "*Sources*:" in msgs[0].text
 
 
 def test_dispatch_data_query(mock_fetcher, tmp_path: Path):
