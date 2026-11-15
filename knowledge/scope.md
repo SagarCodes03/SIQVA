@@ -75,7 +75,7 @@ Queries outside SIQVA's mandate are politely refused without guessing. The stand
 
 ## 3. "Not in My Notes" Response Policy
 
-When an oceanographic or scientific question pertains to ocean science but is not covered in SIQVA's verified knowledge base notes, the system strictly refuses to invent answers or hallucinate from memory:
+When an oceanographic or scientific question pertains to ocean science but is not covered in SIQVA's verified knowledge base notes, the system strictly refuses to invent answers or hallucinate from memory. The canonical statement is stored in `data/refusal_categories.json`:
 
 > *"I cannot answer this specific question because it is not covered in my verified knowledge notes. Please refer directly to official Argo and TEOS-10 documentation listed on the app's Sources page."*
 
@@ -84,7 +84,7 @@ When an oceanographic or scientific question pertains to ocean science but is no
 ## 4. Conversational Greetings and Courtesy
 
 Social greetings (e.g., "Hello", "Good morning", "Hi") and courtesy messages (e.g., "Thank you", "Thanks"):
-- **Policy**: Acknowledged politely with a brief greeting indicating readiness to answer Argo questions and inspect oceanographic float data, without executing data fetches or issuing refusal warnings.
+- **Policy**: Acknowledged politely with a brief greeting indicating readiness to answer Argo questions and inspect oceanographic float data, without executing data fetches or issuing refusal warnings. Fixed sentences are maintained canonically in `data/refusal_categories.json`.
 - **Fixed Greeting Reply Sentence**:
   > *"Hello! I am SIQVA, an assistant for exploring Argo ocean float data and physical oceanography. How can I help you today?"*
 - **Fixed Courtesy Reply Sentence**:

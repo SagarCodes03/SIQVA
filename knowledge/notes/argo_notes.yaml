@@ -28,10 +28,15 @@
   verified: false
   checked_on: ''
 - id: float-cycle-and-depth
+  aliases:
+  - how-floats-work
+  - how-do-floats-work
   question_examples:
   - How does an Argo float work and how deep does it go?
   - What is the standard float mission cycle?
   - How long does an Argo float profile take?
+  - How do floats work?
+  - How does a float work?
   answer: 'The standard Argo float operates on a recurring 10-day mission cycle that
     begins by sinking from the surface to a parking drift depth of 1000 meters. The
     float drifts passively with deep currents at 1000 meters for roughly 9 days before
@@ -61,10 +66,14 @@
   aliases:
   - qc-flag-1-definition
   - qc-flag-4-definition
+  - qc
+  - quality-control
   question_examples:
   - What do the Argo quality control flags mean?
   - Explain the 0 to 9 Argo QC flag scale.
   - What is the difference between flag 1 and flag 4 in Argo?
+  - What is QC in Argo?
+  - What is quality control?
   answer: 'Argo quality control evaluates individual observation levels on a numerical
     scale from 0 to 9 as specified in Reference table 2 of the Argo User''s Manual.
     Flag 0 indicates no QC was performed, flag 1 represents good data where all real-time

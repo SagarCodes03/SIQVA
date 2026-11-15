@@ -10,6 +10,7 @@
 2. **All Numbers Come From Code**: Statistical answers and summaries are generated from deterministic code templates.
 3. **Explicit Quality Control & Modes**: Every query operates under an explicit data delivery mode (`research`, `standard`, or `expert`) and records full QC audit statistics.
 4. **Reproducibility First**: Every completed query persists an immutable `QueryCard` with SHA-256 canonical data hashes, environment versions, and an auto-generated standalone Python reproduction script.
+5. **Grounded Knowledge Retrieval (0 LLM Calls, 0 Hallucination)**: Questions about oceanographic concepts, platform rules, and data modes are answered verbatim from human-verified knowledge notes cross-checked against `knowledge/manifest.csv`. No LLM generates text for knowledge questions, guaranteeing absolute zero hallucination.
 
 ---
 

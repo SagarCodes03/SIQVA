@@ -29,6 +29,13 @@ deterministic.
    If unsure, say so in the PR notes instead of guessing.
 5. **Do not add technologies not listed in Section 4** without asking.
 6. **No secrets in the repo.** Use environment variables; keep `.env` ignored.
+7. **Knowledge answers are verbatim from verified notes, never generated.**
+   Answers to concept, glossary, and platform questions are retrieved verbatim
+   from human-verified notes (`verified: true`) cross-checked against
+   `knowledge/manifest.csv`. No LLM is used for knowledge answers, guaranteeing
+   zero hallucination. Setting `SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED=1` enables
+   retrieval of unverified notes tagged `[Unverified note]` for development and
+   benchmark testing.
 
 ## 3. Do NOT build (scope control)
 
@@ -70,6 +77,7 @@ src/siqva/
   chunking.py      # large-query calendar-month splitting and assembly
   qc.py            # mode / QC filtering
   analyzer.py      # stats + coverage metadata
+  knowledge.py     # grounded retrieval, BM25 index, verbatim note serving, zero LLM
   operations.py    # deterministic operations (mean, min, max, anomaly)
   comparison.py    # dual-dataset comparison without anomaly claims
   glossary.py      # scientific term lookup with literature citations and verification flag
