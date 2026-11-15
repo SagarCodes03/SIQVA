@@ -63,6 +63,11 @@ from siqva.spec import (
     get_location_info,
 )
 
+try:
+    from app.chat_ui import short_label
+except ImportError:
+    from chat_ui import short_label
+
 # ---------------------------------------------------------------------------
 # Streamlit Page Configuration (Zero Emojis)
 # ---------------------------------------------------------------------------
@@ -954,7 +959,8 @@ def _render_pipeline_result(
             sug_cols = st.columns(min(len(clarification.suggestions), 3))
             for idx, sug in enumerate(clarification.suggestions):
                 with sug_cols[idx % len(sug_cols)]:
-                    if st.button(f"> {sug}", key=f"clarify_sug_{prefix}_{idx}", use_container_width=True):
+                    s_lbl = short_label(sug, max_chars=28)
+                    if st.button(s_lbl, key=f"clarify_sug_{prefix}_{idx}", use_container_width=True, help=sug):
                         with st.spinner("Executing suggested spec..."):
                             st.session_state["pipeline_res"] = run(question=sug, force_refresh=False, max_request_size=_ui_max_request_size())
                             st.rerun()
@@ -977,7 +983,8 @@ def _render_pipeline_result(
                 cols = st.columns(min(len(opts), 3))
                 for idx, opt in enumerate(opts):
                     with cols[idx % len(cols)]:
-                        if st.button(f"> {opt.label}", key=f"plan_opt_{prefix}_{idx}", use_container_width=True, help=opt.description):
+                        s_lbl = short_label(opt.label, max_chars=28)
+                        if st.button(s_lbl, key=f"plan_opt_{prefix}_{idx}", use_container_width=True, help=opt.description or opt.label):
                             with st.spinner(f"Executing: {opt.label}..."):
                                 new_res = run_spec(opt.spec, force_refresh=False, max_request_size=_ui_max_request_size())
                                 if st.session_state.get("active_page") == "query":
@@ -1216,11 +1223,12 @@ def _render_pipeline_result(
                 act_cols = st.columns(min(len(action_items), 4))
                 for a_idx, act in enumerate(action_items):
                     with act_cols[a_idx % len(act_cols)]:
+                        s_lbl = short_label(act["label"], max_chars=28)
                         st.button(
-                            act["label"],
+                            s_lbl,
                             key=f"sample_act_{prefix}_{a_idx}",
                             use_container_width=True,
-                            help=act.get("help"),
+                            help=act.get("help") or act["label"],
                             on_click=_on_sample_action_click,
                             args=(act,),
                         )
@@ -1524,7 +1532,8 @@ with st.sidebar:
         ("acoustic sound speed profile in Arabian Sea January 2022", "SOFAR: Arabian Sea"),
     ]
     for idx, (t_text, t_label) in enumerate(s_templates):
-        if st.button(f"> {t_label}", key=f"sidebar_template_{idx}", use_container_width=True):
+        s_lbl = short_label(t_label, max_chars=28)
+        if st.button(s_lbl, key=f"sidebar_template_{idx}", use_container_width=True, help=t_label):
             handle_user_turn(t_text)
             st.session_state["active_page"] = "query"
             st.rerun()
@@ -1541,10 +1550,13 @@ with st.sidebar:
 
     if recent_cards:
         for c in recent_cards:
+            full_lbl = format_history_label(c)
+            s_lbl = short_label(full_lbl, max_chars=28)
             if st.button(
-                format_history_label(c),
+                s_lbl,
                 key=f"hist_{c.card_id}",
                 use_container_width=True,
+                help=full_lbl,
             ):
                 st.session_state["loaded_card_id"] = c.card_id
                 st.session_state["active_page"] = "query"
