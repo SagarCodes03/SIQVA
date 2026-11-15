@@ -52,7 +52,7 @@ def sample_fetch_result() -> FetchResult:
 
 
 def test_knowledge_chat_switch_on_how_does_floats_work(tmp_path, sample_fetch_result, monkeypatch):
-    """'how does floats work' with switch ON returns answer with citation and unverified tag."""
+    """'how does floats work' with switch ON returns verified answer with citation."""
     monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "1")
     reset_knowledge_index()
 
@@ -78,13 +78,14 @@ def test_knowledge_chat_switch_on_how_does_floats_work(tmp_path, sample_fetch_re
         assert user_msg.role == "user"
         assert asst_msg.role == "assistant"
         assert asst_msg.kind == "knowledge"
-        assert "[Unverified note]" in asst_msg.text
+        assert "[Unverified note]" not in asst_msg.text
         assert "*Sources*:" in asst_msg.text
+        assert "checked" in asst_msg.text
         assert "10-day" in asst_msg.text
 
 
 def test_knowledge_chat_switch_off_how_does_floats_work(tmp_path, sample_fetch_result, monkeypatch):
-    """'how does floats work' with switch OFF returns the not-in-notes sentence + 'See sources' button."""
+    """'how does floats work' with switch OFF returns the verified answer."""
     monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "0")
     reset_knowledge_index()
 
@@ -101,6 +102,36 @@ def test_knowledge_chat_switch_off_how_does_floats_work(tmp_path, sample_fetch_r
         assert len(at.exception) == 0
 
         at.text_area[0].input("how does floats work")
+        at.button(key="send_query_btn").click().run(timeout=30)
+        assert len(at.exception) == 0
+
+        msgs = at.session_state["chat_messages"]
+        assert len(msgs) == 2
+        asst_msg = msgs[1]
+        assert asst_msg.kind == "knowledge"
+        assert "10-day" in asst_msg.text
+        assert "[Unverified note]" not in asst_msg.text
+        assert "checked" in asst_msg.text
+
+
+def test_knowledge_chat_unverified_fallback(tmp_path, sample_fetch_result, monkeypatch):
+    """Unverified questions with switch OFF return not-in-notes sentence + 'See sources' button."""
+    monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "0")
+    reset_knowledge_index()
+
+    db_file = tmp_path / "cards.sqlite"
+    cache_dir = tmp_path / "cache"
+
+    with patch("siqva.card.DEFAULT_DB_PATH", db_file), \
+         patch("siqva.chat.DEFAULT_DB_PATH", db_file), \
+         patch("siqva.fetcher.DEFAULT_CACHE_DIR", cache_dir), \
+         patch("siqva.pipeline.fetch", return_value=sample_fetch_result):
+
+        at = AppTest.from_file(UI_PATH)
+        at.run(timeout=30)
+        assert len(at.exception) == 0
+
+        at.text_area[0].input("what is MLD?")
         at.button(key="send_query_btn").click().run(timeout=30)
         assert len(at.exception) == 0
 
@@ -263,7 +294,7 @@ def test_chat_see_sources_button_action(tmp_path, sample_fetch_result, monkeypat
         at.run(timeout=30)
         assert len(at.exception) == 0
 
-        at.text_area[0].input("how does floats work")
+        at.text_area[0].input("what is MLD?")
         at.button(key="send_query_btn").click().run(timeout=30)
         assert len(at.exception) == 0
 

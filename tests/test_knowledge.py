@@ -71,21 +71,29 @@ def test_loader_and_manifest_cross_check():
 
 
 def test_verified_filter_and_dev_switch(monkeypatch):
-    """Verify that unverified notes are suppressed unless SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED=1."""
+    """Verify that verified notes are returned with switch off, and unverified notes require switch on."""
     # Switch OFF (default)
     monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "0")
     k.reset_knowledge_index()
-    ans_off = k.answer("What is the Argo program?")
-    assert ans_off.kind == "not_in_notes"
-    assert len(ans_off.note_ids) == 0
 
-    # Switch ON
+    # Verified note IS returned with switch OFF
+    ans_verified = k.answer("What is the Argo program?")
+    assert ans_verified.kind == "answer"
+    assert "argo-one-paragraph" in ans_verified.note_ids
+    assert ans_verified.status == "verified"
+
+    # Unverified note (from own_sentences) is suppressed with switch OFF
+    ans_unverified_off = k.answer("Does the language model see my ocean data in SIQVA?")
+    assert ans_unverified_off.kind == "not_in_notes"
+    assert len(ans_unverified_off.note_ids) == 0
+
+    # Switch ON: unverified note IS returned
     monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "1")
     k.reset_knowledge_index()
-    ans_on = k.answer("What is the Argo program?")
-    assert ans_on.kind == "answer"
-    assert "argo-one-paragraph" in ans_on.note_ids
-    assert ans_on.status == "unverified"
+    ans_unverified_on = k.answer("Does the language model see my ocean data in SIQVA?")
+    assert ans_unverified_on.kind == "answer"
+    assert "siqva-llm-data-privacy" in ans_unverified_on.note_ids
+    assert ans_unverified_on.status == "unverified"
 
 
 def test_stemming_and_synonyms():
@@ -221,29 +229,34 @@ def test_two_close_entries(monkeypatch):
 
 def test_how_does_floats_work_and_what_is_qc(monkeypatch):
     """Verify exact target queries: 'how does floats work' -> float-cycle and 'what is qc' -> qc-flag-scale."""
-    # Dev switch ON -> returns single targeted note
+    # Both notes are now verified by owner attestation
+    # Dev switch OFF -> returns verified answers
+    monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "0")
+    k.reset_knowledge_index()
+
+    ans_float_off = k.answer("how does floats work")
+    assert ans_float_off.kind == "answer"
+    assert ans_float_off.note_ids == ["float-cycle-and-depth"]
+    assert ans_float_off.status == "verified"
+
+    ans_qc_off = k.answer("what is qc")
+    assert ans_qc_off.kind == "answer"
+    assert ans_qc_off.note_ids == ["qc-flag-scale"]
+    assert ans_qc_off.status == "verified"
+
+    # Dev switch ON -> also returns verified answers
     monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "1")
     k.reset_knowledge_index()
 
     ans_float = k.answer("how does floats work")
     assert ans_float.kind == "answer"
     assert ans_float.note_ids == ["float-cycle-and-depth"]
-    assert ans_float.status == "unverified"
+    assert ans_float.status == "verified"
 
     ans_qc = k.answer("what is qc")
     assert ans_qc.kind == "answer"
     assert ans_qc.note_ids == ["qc-flag-scale"]
-    assert ans_qc.status == "unverified"
-
-    # Dev switch OFF -> returns not_in_notes
-    monkeypatch.setenv("SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED", "0")
-    k.reset_knowledge_index()
-
-    ans_float_off = k.answer("how does floats work")
-    assert ans_float_off.kind == "not_in_notes"
-
-    ans_qc_off = k.answer("what is qc")
-    assert ans_qc_off.kind == "not_in_notes"
+    assert ans_qc.status == "verified"
 
 
 def test_concept_vs_causal_borderline(monkeypatch):

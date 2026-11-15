@@ -138,7 +138,7 @@ def test_batch_verify_exact_phrase(mock_knowledge_repo: Path):
     assert entries["qc-flag-scale"]["verified"] is True
     assert entries["qc-flag-scale"]["checked_on"] == today
     # Untouched note remains unverified
-    assert entries["argo-one-paragraph"]["verified"] is False
+    assert entries["siqva-sample-explanation"]["verified"] is False
 
 
 def test_batch_verify_wrong_phrase_aborts(mock_knowledge_repo: Path):
@@ -282,7 +282,6 @@ def test_knowledge_answer_verified_vs_unverified(mock_knowledge_repo: Path):
     """Test that verified notes are returned with switch off, showing 'checked <date>' without '[Unverified note]'."""
     reset_knowledge_index()
 
-    # With switch unset and all unverified:
     entries = load_knowledge_entries(
         manifest_path=mock_knowledge_repo / "knowledge" / "manifest.csv",
         argo_notes_path=mock_knowledge_repo / "knowledge" / "notes" / "argo_notes.yaml",
@@ -290,38 +289,29 @@ def test_knowledge_answer_verified_vs_unverified(mock_knowledge_repo: Path):
         glossary_path=mock_knowledge_repo / "data" / "glossary.json",
     )
     with patch("src.siqva.knowledge.load_knowledge_entries", return_value=entries):
+        # 1. Unverified note (MLD) with switch unset returns not_in_notes
         with patch.dict(os.environ, {}, clear=True):
-            ans = answer("How deep do Argo floats dive?")
-            # Because note is unverified and switch is unset: returns not_in_notes
-            assert ans.kind == "not_in_notes"
-
-        # Now verify float-cycle-and-depth
-        verify_single_note(mock_knowledge_repo, "float-cycle-and-depth", confirm_input="float-cycle-and-depth")
-        verified_entries = load_knowledge_entries(
-            manifest_path=mock_knowledge_repo / "knowledge" / "manifest.csv",
-            argo_notes_path=mock_knowledge_repo / "knowledge" / "notes" / "argo_notes.yaml",
-            own_sentences_path=mock_knowledge_repo / "knowledge" / "notes" / "own_sentences.yaml",
-            glossary_path=mock_knowledge_repo / "data" / "glossary.json",
-        )
-
-        with patch("src.siqva.knowledge.load_knowledge_entries", return_value=verified_entries):
             reset_knowledge_index()
-            # Switch unset: verified note IS returned!
-            with patch.dict(os.environ, {}, clear=True):
-                ans_verified = answer("How deep do Argo floats dive?")
-                assert ans_verified.kind == "answer"
-                assert ans_verified.status == "verified"
-                assert "2000" in ans_verified.text
-                assert "[Unverified note]" not in ans_verified.text
+            ans_unv_off = answer("What is MLD?")
+            assert ans_unv_off.kind == "not_in_notes"
 
-                # Check citation format
-                cit_formatted = format_citation(ans_verified.citations[0], status=ans_verified.status)
-                assert "checked" in cit_formatted
-                assert datetime.date.today().isoformat() in cit_formatted
+        # 2. Verified note with switch unset IS returned with 'checked <date>' and no '[Unverified note]'
+        with patch.dict(os.environ, {}, clear=True):
+            reset_knowledge_index()
+            ans_verified = answer("What do the Argo quality control flags mean?")
+            assert ans_verified.kind == "answer"
+            assert ans_verified.status == "verified"
+            assert "numerical scale from 0 to 9" in ans_verified.text
+            assert "[Unverified note]" not in ans_verified.text
 
-            # Switch set to 1: unverified notes also returned with [Unverified note]
-            with patch.dict(os.environ, {"SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED": "1"}):
-                reset_knowledge_index()
-                ans_unverified = answer("What is real-time QC?")
-                assert ans_unverified.kind == "answer"
-                assert ans_unverified.status == "unverified"
+            # Check citation format
+            cit_formatted = format_citation(ans_verified.citations[0], status=ans_verified.status)
+            assert "checked" in cit_formatted
+            assert datetime.date.today().isoformat() in cit_formatted
+
+        # 3. Unverified note with switch set to 1 IS returned with status="unverified"
+        with patch.dict(os.environ, {"SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED": "1"}):
+            reset_knowledge_index()
+            ans_unv_on = answer("What is MLD?")
+            assert ans_unv_on.kind == "answer"
+            assert ans_unv_on.status == "unverified"

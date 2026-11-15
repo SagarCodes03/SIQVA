@@ -57,6 +57,8 @@ def evaluate_split(questions: list[dict[str, Any]], dev_switch: bool) -> dict[st
         type_passed: dict[str, int] = defaultdict(int)
         failures: list[dict[str, Any]] = []
 
+        all_entries = {e.id: e for e in k.load_knowledge_entries()}
+
         for q in questions:
             q_id = q.get("id", "")
             q_text = q.get("question", "")
@@ -66,9 +68,14 @@ def evaluate_split(questions: list[dict[str, Any]], dev_switch: bool) -> dict[st
             ans = k.answer(q_text)
             type_counts[q_type] += 1
 
+            has_verified_target = any(
+                nid in all_entries and all_entries[nid].verified
+                for nid in expected_nids
+            )
+
             passed = False
             if q_type == "knowledge":
-                if dev_switch:
+                if dev_switch or has_verified_target:
                     passed = (ans.kind == "answer" and any(nid in ans.note_ids for nid in expected_nids))
                 else:
                     # In production with switch off, unverified notes return not_in_notes

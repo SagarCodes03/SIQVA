@@ -183,11 +183,20 @@ def test_dispatch_refusal_categories():
 
 
 def test_dispatch_conceptual_knowledge():
-    msgs, _ = dispatch("what is an argo float?")
+    # Out of scope / unverified in notes
+    msgs, _ = dispatch("what is MLD?")
     assert len(msgs) == 1
     assert msgs[0].kind == "knowledge"
     assert "not covered in my verified knowledge notes" in msgs[0].text
     assert any(opt.action_type == "sources" for opt in msgs[0].options)
+
+    # In verified knowledge notes
+    msgs_v, _ = dispatch("what is an argo float?")
+    assert len(msgs_v) == 1
+    assert msgs_v[0].kind == "knowledge"
+    assert "Argo" in msgs_v[0].text
+    assert "[Unverified note]" not in msgs_v[0].text
+    assert "checked" in msgs_v[0].text
 
 
 def test_dispatch_meta_route():
