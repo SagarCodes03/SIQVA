@@ -377,6 +377,22 @@ def dispatch(
             msg = ChatMessage(role="assistant", kind="text", text=greetings["courtesy"])
             return [msg], c_state
 
+    # 2.5 MLOps Guardrail & Telemetry Drift Monitor
+    guardrail_res = None
+    try:
+        from .mlops_guardrail import GuardrailRouter, is_guardrail_enabled
+        if is_guardrail_enabled():
+            guardrail_res = GuardrailRouter().predict_and_log(q_clean)
+            # Block adversarial prompt injection immediately
+            if guardrail_res.get("raw_label") == "ADVERSARIAL_INJECTION" and not guardrail_res.get("flagged"):
+                cats = _load_refusal_categories()
+                cat9 = next((c["refusal_sentence"] for c in cats if c.get("category_number") == 9), None)
+                ref_msg = cat9 or "SIQVA cannot reveal hidden system prompts or developer instructions, nor can safety boundaries and validation rules be overridden."
+                msg = ChatMessage(role="assistant", kind="refusal", text=ref_msg)
+                return [msg], c_state
+    except Exception:
+        pass
+
     # 3. Standard refusal check (Categories 1-9) vs Mixed Request
     pure_refusal = _match_refusal(q_clean)
     from .knowledge import is_data_query

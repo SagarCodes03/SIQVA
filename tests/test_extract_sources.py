@@ -1,8 +1,9 @@
 """Unit tests for text extraction from PDF and HTML sources."""
 
 from pathlib import Path
-import fitz
 import pytest
+
+fitz = pytest.importorskip("fitz")
 
 from scripts.extract_sources import extract_html, extract_pdf
 

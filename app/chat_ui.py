@@ -433,15 +433,15 @@ def render_chat_page(
         st.markdown("<div style='height: 10vh;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
-            <div style='text-align: center; color: #8EABC0; margin-bottom: 24px;'>
-                <div style='font-size: 1.35rem; font-weight: 700; color: #E6F1F5; margin-bottom: 6px;'>Explore Argo Ocean Float Data</div>
+            <div style='text-align: center; color: #94A3B8; margin-bottom: 24px;'>
+                <div style='font-size: 1.35rem; font-weight: 700; color: #F1F5F9; margin-bottom: 6px;'>Explore Argo Ocean Float Data</div>
                 <div style='font-size: 0.88rem; max-width: 520px; margin: 0 auto; line-height: 1.5;'>Ask natural-language questions about global ocean profiles, thermoclines, salinity, and sound speed.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         st.markdown(
-            "<div style='margin-bottom: 8px; color: #8EABC0; font-size: 0.72rem; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;'>Example Queries</div>",
+            "<div style='margin-bottom: 8px; color: #94A3B8; font-size: 0.72rem; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;'>Example Queries</div>",
             unsafe_allow_html=True,
         )
         ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"

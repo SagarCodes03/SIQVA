@@ -1,12 +1,12 @@
-/* SIQVA Deep Ocean Chat Stylesheet */
+/* SIQVA Minimalist Dark Chat Stylesheet */
 :root {
-  --teal-ocean: #2EC4B6;
-  --bg-canvas: #0B1F2A;
-  --bg-surface: #12303F;
-  --bg-user-bubble: #1A3B4D;
-  --text-primary: #E6F1F5;
-  --text-muted: #8EABC0;
-  --border-panel: #1E4255;
+  --teal-ocean: #38BDF8;
+  --bg-canvas: #090C10;
+  --bg-surface: #0F141C;
+  --bg-user-bubble: #151C26;
+  --text-primary: #F1F5F9;
+  --text-muted: #94A3B8;
+  --border-panel: #1E2733;
 }
 
 /* 1. Centered 900px column layout */
@@ -33,7 +33,7 @@
   margin-left: auto !important;
   max-width: 82% !important;
   background-color: var(--bg-user-bubble) !important;
-  border: 1px solid rgba(46, 196, 182, 0.35) !important;
+  border: 1px solid rgba(56, 189, 248, 0.35) !important;
 }
 
 /* 4. Assistant message bubble (left-aligned, deep oceanic panel) */
@@ -66,8 +66,8 @@
   white-space: pre-wrap !important;
   word-break: break-all !important;
   overflow-x: auto !important;
-  background: #0B1F2A !important;
-  border: 1px solid #1E4255 !important;
+  background: #090C10 !important;
+  border: 1px solid #1E2733 !important;
   border-radius: 6px !important;
   padding: 10px !important;
 }
@@ -75,7 +75,7 @@
 [data-testid="stChatMessageContent"] code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
   background: rgba(255, 255, 255, 0.08) !important;
-  color: #2EC4B6 !important;
+  color: #38BDF8 !important;
   padding: 2px 6px !important;
   border-radius: 4px !important;
   font-size: 0.9em !important;
@@ -132,19 +132,19 @@
   align-items: center;
   gap: 4px;
   padding: 6px 12px;
-  background: rgba(46, 196, 182, 0.08);
-  border: 1px solid rgba(46, 196, 182, 0.25);
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.25);
   border-radius: 12px;
   margin-bottom: 6px;
   font-size: 13px;
-  color: #8EABC0;
+  color: #94A3B8;
 }
 
 .typing-dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background-color: #2EC4B6;
+  background-color: #38BDF8;
   opacity: 0.35;
   animation: typingPulse 1.4s infinite ease-in-out;
 }

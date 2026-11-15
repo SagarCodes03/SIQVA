@@ -1414,13 +1414,15 @@ with st.sidebar:
     is_plots = st.session_state["active_page"] == "plots"
     is_compare = st.session_state["active_page"] == "compare"
     is_sources = st.session_state["active_page"] == "sources"
+    is_mlops = st.session_state["active_page"] == "mlops"
 
     q_label = "●  New chat" if is_query else "○  New chat"
     p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
     c_label = "●  Compare Runs" if is_compare else "○  Compare Runs"
     s_label = "●  Sources" if is_sources else "○  Sources"
+    m_label = "●  MLOps & Telemetry" if is_mlops else "○  MLOps & Telemetry"
 
-    active_nav_key = "nav_query_btn" if is_query else ("nav_plot_btn" if is_plots else ("nav_compare_btn" if is_compare else "nav_sources_btn"))
+    active_nav_key = "nav_query_btn" if is_query else ("nav_plot_btn" if is_plots else ("nav_compare_btn" if is_compare else ("nav_sources_btn" if is_sources else "nav_mlops_btn")))
     st.markdown(
         f"""
         <style>
@@ -1458,6 +1460,10 @@ with st.sidebar:
         st.session_state["active_page"] = "sources"
         st.rerun()
 
+    if st.button(m_label, use_container_width=True, key="nav_mlops_btn"):
+        st.session_state["active_page"] = "mlops"
+        st.rerun()
+
     st.divider()
     c_new_chat, c_clear_chat = st.columns(2)
     with c_new_chat:
@@ -1491,6 +1497,17 @@ with st.sidebar:
         index=["research", "standard", "expert"].index(st.session_state.get("delivery_mode", "research")),
         label_visibility="collapsed",
         key="sidebar_delivery_mode_selector",
+    )
+
+    st.markdown(
+        "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>MLOPS GUARDRAIL</div>",
+        unsafe_allow_html=True,
+    )
+    st.session_state["enable_mlops_guardrail"] = st.toggle(
+        "MLflow Guardrail",
+        value=st.session_state.get("enable_mlops_guardrail", True),
+        key="sidebar_guardrail_toggle",
+        help="Toggle MLflow guardrail classification, drift tracking, and active learning logging on/off.",
     )
 
     st.markdown(
@@ -1848,3 +1865,150 @@ elif st.session_state["active_page"] == "sources":
         st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
     except Exception as e:
         st.error(f"Failed to load sources: {e}")
+
+
+# ---------------------------------------------------------------------------
+# PAGE 5: MLOPS GOVERNANCE & TELEMETRY
+# ---------------------------------------------------------------------------
+elif st.session_state["active_page"] == "mlops":
+    c_mhead, c_mtog = st.columns([3, 1])
+    with c_mhead:
+        _render_top_bar(
+            "SIQVA // MLOPS GOVERNANCE & TELEMETRY",
+            "Production Guardrail Lineage, Calibrated Confidence, and Live Drift Telemetry",
+            "settings_mlops_btn",
+        )
+    with c_mtog:
+        st.session_state["enable_mlops_guardrail"] = st.toggle(
+            "Enable MLflow Guardrail",
+            value=st.session_state.get("enable_mlops_guardrail", True),
+            key="page_mlops_toggle_btn",
+            help="Toggle MLflow guardrail and drift telemetry on/off globally",
+        )
+
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+
+    from siqva.mlops_guardrail import get_model_metadata, get_telemetry_summary, is_guardrail_enabled
+    meta = get_model_metadata()
+    telemetry = get_telemetry_summary()
+    guardrail_on = is_guardrail_enabled()
+
+    # 1. High-level metric cards
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        status_label = "● ACTIVE" if guardrail_on else "○ BYPASSED"
+        st.metric("Guardrail Status", status_label, f"SHA-256: {meta.get('dataset_version', 'N/A')}")
+    with m2:
+        f1_val = meta.get("macro_f1", 0.0)
+        st.metric("Test Macro F1", f"{f1_val:.3f}", "Quality Gate >= 0.90")
+    with m3:
+        lat_val = meta.get("latency_ms", 0.0)
+        st.metric("Inference Latency", f"{lat_val:.2f} ms", "Quality Gate < 5.0 ms")
+    with m4:
+        total_q = telemetry.get("total_queries", 0)
+        flagged_q = telemetry.get("flagged_count", 0)
+        st.metric("Live Queries Logged", f"{total_q:,}", f"{flagged_q} flagged for review")
+
+    st.markdown("<div style='height: 16px;'></div>", unsafe_allow_html=True)
+
+    # 2. Real-time drift & MLflow overview
+    col_left, col_right = st.columns([1, 1])
+
+    with col_left:
+        avg_conf_pct = f"{telemetry.get('avg_confidence', 1.0) * 100:.1f}%"
+        avg_oov_pct = f"{telemetry.get('avg_oov_ratio', 0.0) * 100:.1f}%"
+        st.markdown(
+            f"""
+            <div style="background-color: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <div style="color: var(--text-secondary); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px;">
+                    [ DRIFT & CONFIDENCE SIGNALS ]
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid var(--border-hairline); padding-bottom: 6px;">
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">Average Confidence:</span>
+                    <span style="color: var(--text-primary); font-family: var(--font-mono); font-weight: 600;">{avg_conf_pct}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid var(--border-hairline); padding-bottom: 6px;">
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">Vocabulary OOV Drift Rate:</span>
+                    <span style="color: var(--text-primary); font-family: var(--font-mono); font-weight: 600;">{avg_oov_pct}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px; border-bottom: 1px solid var(--border-hairline); padding-bottom: 6px;">
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">Drift Alert Threshold:</span>
+                    <span style="color: #38BDF8; font-family: var(--font-mono); font-weight: 600;">OOV &gt; 65% or Conf &lt; 70%</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">Telemetry Database:</span>
+                    <span style="color: var(--text-primary); font-family: var(--font-mono); font-size: 0.80rem;">data/telemetry.sqlite</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # Class distribution
+        class_dist = telemetry.get("class_distribution", {})
+        if class_dist:
+            dist_df = pd.DataFrame([{"Class": k, "Inference Count": v} for k, v in class_dist.items()])
+            st.caption("Live Inference Class Distribution")
+            st.dataframe(dist_df, use_container_width=True, hide_index=True)
+
+    with col_right:
+        st.markdown(
+            """
+            <div style="background-color: var(--bg-surface); border: 1px solid var(--border-hairline); border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+                <div style="color: var(--text-secondary); font-size: 0.72rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 8px;">
+                    [ MLOPS ARCHITECTURE & EXPERIMENT TRACKING ]
+                </div>
+                <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.5; margin-bottom: 12px;">
+                    Lightweight, cloud-free MLOps stack for enterprise scientific computing:
+                    <ul style="margin: 6px 0 0 16px; padding: 0;">
+                        <li><strong>Data Versioning:</strong> SHA-256 dataset hashing directly into MLflow (replaces multi-GB DVC).</li>
+                        <li><strong>Guardrail Model:</strong> TF-IDF (Word + Char-WB) + Calibrated LinearSVC (150 KB joblib, &lt; 1 ms).</li>
+                        <li><strong>Experiment Tracking:</strong> Local SQLite MLflow store at <code>sqlite:///mlflow.db</code>.</li>
+                        <li><strong>CI/CD Gate:</strong> <code>tests/test_mlops_gate.py</code> enforcing Macro F1 &ge; 0.90.</li>
+                    </ul>
+                </div>
+                <div style="color: var(--text-muted); font-size: 0.75rem; font-family: var(--font-mono); background: #06080B; border: 1px solid #1E2733; padding: 8px 12px; border-radius: 6px;">
+                    # Launch MLflow Dashboard in terminal:<br>
+                    mlflow ui --backend-store-uri sqlite:///mlflow.db
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # 3. Active Learning Review Queue
+    st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+    st.markdown(
+        "<div style='font-size: 0.95rem; font-weight: 600; color: var(--text-primary); margin-bottom: 6px;'>Active Learning Review Queue (Flagged Uncertain Queries)</div>",
+        unsafe_allow_html=True,
+    )
+    st.caption("Queries flagged due to low confidence (< 70%) or high out-of-vocabulary drift (> 65%). Inspect these to expand dataset for retraining.")
+
+    al_queue = telemetry.get("active_learning_queue", [])
+    if al_queue:
+        al_df = pd.DataFrame(al_queue)
+        al_df.rename(columns={
+            "timestamp": "Timestamp",
+            "query_text": "Query",
+            "predicted_class": "Predicted Class",
+            "confidence": "Confidence",
+            "oov_ratio": "OOV Ratio",
+            "latency_ms": "Latency (ms)",
+        }, inplace=True)
+        st.dataframe(al_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No queries currently flagged for active learning. All recent queries operated within normal confidence boundaries.")
+
+    # Retrain button
+    st.markdown("<div style='height: 12px;'></div>", unsafe_allow_html=True)
+    c_btn1, c_btn2 = st.columns([1, 3])
+    with c_btn1:
+        if st.button("Retrain Guardrail Pipeline", key="mlops_retrain_btn", use_container_width=True):
+            with st.spinner("Retraining guardrail with MLflow tracking..."):
+                try:
+                    from scripts.train_guardrail import train_and_register
+                    res_train = train_and_register()
+                    st.success(f"Retrained and Promoted! New F1={res_train['macro_f1']} | SHA={res_train['dataset_version']}")
+                    st.rerun()
+                except Exception as ex:
+                    st.error(f"Retraining failed: {ex}")
