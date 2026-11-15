@@ -1,0 +1,100 @@
+# UI Investigation & Design Notes: SIQVA Chat Interface
+
+This document records the architectural investigation, CSS injection points, DOM structures, and overflow causes in the SIQVA chat interface for Streamlit 1.57.0.
+
+---
+
+## 1. CSS Injection Points & Message Containers
+
+### Existing CSS Injection Locations
+1. **`app/ui.py` (lines 78–250)**:
+   - Primary dark theme stylesheet injected via `st.markdown("<style>...</style>", unsafe_allow_html=True)`.
+   - Defines CSS variables (`--bg-canvas`, `--bg-surface`, `--accent-ocean`, etc.), fonts, sidebar hairline borders, and header adjustments.
+   - Contains global monospace overrides for code blocks, metrics, and tags.
+2. **`app/ui.py` (lines 1424–1437)**:
+   - Dynamic sidebar navigation button highlight styling (`.st-key-{active_nav_key} button`).
+3. **`app/old_ui.py` (lines 49–90)**:
+   - Legacy standalone form UI stylesheet (deprecated, retained for reference only).
+
+### Confirmed Message Containers (Streamlit 1.57.0)
+Verified against installed static bundle (`site-packages/streamlit/static/static/js/src.D9MArGZj.js` and `index.D2ZqaFuW.js`):
+- **Outer Message Row**: `[data-testid="stChatMessage"]` / `.stChatMessage`
+  - Styled with `display: flex; align-items: flex-start; gap: 0.5rem; width: 100%;`
+- **Avatar Container**:
+  - Default User: `[data-testid="stChatMessageAvatarUser"]` (red background, `:material/face:`)
+  - Default Assistant: `[data-testid="stChatMessageAvatarAssistant"]` (orange background, `:material/smart_toy:`)
+  - Custom Avatar: `[data-testid="stChatMessageAvatarCustom"]` (renders custom image, emoji, or icon)
+- **Message Content Bubble**: `[data-testid="stChatMessageContent"]` / `.stChatMessageContent`
+  - Styled with `flex-grow: 1; min-width: 0; margin: auto; color: bodyText;`
+- **Application Layout Shell**:
+  - `[data-testid="stAppViewContainer"]`: Main outer app container.
+  - `[data-testid="stMainBlockContainer"]`: Central content column.
+  - `[data-testid="stBottomBlockContainer"]`: Fixed bottom area containing `st.chat_input`.
+
+---
+
+## 2. Overflow Causes and Structural Analysis
+
+| Overflow Candidate | Why It Can Overflow in Streamlit | Mitigation in `chat.css` |
+| :--- | :--- | :--- |
+| **"Understood as" Caption** | Rendered via `st.caption` with long coordinate strings, dates, and provenance tags. In flex children without `min-width: 0` or if given nowrap styling, it stretches past the viewport. | Apply `overflow-wrap: anywhere; word-break: break-word;` and format provenance tags as inline chips. |
+| **Citations and Long Links** | URLs (e.g. `https://doi.org/...` or `https://argopy.readthedocs.io/...`) contain no whitespace. In standard CSS, continuous character sequences do not wrap by default. | Set `a { overflow-wrap: anywhere; word-break: break-word; }` and ensure inline display inside bubbles. |
+| **Long Hashes & IDs** | 64-character SHA-256 data hashes, spec keys, and cycle identifiers have no whitespace breakpoints. | Apply `word-break: break-all;` or `overflow-wrap: anywhere;` on monospace chip containers. |
+| **DataFrames** | Streamlit DataFrames use Glide Data Grid with fixed column widths and minimum canvas sizing. | Constrain parent container with `max-width: 100%; overflow-x: auto;` to prevent spilling outside the bubble. |
+| **Code Blocks (`<pre><code>`)** | Standard browser `<pre>` elements default to `white-space: pre;`. Long generated scripts or shell commands push out the right boundary. | Set `pre, code { white-space: pre-wrap !important; word-break: break-word !important; overflow-x: auto; }`. |
+| **Markdown Tables (`<table>`)** | HTML tables default to sizing based on their content (`max-content`). Multi-column tables exceed 900px on narrow viewports. | Set `table { display: block; max-width: 100%; overflow-x: auto; }` so wide tables scroll horizontally inside the message bubble. |
+| **Plotly Charts** | Plotly embeds SVG and WebGL canvases with fixed pixel layout dimensions. | Wrap in responsive containers with `max-width: 100% !important; overflow-x: auto;`. |
+| **Option-Button Rows** | Using `st.columns(3)` inside chat messages creates parallel flex columns. Long button labels cannot shrink below their min-content width. | Replace rigid columns with a CSS flex-wrap container (`display: flex; flex-wrap: wrap; gap: 8px;`). |
+| **Expanders** | `[data-testid="stExpander"]` can overflow if inner child elements lack `min-width: 0`. | Enforce `min-width: 0; max-width: 100%;` on expander details and summary. |
+
+---
+
+## 3. Theme & Palette Specifications
+- **Theme Name**: Deep Ocean
+- **Palette**:
+  - Primary Accent (Teal): `#2EC4B6`
+  - Background Canvas: `#0B1F2A`
+  - Surface Panels / Assistant Bubbles: `#12303F`
+  - User Bubble Tint: `#1A3B4D` (subtle teal-tinted border `#2EC4B6`)
+  - Primary Text: `#E6F1F5`
+  - Secondary / Muted Text: `#8EABC0`
+  - Hairline Borders: `#1E4255`
+- **Typography**:
+  - Body: Modern Sans-Serif (`Inter`, -apple-system, BlinkMacSystemFont, `Segoe UI`, Roboto, sans-serif) at minimum 15px.
+  - Monospace: `JetBrains Mono`, `Fira Code`, monospace strictly for code spans, provenance chips, and hashes.
+
+---
+
+## 4. Implementation Details (U1 & U2)
+
+### U1: Look, Layout, and Styling
+- **Stylesheet (`app/assets/chat.css`)**:
+  - Centered 900px maximum column width on `stMainBlockContainer` and `stBottomBlockContainer`.
+  - User bubble: right-aligned (`flex-direction: row-reverse; margin-left: auto; max-width: 82%`) with background `#1A3B4D` and teal border `rgba(46, 196, 182, 0.35)`.
+  - Assistant bubble: left-aligned (`margin-right: auto; max-width: 95%`) with surface panel `#12303F` and border `#1E4255`.
+  - Enforced `overflow-wrap: anywhere !important; word-break: break-word !important; min-width: 0 !important;` on message content.
+  - Constrained `<pre>`, `<code>`, `[data-testid="stTable"]`, `[data-testid="stDataFrame"]`, and `[data-testid="stPlotlyChart"]` to 100% max-width with horizontal scroll.
+- **Custom Avatars (`app/assets/assistant_avatar.png`, `app/assets/user_avatar.png`)**:
+  - High-DPI theme-aligned avatars generated via PIL.
+  - Assistant: Oceanic wave symbol in `#2EC4B6` on dark circle `#0B1F2A`.
+  - User: Neutral person silhouette in soft white `#E6F1F5` on `#1A3B4D`.
+  - Passed explicitly to every `st.chat_message` call (`avatar=USER_AVATAR`, `avatar=ASSISTANT_AVATAR`).
+- **Header & Navigation**:
+  - Minimal toolbar configured in `.streamlit/config.toml` (`client.toolbarMode = "minimal"`).
+  - Top bar text decluttered to clean title ("SIQVA") and subtitle ("Argo ocean float question answering & physical oceanography").
+  - Sidebar navigation updated to readable labels: `New chat`, `Plot Graph`, `Compare Runs`, `Sources`, and `History`.
+  - Provenance labels formatted into clean inline code chips (`` `rules` ``, `` `llm` ``, `` `default` ``).
+- **Empty State Gallery**:
+  - Displays welcome header and 6 pre-validated example queries from `data/examples.json` arranged in a 2x3 grid.
+  - Includes deterministic cache status badges (`• cached`) dynamically computed from local Parquet cache existence.
+
+### U2: Processing Indicators & Word-Level Streaming
+- **Module `src/siqva/streaming.py`**:
+  - `chunk_text(text: str)`: Markdown-aware tokenizer preserving links, inline code spans, block code fences, and table rows intact while chunking normal text at word boundaries.
+  - `stream_text(text, sleep_fn, words_per_second=40.0, max_seconds=2.0, min_ms=400.0)`: Paces output with bounded delays and injectable sleep function to avoid test starvation.
+  - Toggle via `SIQVA_STREAM` environment variable (1 enabled, 0 disabled) and session state toggle.
+- **Rendering & Replay Suppression**:
+  - Newest assistant message streams answer text via `st.write_stream(stream_text(msg.text))`.
+  - Tracks `streamed_msg_ids` in `st.session_state` so subsequent reruns never replay the stream.
+  - Animated typing indicator styles supporting `prefers-reduced-motion` media queries.
+  - `st.chat_input` disabled while streaming.
