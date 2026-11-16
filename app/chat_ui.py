@@ -495,18 +495,21 @@ def render_chat_page(
 
     # 4. If conversation is empty, display Quick Query Starter Templates (6 examples)
     if not chat_messages:
-        st.markdown("<div style='height: 10vh;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 8vh;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
-            <div style='text-align: center; color: #94A3B8; margin-bottom: 24px;'>
-                <div style='font-size: 1.35rem; font-weight: 700; color: #F1F5F9; margin-bottom: 6px;'>Explore Argo Ocean Float Data</div>
-                <div style='font-size: 0.88rem; max-width: 520px; margin: 0 auto; line-height: 1.5;'>Ask natural-language questions about global ocean profiles, thermoclines, salinity, and sound speed.</div>
+            <div style='text-align: center; margin-bottom: 28px;'>
+                <div style='display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 9999px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.22); font-size: 0.72rem; font-weight: 600; color: #38BDF8; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px;'>
+                    🌊 Verified Argo Hydrography
+                </div>
+                <div style='font-size: 1.6rem; font-weight: 700; color: #F1F5F9; letter-spacing: -0.025em; margin-bottom: 8px;'>Argo Ocean Float Explorer</div>
+                <div style='font-size: 0.90rem; max-width: 540px; margin: 0 auto; line-height: 1.55; color: #94A3B8;'>Deterministic scientific queries into global ocean temperature, salinity, sound speed, and barrier layers with zero LLM hallucinations.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
         st.markdown(
-            "<div style='margin-bottom: 8px; color: #94A3B8; font-size: 0.72rem; letter-spacing: 0.05em; font-weight: 600; text-transform: uppercase;'>Example Queries</div>",
+            "<div style='margin-bottom: 10px; color: #64748B; font-size: 0.72rem; letter-spacing: 0.06em; font-weight: 600; text-transform: uppercase;'>Suggested Queries</div>",
             unsafe_allow_html=True,
         )
         ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"

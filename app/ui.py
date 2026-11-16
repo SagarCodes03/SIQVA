@@ -267,6 +267,13 @@ st.markdown(
         margin-bottom: 4px !important;
         width: 100% !important;
         border-radius: 6px !important;
+        transition: transform 90ms ease, background-color 140ms ease, border-color 140ms ease !important;
+    }
+    [data-testid="stSidebar"] .st-key-nav_query_btn button:active,
+    [data-testid="stSidebar"] .st-key-nav_plot_btn button:active,
+    [data-testid="stSidebar"] .st-key-nav_compare_btn button:active,
+    [data-testid="stSidebar"] .stButton > button:not([kind="primary"]):active {
+        transform: scale(0.98) !important;
     }
     [data-testid="stSidebar"] .st-key-nav_query_btn button *,
     [data-testid="stSidebar"] .st-key-nav_plot_btn button *,
@@ -527,12 +534,34 @@ st.markdown(
         border-color: var(--border-hover) !important;
         box-shadow: none !important;
     }
+    /* Modal Dialog Backdrop & Container (Emil's Animation & Tactile Physics) */
+    div[data-testid="stDialog"] {
+        backdrop-filter: blur(4px) !important;
+        background-color: rgba(6, 8, 11, 0.75) !important;
+    }
     div[data-testid="stDialog"] > div:first-child, div[role="dialog"] {
         background-color: var(--bg-surface) !important;
-        border: 1px solid var(--border-hover) !important;
-        border-radius: 10px !important;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6) !important;
+        border: 1px solid rgba(255, 255, 255, 0.09) !important;
+        border-radius: 12px !important;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 0 20px 48px rgba(0, 0, 0, 0.6) !important;
         color: var(--text-primary) !important;
+        animation: modalEntrance 220ms cubic-bezier(0.16, 1, 0.3, 1) !important;
+        transform-origin: center center !important;
+    }
+    @keyframes modalEntrance {
+        from {
+            opacity: 0;
+            transform: scale(0.96) translateY(8px);
+        }
+        to {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+    }
+    @media (prefers-reduced-motion: reduce) {
+        div[data-testid="stDialog"] > div:first-child, div[role="dialog"] {
+            animation: none !important;
+        }
     }
     .banner-clarification {
         background-color: #0E1724;

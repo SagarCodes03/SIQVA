@@ -20,5 +20,13 @@ rapidfuzz==3.14.6
 # Local LLM Integration
 ollama==0.6.3
 
+# Knowledge Engine & Utilities
+pyyaml>=6.0.0
+requests>=2.31.0
+
+# MLOps Guardrail & Telemetry
+joblib>=1.3.0
+scikit-learn>=1.3.0
+
 # Testing
 pytest==9.1.1
