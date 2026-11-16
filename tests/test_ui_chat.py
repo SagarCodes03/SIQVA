@@ -122,8 +122,8 @@ def test_no_unescaped_user_text_in_unsafe_allow_html():
                                 )
 
 
-def test_chat_empty_state_renders_six_examples(tmp_path):
-    """Empty state renders 6 example-question buttons with cached badges and clean header."""
+def test_chat_empty_state_renders_clean_without_suggested_queries(tmp_path):
+    """Empty state renders clean header and prompt dock without cluttered suggested queries."""
     db_file = tmp_path / "cards.sqlite"
     cache_dir = tmp_path / "cache"
 
@@ -136,9 +136,9 @@ def test_chat_empty_state_renders_six_examples(tmp_path):
         at.run(timeout=30)
         assert len(at.exception) == 0
 
-        # Check for 6 quick_starter buttons
+        # Suggested starter buttons are completely removed
         starter_buttons = [b for b in at.button if b.key and b.key.startswith("quick_starter_")]
-        assert len(starter_buttons) == 6, f"Expected 6 example starter buttons, got {len(starter_buttons)}"
+        assert len(starter_buttons) == 0, f"Expected 0 example starter buttons, got {len(starter_buttons)}"
 
 
 def test_chat_three_turns_six_messages_no_exceptions(tmp_path, sample_fetch_result):

@@ -931,10 +931,27 @@ def _ui_max_request_size() -> Optional[float]:
     return DEFAULT_MAX_REQUEST_SIZE
 
 
-def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> None:
+def _render_top_bar(
+    title_text: str,
+    subtitle_text: str,
+    settings_key: str = "settings_btn",
+    show_menu_button: bool = True,
+) -> None:
     """Render top-left aligned terminal header next to sidebar with far-right menu button."""
-    top_left, top_right = st.columns([14, 1], vertical_alignment="top")
-    with top_left:
+    if show_menu_button:
+        top_left, top_right = st.columns([14, 1], vertical_alignment="top")
+        with top_left:
+            st.markdown(
+                f'<div class="terminal-header-wrap">'
+                f'  <div class="terminal-header-title">{html.escape(title_text)}</div>'
+                f'  <div class="terminal-header-sub">{html.escape(subtitle_text)}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+        with top_right:
+            if st.button("⋮", key=settings_key, help="Terminal Preferences & Diagnostics"):
+                open_terminal_settings_modal()
+    else:
         st.markdown(
             f'<div class="terminal-header-wrap">'
             f'  <div class="terminal-header-title">{html.escape(title_text)}</div>'
@@ -942,9 +959,6 @@ def _render_top_bar(title_text: str, subtitle_text: str, settings_key: str) -> N
             f'</div>',
             unsafe_allow_html=True,
         )
-    with top_right:
-        if st.button("⋮", key=settings_key, help="Terminal Preferences & Diagnostics"):
-            open_terminal_settings_modal()
 
     if not is_size_guardrail_enabled():
         st.warning(
@@ -1761,7 +1775,14 @@ if st.session_state["active_page"] == "query":
     except ImportError:
         from chat_ui import render_chat_page
 
-    render_chat_page(_render_pipeline_result, _render_top_bar)
+    render_chat_page(
+        _render_pipeline_result,
+        _render_top_bar,
+        open_settings_modal_fn=open_terminal_settings_modal,
+    )
+    if st.session_state.get("open_terminal_settings_modal_flag"):
+        st.session_state["open_terminal_settings_modal_flag"] = False
+        open_terminal_settings_modal()
 
 
 # ---------------------------------------------------------------------------

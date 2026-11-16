@@ -294,7 +294,10 @@ def render_compact_summary(
 
 def render_chat_page(
     render_pipeline_result_fn: Callable[[Any], None],
-    render_top_bar_fn: Callable[[str, str, str], None],
+    render_top_bar_fn: Callable[..., None],
+    open_settings_modal_fn: Optional[Callable[[], None]] = None,
+    *args,
+    **kwargs,
 ) -> None:
     """Render the persistent scrollable chat conversation interface."""
     load_chat_css()
@@ -333,18 +336,19 @@ def render_chat_page(
             "SIQVA",
             "Argo ocean float question answering & physical oceanography",
             "settings_placeholder_btn",
+            show_menu_button=False,
         )
     with right_col:
-        c_clear, c_new = st.columns(2)
+        c_clear, c_new, c_diag = st.columns([1.1, 1.1, 0.45])
         with c_clear:
-            if st.button("🗑️ Clear", key="top_clear_chat_btn", use_container_width=True, help="Clear conversation history"):
+            if st.button("Clear", key="top_clear_chat_btn", use_container_width=True, help="Clear conversation history"):
                 clear_chat_messages(session_id=session_id)
                 st.session_state["chat_messages"] = []
                 st.session_state["conversation_state"] = ConversationState()
                 st.session_state["pipeline_res"] = None
                 st.rerun()
         with c_new:
-            if st.button("➕ New", key="top_new_chat_btn", use_container_width=True, help="Start a new chat session"):
+            if st.button("+ New", key="top_new_chat_btn", use_container_width=True, help="Start a new chat session"):
                 new_sid = uuid.uuid4().hex[:12]
                 st.session_state["session_id"] = new_sid
                 st.query_params["session_id"] = new_sid
@@ -352,6 +356,13 @@ def render_chat_page(
                 st.session_state["conversation_state"] = ConversationState()
                 st.session_state["pipeline_res"] = None
                 st.rerun()
+        with c_diag:
+            if st.button("⋮", key="top_menu_settings_btn", help="Terminal Preferences & Diagnostics", use_container_width=True):
+                if open_settings_modal_fn is not None:
+                    open_settings_modal_fn()
+                else:
+                    st.session_state["open_terminal_settings_modal_flag"] = True
+                    st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown("<div style='height: 8px;'></div>", unsafe_allow_html=True)
@@ -493,113 +504,84 @@ def render_chat_page(
                         # Compact summary + Show plots button for older results
                         render_compact_summary(msg, render_pipeline_result_fn, session_id)
 
-    # 4. If conversation is empty, display Quick Query Starter Templates (6 examples)
+    # 4. Empty State Hero
     if not chat_messages:
-        st.markdown("<div style='height: 8vh;'></div>", unsafe_allow_html=True)
+        st.markdown("<div style='height: 12vh; min-height: 50px;'></div>", unsafe_allow_html=True)
         st.markdown(
             """
-            <div style='text-align: center; margin-bottom: 28px;'>
-                <div style='display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 9999px; background: rgba(56, 189, 248, 0.08); border: 1px solid rgba(56, 189, 248, 0.22); font-size: 0.72rem; font-weight: 600; color: #38BDF8; letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 12px;'>
-                    🌊 Verified Argo Hydrography
-                </div>
-                <div style='font-size: 1.6rem; font-weight: 700; color: #F1F5F9; letter-spacing: -0.025em; margin-bottom: 8px;'>Argo Ocean Float Explorer</div>
-                <div style='font-size: 0.90rem; max-width: 540px; margin: 0 auto; line-height: 1.55; color: #94A3B8;'>Deterministic scientific queries into global ocean temperature, salinity, sound speed, and barrier layers with zero LLM hallucinations.</div>
+            <div style='text-align: center; margin-bottom: 24px;'>
+                <div style='font-size: 1.55rem; font-weight: 600; color: #F1F5F9; letter-spacing: -0.02em; margin-bottom: 8px;'>Argo Ocean Float Explorer</div>
+                <div style='font-size: 0.90rem; max-width: 520px; margin: 0 auto; line-height: 1.55; color: #94A3B8;'>Deterministic scientific queries into global ocean temperature, salinity, sound speed, and barrier layers.</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
-        st.markdown(
-            "<div style='margin-bottom: 10px; color: #64748B; font-size: 0.72rem; letter-spacing: 0.06em; font-weight: 600; text-transform: uppercase;'>Suggested Queries</div>",
-            unsafe_allow_html=True,
-        )
-        ex_file = Path(__file__).resolve().parent.parent / "data" / "examples.json"
-        sample_queries: list[tuple[str, str, bool]] = []
-        if ex_file.exists():
-            try:
-                with open(ex_file, "r", encoding="utf-8") as f:
-                    ex_data = json.load(f)
-                for e in ex_data.get("examples", []):
-                    q_text = e["question"]
-                    raw_label = e.get("label", "")
-                    clean_label = raw_label.replace("[", "").replace("]", "").replace("//", "·").strip()
-                    cached = is_example_cached(q_text)
-                    sample_queries.append((q_text, clean_label, cached))
-            except Exception:
-                pass
-        if not sample_queries:
-            sample_queries = [
-                ("thermocline and barrier layer in Bay of Bengal April 2022", "MLD · BAY OF BENGAL", True),
-                ("cyclone heat potential tchp in Arabian Sea May 2022", "TCHP · ARABIAN SEA", False),
-                ("acoustic sound speed profile in Arabian Sea January 2022", "SOFAR · ARABIAN SEA", False),
-                ("temperature and salinity profiles in Bay of Bengal January 2022", "T-S · BAY OF BENGAL", False),
-                ("temperature profiles in Arabian Sea January 2022", "TEMP · ARABIAN SEA 2022", False),
-                ("salinity profiles in Bay of Bengal June 2022", "SAL · BAY OF BENGAL", False),
-            ]
+        st.markdown("<div style='height: 28vh; min-height: 140px;'></div>", unsafe_allow_html=True)
 
-        # 6 example buttons in 2 rows of 3 columns
-        row1 = sample_queries[:3]
-        row2 = sample_queries[3:6]
-        for r_idx, row_items in enumerate([row1, row2]):
-            if not row_items:
-                continue
-            cols = st.columns(len(row_items))
-            for c_idx, (sq_text, sq_label, is_cached) in enumerate(row_items):
-                with cols[c_idx]:
-                    tag = " • cached" if is_cached else ""
-                    btn_text = short_label(f"{sq_label}{tag}", max_chars=28)
-                    if st.button(btn_text, key=f"quick_starter_{r_idx}_{c_idx}", use_container_width=True, help=sq_text):
-                        handle_user_turn(sq_text)
-                        st.rerun()
+    def _on_send_query_click() -> None:
+        raw_q = st.session_state.get("claude_query_box", "").strip()
+        if not raw_q:
+            return
+        p_reg = st.session_state.get("pin_region_select", "(None)")
+        if p_reg != "(None)" and p_reg.lower() not in raw_q.lower():
+            raw_q += f" in {p_reg}"
+        p_wmo = st.session_state.get("pin_wmo_input", "").strip()
+        if p_wmo:
+            raw_q += f" for float {p_wmo}"
+        p_min_z = float(st.session_state.get("pin_min_dbar", 0))
+        p_max_z = float(st.session_state.get("pin_max_dbar", 500))
+        p_force = bool(st.session_state.get("pin_force_check", False))
+        d_over = DepthRange(min_depth=p_min_z, max_depth=p_max_z) if (p_min_z > 0 or p_max_z != 500) else None
+        handle_user_turn(raw_q, depth_override=d_over, force_refresh=p_force)
+        st.session_state["claude_query_box"] = ""
 
-    # 5. Advanced Constraints & Compatibility Dock (allows pinning region/WMO/depth and maintains compatibility)
-    with st.expander("Advanced Query Constraints & Pinning (Optional)", expanded=False):
-        c_reg, c_wmo = st.columns(2)
-        with c_reg:
-            all_regions = ["(None)"] + sorted(KNOWN_REGIONS.keys())
-            st.selectbox("PIN REGION", options=all_regions, index=0, key="pin_region_select")
-        with c_wmo:
-            st.text_input("PIN WMO ID (OPTIONAL)", placeholder="e.g. 2902269", key="pin_wmo_input")
-        c_z1, c_z2, c_force = st.columns(3)
-        with c_z1:
-            st.number_input("MIN dbar", value=0, min_value=0, max_value=2000, step=50, key="pin_min_dbar")
-        with c_z2:
-            st.number_input("MAX dbar", value=500, min_value=10, max_value=6000, step=50, key="pin_max_dbar")
-        with c_force:
-            st.checkbox("FORCE LIVE ERDDAP/ARGOVIS FETCH", value=False, key="pin_force_check")
-
-        def _on_send_query_click() -> None:
-            raw_q = st.session_state.get("claude_query_box", "").strip()
-            if not raw_q:
-                return
-            p_reg = st.session_state.get("pin_region_select", "(None)")
-            if p_reg != "(None)" and p_reg.lower() not in raw_q.lower():
-                raw_q += f" in {p_reg}"
-            p_wmo = st.session_state.get("pin_wmo_input", "").strip()
-            if p_wmo:
-                raw_q += f" for float {p_wmo}"
-            p_min_z = float(st.session_state.get("pin_min_dbar", 0))
-            p_max_z = float(st.session_state.get("pin_max_dbar", 500))
-            p_force = bool(st.session_state.get("pin_force_check", False))
-            d_over = DepthRange(min_depth=p_min_z, max_depth=p_max_z) if (p_min_z > 0 or p_max_z != 500) else None
-            handle_user_turn(raw_q, depth_override=d_over, force_refresh=p_force)
-            st.session_state["claude_query_box"] = ""
-
+    # 5. Bottom Query Dock with minimized popover constraints button
+    st.markdown('<div class="siqva-prompt-dock">', unsafe_allow_html=True)
+    with st.container(border=True):
         st.text_area(
-            "Query Input Box",
-            placeholder="Ask an oceanographic question...",
-            key="claude_query_box",
+            "Query Input",
+            placeholder="Ask an oceanographic question (e.g. thermocline in Bay of Bengal April 2022)...",
+            label_visibility="collapsed",
             height=68,
+            key="claude_query_box",
         )
-        st.button("Send Query ↑", key="send_query_btn", type="primary", on_click=_on_send_query_click)
+        b_attach, b_spacer, b_send = st.columns([0.8, 7.2, 2.0])
+        with b_attach:
+            with st.popover("+", help="Attach spatial/depth constraints to query"):
+                st.markdown("**Query Constraints & Pinning**")
+                all_regions = ["(None)"] + sorted(KNOWN_REGIONS.keys())
+                st.selectbox("Pin Region", options=all_regions, index=0, key="pin_region_select")
+                st.text_input("Pin WMO ID (Optional)", placeholder="e.g. 2902269", key="pin_wmo_input")
+                c_z1, c_z2 = st.columns(2)
+                with c_z1:
+                    st.number_input("Min dbar", value=0, min_value=0, max_value=2000, step=50, key="pin_min_dbar")
+                with c_z2:
+                    st.number_input("Max dbar", value=500, min_value=10, max_value=6000, step=50, key="pin_max_dbar")
+                st.checkbox("Force Live ERDDAP Fetch", value=False, key="pin_force_check")
+                st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+        with b_send:
+            st.button("Send ↑", key="send_query_btn", type="primary", use_container_width=True, on_click=_on_send_query_click)
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("<div style='height: 32px;'></div>", unsafe_allow_html=True)
 
-    # 6. Bottom Pinned Chat Input (ChatGPT / Claude style)
+    # 6. Bottom Pinned Chat Input (native compatibility)
     is_streaming = bool(st.session_state.get("is_streaming", False))
     chat_prompt = st.chat_input(
-        "Ask an oceanographic question (e.g. thermocline in Bay of Bengal April 2022)...",
+        "Ask an oceanographic question...",
         disabled=is_streaming,
     )
     if chat_prompt:
-        handle_user_turn(chat_prompt)
+        p_reg = st.session_state.get("pin_region_select", "(None)")
+        if p_reg != "(None)" and p_reg.lower() not in chat_prompt.lower():
+            chat_prompt += f" in {p_reg}"
+        p_wmo = st.session_state.get("pin_wmo_input", "").strip()
+        if p_wmo:
+            chat_prompt += f" for float {p_wmo}"
+        p_min_z = float(st.session_state.get("pin_min_dbar", 0))
+        p_max_z = float(st.session_state.get("pin_max_dbar", 500))
+        p_force = bool(st.session_state.get("pin_force_check", False))
+        d_over = DepthRange(min_depth=p_min_z, max_depth=p_max_z) if (p_min_z > 0 or p_max_z != 500) else None
+        handle_user_turn(chat_prompt, depth_override=d_over, force_refresh=p_force)
         st.rerun()
 
     # 7. Privacy notice
