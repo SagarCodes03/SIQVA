@@ -307,7 +307,7 @@ def test_knowledge_answer_verified_vs_unverified(mock_knowledge_repo: Path):
             # Check citation format
             cit_formatted = format_citation(ans_verified.citations[0], status=ans_verified.status)
             assert "checked" in cit_formatted
-            assert datetime.date.today().isoformat() in cit_formatted
+            assert ans_verified.citations[0].checked_on in cit_formatted
 
         # 3. Unverified note with switch set to 1 IS returned with status="unverified"
         with patch.dict(os.environ, {"SIQVA_KNOWLEDGE_INCLUDE_UNVERIFIED": "1"}):
