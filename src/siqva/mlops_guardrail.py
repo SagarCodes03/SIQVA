@@ -31,17 +31,12 @@ TELEMETRY_DB = Path("data/telemetry.sqlite")
 def is_guardrail_enabled() -> bool:
     """Check if MLOps guardrail and telemetry logging are enabled.
 
-    Requires SIQVA_ADMIN=1. When off (default), nothing runs or writes to DB.
-    When SIQVA_ADMIN=1, can be toggled off via:
-    - Environment variable: SIQVA_MLOPS_GUARDRAIL=0
-    - Streamlit session state: st.session_state["enable_mlops_guardrail"] = False
+    Can be controlled via:
+    - Streamlit session state toggle: st.session_state["enable_mlops_guardrail"] (sidebar toggle)
+    - Environment variable: SIQVA_MLOPS_GUARDRAIL=0/1
+    - SIQVA_ADMIN=1
     """
-    if os.environ.get("SIQVA_ADMIN", "0").strip() != "1":
-        return False
-
-    env_val = os.environ.get("SIQVA_MLOPS_GUARDRAIL", "1").strip().lower()
-    if env_val in ("0", "false", "no", "off"):
-        return False
+    # 1. Streamlit session state toggle has highest priority in interactive UI
     try:
         import streamlit as st
 
@@ -49,6 +44,15 @@ def is_guardrail_enabled() -> bool:
             return bool(st.session_state["enable_mlops_guardrail"])
     except Exception:
         pass
+
+    # 2. In non-UI environments (CLI/tests), require SIQVA_ADMIN=1 unless explicitly enabled
+    if os.environ.get("SIQVA_ADMIN", "0").strip() != "1":
+        return False
+
+    env_val = os.environ.get("SIQVA_MLOPS_GUARDRAIL", "1").strip().lower()
+    if env_val in ("0", "false", "no", "off"):
+        return False
+
     return True
 
 

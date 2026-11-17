@@ -1476,7 +1476,7 @@ with st.sidebar:
     is_plots = st.session_state["active_page"] == "plots"
     is_compare = st.session_state["active_page"] == "compare"
     is_sources = st.session_state["active_page"] == "sources"
-    is_mlops = is_admin and (st.session_state["active_page"] == "mlops")
+    is_mlops = st.session_state["active_page"] == "mlops"
 
     q_label = "●  New chat" if is_query else "○  New chat"
     p_label = "●  Plot Graph" if is_plots else "○  Plot Graph"
@@ -1522,10 +1522,9 @@ with st.sidebar:
         st.session_state["active_page"] = "sources"
         st.rerun()
 
-    if is_admin:
-        if st.button(m_label, use_container_width=True, key="nav_mlops_btn"):
-            st.session_state["active_page"] = "mlops"
-            st.rerun()
+    if st.button(m_label, use_container_width=True, key="nav_mlops_btn"):
+        st.session_state["active_page"] = "mlops"
+        st.rerun()
 
     st.divider()
     st.markdown(
@@ -1540,17 +1539,16 @@ with st.sidebar:
         key="sidebar_delivery_mode_selector",
     )
 
-    if is_admin:
-        st.markdown(
-            "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>MLOPS GUARDRAIL</div>",
-            unsafe_allow_html=True,
-        )
-        st.session_state["enable_mlops_guardrail"] = st.toggle(
-            "MLflow Guardrail",
-            value=st.session_state.get("enable_mlops_guardrail", True),
-            key="sidebar_guardrail_toggle",
-            help="Toggle MLflow guardrail classification, drift tracking, and active learning logging on/off.",
-        )
+    st.markdown(
+        "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 4px 2px;'>MLOPS GUARDRAIL</div>",
+        unsafe_allow_html=True,
+    )
+    st.session_state["enable_mlops_guardrail"] = st.toggle(
+        "MLOps Guardrail",
+        value=st.session_state.get("enable_mlops_guardrail", True),
+        key="sidebar_guardrail_toggle",
+        help="Toggle MLOps guardrail classification, drift tracking, and active learning logging on/off.",
+    )
 
     st.markdown(
         "<div style='color: #64748B; font-size: 0.70rem; font-weight: 600; letter-spacing: 0.06em; margin: 12px 0 6px 2px;'>QUICK TEMPLATES</div>",
@@ -1924,9 +1922,6 @@ elif st.session_state["active_page"] == "sources":
 # PAGE 5: MLOPS GOVERNANCE & TELEMETRY
 # ---------------------------------------------------------------------------
 elif st.session_state["active_page"] == "mlops":
-    if os.environ.get("SIQVA_ADMIN", "0").strip() != "1":
-        st.session_state["active_page"] = "query"
-        st.rerun()
     c_mhead, c_mtog = st.columns([3, 1])
     with c_mhead:
         _render_top_bar(
